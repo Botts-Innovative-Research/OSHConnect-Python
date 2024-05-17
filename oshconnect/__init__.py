@@ -1,7 +1,7 @@
 from abc import ABC
-
 from dataclasses import dataclass
 from enum import Enum
+import oshdatacore as swe_common
 
 
 @dataclass(kw_only=True)

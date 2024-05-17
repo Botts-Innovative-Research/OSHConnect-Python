@@ -8,6 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.12"
 consys4py = { git = "https://github.com/Botts-Innovative-Research/CSAPI4Py.git", branch = "dev" }
+oshdatacore = { git = "https://github.com/ChainReaction31/py_osh_data_core.git", branch = "master" }
 
 
 [build-system]
