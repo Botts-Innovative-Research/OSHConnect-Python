@@ -107,3 +107,10 @@ class TimeController:
 
     def _compute_time_range(self):
         pass
+
+
+class Synchronizer:
+    _buffer: any
+
+    def synchronize(self, systems: list):
+        pass
