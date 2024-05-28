@@ -1,3 +1,9 @@
+#  Copyright (c) 2024 Ian Patterson
+#
+#  Author: Ian Patterson <ian@botts-inc.com>
+#
+#  Contact Email: ian@botts-inc.com
+
 from uuid import uuid4
 
 from oshconnect.datasource import Mode
@@ -44,7 +50,7 @@ class DataSource:
         pass
 
     def get_status(self):
-        pass
+        return self.status
 
 
 class DatasourceHandler:

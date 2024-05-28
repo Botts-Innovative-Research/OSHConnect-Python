@@ -6,17 +6,13 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 
-from enum import Enum
+import pytest
+
+from oshconnect.oshconnect import OSHConnect
 
 
-def is_defined(v):
-    return v is not None
+class TestOshConnect:
 
-
-class Mode(Enum):
-    REPLAY = "replay"
-    BATCH = "batch"
-    REAL_TIME = "realTime"
-
-class DataSourceHandler:
-    datasources
+    def test_oshconnect(self):
+        app = OSHConnect()
+        assert app is not None

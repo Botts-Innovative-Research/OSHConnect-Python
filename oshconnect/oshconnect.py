@@ -5,11 +5,33 @@
 #  Contact email:  ian@botts-inc.com
 #   ==============================================================================
 
+from conSys4Py.con_sys_api import ConnectedSystemsRequestBuilder, ConnectedSystemAPIRequest
+
+from oshconnect import Node
+from oshconnect.datasource.datasource import DataSource
+from oshconnect.styling.styling import Styling
+from oshconnect.timemanagement.timemanagement import TimeManagement
+from oshconnect.datastore.datastore import DataStore
+
+
 class OSHConnect:
-    datasource: DataSourceAPI
+    datasource: DataSource
     datastore: DataStoreAPI
     styling: StylingAPI
-    timestream: TimeStreamAPI
+    timestream: TimeManagement
+    _nodes: list[Node]
+    _cs_api_builder: ConnectedSystemsRequestBuilder
+
+    def __init__(self, **kwargs):
+        if 'nodes' in kwargs:
+            self._nodes = kwargs['nodes']
+
+    def add_node(self, node: Node):
+        self._nodes.append(node)
+
+    def remove_node(self, node_id: str):
+        # list of nodes in our node list that do not have the id of the node we want to remove
+        self._nodes = [node for node in self._nodes if node.get_id() != node_id]
 
     def save_config(self, config: dict):
         pass
@@ -56,8 +78,8 @@ class OSHConnect:
     def discover_datastreams(self, streams: list):
         pass
 
-    def discover_systems(self, systems: list):
-        pass
+    def discover_systems(self):
+        sys_list = systems.list_all_systems()
 
     def discover_controlstreams(self, streams: list):
         pass
