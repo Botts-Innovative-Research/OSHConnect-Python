@@ -1,6 +1,7 @@
 import time
 from datetime import datetime, timezone
 from enum import Enum
+from conSys4Py.part_1 import systems
 
 
 class TemporalMode(Enum):
@@ -135,3 +136,9 @@ class TimePeriod:
 
     def is_indeterminate_end_time(self):
         return isinstance(self._end_time, IndeterminateTime)
+
+
+class Utilities:
+    pass
+     # @staticmethod
+     # def parse_systems_result(result) -> System:

@@ -6,7 +6,10 @@
 #   ==============================================================================
 
 from conSys4Py.con_sys_api import ConnectedSystemsRequestBuilder, ConnectedSystemAPIRequest
+from conSys4Py.core.default_api_helpers import APIHelper
+from conSys4Py.part_1 import systems
 
+from external_models.object_models import System
 from oshconnect import Node
 from oshconnect.datasource.datasource import DataSource
 from oshconnect.styling.styling import Styling
@@ -15,16 +18,24 @@ from oshconnect.datastore.datastore import DataStore
 
 
 class OSHConnect:
-    datasource: DataSource
-    datastore: DataStoreAPI
-    styling: StylingAPI
-    timestream: TimeManagement
-    _nodes: list[Node]
-    _cs_api_builder: ConnectedSystemsRequestBuilder
+    _name: str = None
+    datasource: DataSource = None
+    datastore: DataStore = None
+    styling: Styling = None
+    timestream: TimeManagement = None
+    _nodes: list[Node] = []
+    _cs_api_builder: APIHelper = None
+    _datafeeds: list[DataSource] = []
+    _datataskers: list[DataStore] = []
+    _datagroups: list = []
 
-    def __init__(self, **kwargs):
+    def __init__(self, name: str, **kwargs):
+        self._name = name
         if 'nodes' in kwargs:
             self._nodes = kwargs['nodes']
+
+    def get_name(self):
+        return self._name
 
     def add_node(self, node: Node):
         self._nodes.append(node)
@@ -78,8 +89,26 @@ class OSHConnect:
     def discover_datastreams(self, streams: list):
         pass
 
-    def discover_systems(self):
-        sys_list = systems.list_all_systems()
+    def discover_systems(self, nodes: list[str] = None):
+        search_nodes = self._nodes
+        if nodes is not None:
+            search_nodes = [node for node in search_nodes if node.get_id() in nodes]
+
+        results = []
+        for node in search_nodes:
+            result = node.discover_systems()
+            print(f'Result: {result}')
+            results.append(result)
+
+        new_systems = []
+        # convert results of conceptual system objects
+        for result in results:
+            for system_json in result['items']:
+                print(system_json)
+                system = System.model_validate(system_json)
+                new_systems.append(system)
+
+        return new_systems
 
     def discover_controlstreams(self, streams: list):
         pass

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import datetime
 
-from oshdatacore import component_implementations as swe_common_components
+from swecommondm import component_implementations as swe_common_components
 
 from oshconnect.timemanagement import Time, TemporalMode
 
 
 class TimeManagement:
-    time = swe_common_components.TimeComponent()
+    time = swe_common_components.TimeComponent(label="Time", name="default_time_component")
     time_controller: TimeController
 
 
