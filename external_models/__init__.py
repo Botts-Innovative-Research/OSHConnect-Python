@@ -4,8 +4,10 @@
 #   Author:  Ian Patterson
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic._internal import _repr
 from shapely import Point
 from typing_extensions import Self
 
@@ -43,6 +45,23 @@ class DateTime(BaseModel):
         if not v:
             raise ValueError("Instant date time must have a valid ISO8601 date.")
         return v
+
+
+class TimePeriod(BaseModel):
+    start: str = Field(...)
+    end: str = Field(...)
+
+    @model_validator(mode='before')
+    @classmethod
+    def valid_time_period(cls, data) -> Any:
+        if isinstance(data, list):
+            if data[0] > data[1]:
+                raise ValueError("Time period start must be before end.")
+        return {"start": data[0], "end": data[1]}
+
+    def __repr__(self):
+        return f'{[self.start, self.end]}'
+
 
 
 class SecurityConstraints:

@@ -84,8 +84,11 @@ class OSHConnect:
     def get_visualization_recommendations(self, streams: list):
         pass
 
-    def discover_datastreams(self, streams: list):
-        pass
+    def discover_datastreams(self):
+        for system in self._systems:
+            res_datastreams = system.discover_datastreams()
+            print(f'Datastreams found: {res_datastreams}')
+            self._datafeeds.extend(res_datastreams)
 
     def discover_systems(self, nodes: list[str] = None):
         search_nodes = self._nodes

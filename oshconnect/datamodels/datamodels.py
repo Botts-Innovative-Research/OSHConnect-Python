@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import base64
+import json
 import uuid
 from dataclasses import dataclass, field
 
-from conSys4Py import APIResourceTypes
+from conSys4Py import APIResourceTypes, DatastreamBodyJSON
 from conSys4Py.core.default_api_helpers import APIHelper
 
-from external_models.object_models import System as SystemResource
+from external_models.object_models import DatastreamResource, System as SystemResource
 from oshconnect import Endpoints
 
 
@@ -82,6 +83,9 @@ class Node:
     def add_new_system(self, system: System):
         self._system_ids.append(system.uid)
 
+    def get_api_helper(self) -> APIHelper:
+        return self._api_helper
+
 
 class System:
     uid: uuid.UUID
@@ -101,6 +105,18 @@ class System:
 
     def update_parent_node(self, node: Node):
         self._parent_node = node
+
+    def discover_datastreams(self):
+        res = self._parent_node.get_api_helper().retrieve_resource(APIResourceTypes.DATASTREAM, req_headers={})
+        datastream_json = res.json()['items']
+        print(f'Result of datastream discovery: {datastream_json}')
+        datastreams = []
+        for ds in datastream_json:
+            datastream_objs = DatastreamResource.model_validate(ds)
+            datastreams.append(datastream_objs)
+
+        print(f'Found datastreams: {datastreams}')
+        return datastreams
 
     @staticmethod
     def from_system_resource(system_resource: SystemResource):

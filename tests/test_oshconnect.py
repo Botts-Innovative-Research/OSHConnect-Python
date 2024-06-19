@@ -35,3 +35,13 @@ class TestOSHConnect:
         print(f'Found systems: {app._systems}')
         # assert len(systems) == 1
         # assert systems[0] == node.get_api_endpoint()
+
+    def test_oshconnect_find_datastreams(self):
+        app = OSHConnect(name="Test OSH Connect")
+        node = Node(address="http://localhost", port=8585, username="admin", password="admin")
+        app.add_node(node)
+        app.discover_systems()
+
+        app.discover_datastreams()
+        assert len(app._datafeeds) > 0
+

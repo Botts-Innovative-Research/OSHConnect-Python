@@ -15,7 +15,7 @@ from shapely import Geometry
 from external_models import BoundingBox, Capabilities, Characteristics, ConfigurationSettings, Contact, DateTime, \
     Documentation, \
     FeatureOfInterest, HistoryEvent, Input, LegalConstraints, \
-    Mode, Output, Parameter, ProcessMethod, SecurityConstraints
+    Mode, Output, Parameter, ProcessMethod, SecurityConstraints, TimePeriod
 
 
 class System(BaseModel):
@@ -53,21 +53,23 @@ class System(BaseModel):
     method: ProcessMethod = Field(None)
 
 
-class Datastream(BaseModel):
-    ds_id: str = Field(..., serialization_alias="id")
+class DatastreamResource(BaseModel):
+    # model_config = ConfigDict(populate_by_name=True)
+
+    ds_id: str = Field(..., alias="id")
     name: str = Field(...)
-    description: str
-    valid_time: DateTime = Field(..., serialization_alias="validTime")
-    output_name: str = Field(None, serialization_alias="outputName")
-    procedure_link: Link = Field(None, serialization_alias="procedureLink@link")
-    deployment_link: Link = Field(None, serialization_alias="deploymentLink@link")
-    ultimate_feature_of_interest_link: Link = Field(None, serialization_alias="ultimateFeatureOfInterest@link")
-    sampling_feature_link: Link = Field(None, serialization_alias="samplingFeature@link")
+    description: str = Field(None)
+    valid_time: TimePeriod = Field(..., alias="validTime")
+    output_name: str = Field(None, alias="outputName")
+    procedure_link: Link = Field(None, alias="procedureLink@link")
+    deployment_link: Link = Field(None, alias="deploymentLink@link")
+    ultimate_feature_of_interest_link: Link = Field(None, alias="ultimateFeatureOfInterest@link")
+    sampling_feature_link: Link = Field(None, alias="samplingFeature@link")
     parameters: dict = Field(None)
-    phenomenon_time: DateTime = Field(None, serialization_alias="phenomenonTimeInterval")
-    result_time: DateTime = Field(None, serialization_alias="resultTimeInterval")
-    ds_type: str = Field(None, serialization_alias="type")
-    result_type: str = Field(None, serialization_alias="resultType")
+    phenomenon_time: TimePeriod = Field(None, alias="phenomenonTimeInterval")
+    result_time: TimePeriod = Field(None, alias="resultTimeInterval")
+    ds_type: str = Field(None, alias="type")
+    result_type: str = Field(None, alias="resultType")
     links: List[Link] = Field(None)
     schema: DatastreamSchema = Field(None)
 
