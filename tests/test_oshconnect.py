@@ -1,4 +1,3 @@
-
 #   ==============================================================================
 #   Copyright (c) 2024 Botts Innovative Research, Inc.
 #   Date:  2024/5/28
@@ -9,7 +8,7 @@
 import pytest
 
 from oshconnect.oshconnect import OSHConnect
-from oshconnect import Node
+from oshconnect.datamodels.datamodels import Node, System
 
 
 class TestOSHConnect:
@@ -29,10 +28,10 @@ class TestOSHConnect:
 
     def test_find_systems(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="http://localhost", port=8585, is_secure=True, username="admin", password="admin")
+        node = Node(address="http://localhost", port=8585, username="admin", password="admin")
         # node.add_basicauth("admin", "admin")
         app.add_node(node)
-        systems = app.discover_systems()
-        print(systems)
+        app.discover_systems()
+        print(f'Found systems: {app._systems}')
         # assert len(systems) == 1
         # assert systems[0] == node.get_api_endpoint()

@@ -5,16 +5,13 @@
 #  Contact email:  ian@botts-inc.com
 #   ==============================================================================
 
-from conSys4Py.con_sys_api import ConnectedSystemsRequestBuilder, ConnectedSystemAPIRequest
 from conSys4Py.core.default_api_helpers import APIHelper
-from conSys4Py.part_1 import systems
 
-from external_models.object_models import System
-from oshconnect import Node
+from oshconnect.datamodels.datamodels import Node, System
 from oshconnect.datasource.datasource import DataSource
+from oshconnect.datastore.datastore import DataStore
 from oshconnect.styling.styling import Styling
 from oshconnect.timemanagement.timemanagement import TimeManagement
-from oshconnect.datastore.datastore import DataStore
 
 
 class OSHConnect:
@@ -24,6 +21,7 @@ class OSHConnect:
     styling: Styling = None
     timestream: TimeManagement = None
     _nodes: list[Node] = []
+    _systems: list[System] = []
     _cs_api_builder: APIHelper = None
     _datafeeds: list[DataSource] = []
     _datataskers: list[DataStore] = []
@@ -94,21 +92,9 @@ class OSHConnect:
         if nodes is not None:
             search_nodes = [node for node in search_nodes if node.get_id() in nodes]
 
-        results = []
         for node in search_nodes:
-            result = node.discover_systems()
-            print(f'Result: {result}')
-            results.append(result)
-
-        new_systems = []
-        # convert results of conceptual system objects
-        for result in results:
-            for system_json in result['items']:
-                print(system_json)
-                system = System.model_validate(system_json)
-                new_systems.append(system)
-
-        return new_systems
+            res_systems = node.discover_systems()
+            self._systems.extend(res_systems)
 
     def discover_controlstreams(self, streams: list):
         pass
