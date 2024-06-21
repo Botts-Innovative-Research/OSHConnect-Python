@@ -4,11 +4,14 @@
 #  Author:  Ian Patterson
 #  Contact email:  ian@botts-inc.com
 #   ==============================================================================
+import asyncio
+import json
 
 from conSys4Py.core.default_api_helpers import APIHelper
+from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
 from oshconnect.datamodels.datamodels import Node, System
-from oshconnect.datasource.datasource import DataSource
+from oshconnect.datasource.datasource import DataSource, DataSourceHandler
 from oshconnect.datastore.datastore import DataStore
 from oshconnect.styling.styling import Styling
 from oshconnect.timemanagement.timemanagement import TimeManagement
@@ -16,21 +19,24 @@ from oshconnect.timemanagement.timemanagement import TimeManagement
 
 class OSHConnect:
     _name: str = None
-    datasource: DataSource = None
+    # datasource: DataSource = None
     datastore: DataStore = None
     styling: Styling = None
     timestream: TimeManagement = None
     _nodes: list[Node] = []
     _systems: list[System] = []
     _cs_api_builder: APIHelper = None
+    _datasource_handler: DataSourceHandler = None
     _datafeeds: list[DataSource] = []
     _datataskers: list[DataStore] = []
     _datagroups: list = []
+    _tasks: list = []
 
     def __init__(self, name: str, **kwargs):
         self._name = name
         if 'nodes' in kwargs:
             self._nodes = kwargs['nodes']
+        self._datasource_handler = DataSourceHandler()
 
     def get_name(self):
         return self._name
@@ -74,8 +80,18 @@ class OSHConnect:
         """
         pass
 
-    def playback_streams(self, streams: list):
-        pass
+    async def playback_streams(self, stream_ids: list = None):
+        if stream_ids is None:
+            clients = await self._datasource_handler.connect_all()
+            for client in clients:
+                task = asyncio.create_task(self._handle_datastream_client(client))
+                self._tasks.append(task)
+        else:
+            for stream_id in stream_ids:
+                clients = await self._datasource_handler.connect_ds(stream_id)
+                for client in clients:
+                    msg = await client.recv()
+                    print(msg)
 
     def visualize_streams(self, streams: list):
         pass
@@ -85,10 +101,15 @@ class OSHConnect:
         pass
 
     def discover_datastreams(self):
+        # NOTE: This will need to check to prevent dupes in the future
         for system in self._systems:
             res_datastreams = system.discover_datastreams()
-            print(f'Datastreams found: {res_datastreams}')
-            self._datafeeds.extend(res_datastreams)
+            # create DataSource(s)
+            new_datasource = [
+                DataSource(name=ds.name, mode="websocket", properties={}, datastream=ds, parent_system=system) for ds in
+                res_datastreams]
+            self._datafeeds.extend(new_datasource)
+            list(map(self._datasource_handler.add_datasource, new_datasource))
 
     def discover_systems(self, nodes: list[str] = None):
         search_nodes = self._nodes
@@ -107,3 +128,12 @@ class OSHConnect:
 
     def synchronize_streams(self, systems: list):
         pass
+
+    async def _handle_datastream_client(self, client):
+        try:
+            async for msg in client:
+                msg_dict = json.loads(msg.decode('utf-8'))
+                obs = ObservationOMJSONInline.model_validate(msg_dict)
+
+        except Exception as e:
+            print(f"An error occurred while reading from websocket: {e}")

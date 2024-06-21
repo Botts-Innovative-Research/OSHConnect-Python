@@ -21,6 +21,7 @@ from oshconnect import Endpoints
 @dataclass(kw_only=True)
 class Node:
     _id: str
+    protocol: str
     address: str
     port: int
     endpoints: Endpoints
@@ -29,15 +30,16 @@ class Node:
     _api_helper: APIHelper
     _system_ids: list[uuid] = field(default_factory=list)
 
-    def __init__(self, address: str, port: int, username: str = None, password: str = None, **kwargs: dict):
+    def __init__(self, protocol: str, address: str, port: int, username: str = None, password: str = None, **kwargs: dict):
         self._id = f'node-{uuid.uuid4()}'
+        self.protocol = protocol
         self.address = address
         self.port = port
         self.is_secure = username is not None and password is not None
         if self.is_secure:
             self.add_basicauth(username, password)
         self.endpoints = Endpoints()
-        self._api_helper = APIHelper(server_url=f'{self.address}:{self.port}',
+        self._api_helper = APIHelper(server_url=f'{self.protocol}://{self.address}:{self.port}',
                                      api_root=self.endpoints.connected_systems, username=username, password=password)
         if self.is_secure:
             self._api_helper.user_auth = True
@@ -106,16 +108,17 @@ class System:
     def update_parent_node(self, node: Node):
         self._parent_node = node
 
+    def get_parent_node(self) -> Node:
+        return self._parent_node
+
     def discover_datastreams(self):
         res = self._parent_node.get_api_helper().retrieve_resource(APIResourceTypes.DATASTREAM, req_headers={})
         datastream_json = res.json()['items']
-        print(f'Result of datastream discovery: {datastream_json}')
         datastreams = []
         for ds in datastream_json:
             datastream_objs = DatastreamResource.model_validate(ds)
             datastreams.append(datastream_objs)
 
-        print(f'Found datastreams: {datastreams}')
         return datastreams
 
     @staticmethod
@@ -132,9 +135,14 @@ class System:
 
 
 class Datastream:
+    should_poll: bool
+    _datastream_resource: DatastreamResource
 
-    def __init__(self):
+    def __init__(self, datastream_resource: DatastreamResource):
         pass
+
+    def get_id(self):
+        return self._datastream_resource.ds_id
 
 
 class ControlChannel:

@@ -6,6 +6,8 @@
 #   ==============================================================================
 
 import pytest
+import requests
+import websockets
 
 from oshconnect.oshconnect import OSHConnect
 from oshconnect.datamodels.datamodels import Node, System
@@ -44,4 +46,14 @@ class TestOSHConnect:
 
         app.discover_datastreams()
         assert len(app._datafeeds) > 0
+
+    async def test_obs_ws_stream(self):
+        ds_url = ("ws://localhost:8585/sensorhub/api/datastreams/e07n5sbjqvalm/observations?f=application%2Fjson"
+                  "&resultTime=latest/2025-06-18T15:46:32Z")
+
+        # stream = requests.get(ds_url, stream=True, auth=('admin', 'admin'))
+        async with websockets.connect(ds_url, extra_headers={'Authorization': 'Basic YWRtaW46YWRtaW4='}) as stream:
+            async for message in stream:
+                print(message)
+
 
