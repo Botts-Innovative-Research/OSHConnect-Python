@@ -82,16 +82,10 @@ class OSHConnect:
 
     async def playback_streams(self, stream_ids: list = None):
         if stream_ids is None:
-            clients = await self._datasource_handler.connect_all()
-            for client in clients:
-                task = asyncio.create_task(self._handle_datastream_client(client))
-                self._tasks.append(task)
+            await self._datasource_handler.connect_all()
         else:
             for stream_id in stream_ids:
-                clients = await self._datasource_handler.connect_ds(stream_id)
-                for client in clients:
-                    msg = await client.recv()
-                    print(msg)
+                await self._datasource_handler.connect_ds(stream_id)
 
     def visualize_streams(self, streams: list):
         pass
@@ -128,12 +122,3 @@ class OSHConnect:
 
     def synchronize_streams(self, systems: list):
         pass
-
-    async def _handle_datastream_client(self, client):
-        try:
-            async for msg in client:
-                msg_dict = json.loads(msg.decode('utf-8'))
-                obs = ObservationOMJSONInline.model_validate(msg_dict)
-
-        except Exception as e:
-            print(f"An error occurred while reading from websocket: {e}")
