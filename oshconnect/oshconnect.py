@@ -10,6 +10,7 @@ import json
 from conSys4Py.core.default_api_helpers import APIHelper
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
+from oshconnect import TemporalModes
 from oshconnect.datamodels.datamodels import Node, System
 from oshconnect.datasource.datasource import DataSource, DataSourceHandler
 from oshconnect.datastore.datastore import DataStore
@@ -31,12 +32,20 @@ class OSHConnect:
     _datataskers: list[DataStore] = []
     _datagroups: list = []
     _tasks: list = []
+    _playback_mode: TemporalModes = TemporalModes.REAL_TIME
 
     def __init__(self, name: str, **kwargs):
+        """
+        :param name: name of the OSHConnect instance, in the event that
+        :param kwargs:
+            - 'playback_mode': TemporalModes
+        """
         self._name = name
         if 'nodes' in kwargs:
             self._nodes = kwargs['nodes']
         self._datasource_handler = DataSourceHandler()
+        if 'playback_mode' in kwargs:
+            self._playback_mode = kwargs['playback_mode']
 
     def get_name(self):
         return self._name
@@ -82,7 +91,7 @@ class OSHConnect:
 
     async def playback_streams(self, stream_ids: list = None):
         if stream_ids is None:
-            await self._datasource_handler.connect_all()
+            await self._datasource_handler.connect_all(None)
         else:
             for stream_id in stream_ids:
                 await self._datasource_handler.connect_ds(stream_id)
@@ -100,7 +109,7 @@ class OSHConnect:
             res_datastreams = system.discover_datastreams()
             # create DataSource(s)
             new_datasource = [
-                DataSource(name=ds.name, mode="websocket", properties={}, datastream=ds, parent_system=system) for ds in
+                DataSource(name=ds.name, datastream=ds, parent_system=system) for ds in
                 res_datastreams]
             self._datafeeds.extend(new_datasource)
             list(map(self._datasource_handler.add_datasource, new_datasource))
@@ -122,3 +131,6 @@ class OSHConnect:
 
     def synchronize_streams(self, systems: list):
         pass
+
+    def set_playback_mode(self, mode: TemporalModes):
+        self._datasource_handler.set_playback_mode(mode)

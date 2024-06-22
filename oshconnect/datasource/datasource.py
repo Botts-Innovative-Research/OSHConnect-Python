@@ -11,10 +11,12 @@ from uuid import uuid4
 import websockets
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
+from external_models import TimePeriod
 from external_models.object_models import DatastreamResource
 from oshconnect import Utilities
 from oshconnect.datamodels.datamodels import System
 from oshconnect.datasource import Mode
+from oshconnect import TemporalModes
 
 
 class DataSource:
@@ -22,21 +24,15 @@ class DataSource:
     DataSource: represents the active connection of a datastream object
     """
 
-    def __init__(self, name: str, mode: str, properties: dict, datastream: DatastreamResource, parent_system: System):
+    def __init__(self, name: str, datastream: DatastreamResource, parent_system: System):
         self._status = None
         self._id = f'datasource-{uuid4()}'
         self.name = name
-        self.mode = mode
-        self.properties = properties
         self._datastream = datastream
         self._websocket = None
         self._parent_system = parent_system
+        self._playback_mode = None
         self._url = None
-        if mode == "websocket":
-            self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
-                         f'{self._parent_system.get_parent_node().get_port()}'
-                         f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
-                         f'/observations?f=application%2Fjson')
         self._auth = None
         self._extra_headers = None
         if self._parent_system.get_parent_node().is_secure:
@@ -63,8 +59,9 @@ class DataSource:
         # TODO: need to stop in progress sub-processes and restart
         self.properties = properties
 
-    def set_mode(self, mode: str):
-        self.mode = mode
+    def set_mode(self, mode: TemporalModes):
+        self._playback_mode = mode
+        self.generate_url()
 
     def initialize(self):
         if self._websocket.is_open():
@@ -73,14 +70,14 @@ class DataSource:
         self._status = "initialized"
 
     async def connect(self):
-        if self.mode == "websocket":
+        if self._playback_mode == TemporalModes.REAL_TIME:
             self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
             self._status = "connected"
             return self._websocket
-        elif self.mode == "playback":
+        elif self._playback_mode == TemporalModes.ARCHIVE:
             self._status = "connected"
             return "Playback mode is not yet implemented."
-        elif self.mode == "live-batch":
+        elif self._playback_mode == TemporalModes.BATCH:
             self._status = "connected"
             return "Live-batch mode is not yet implemented."
 
@@ -97,16 +94,40 @@ class DataSource:
     def get_ws_client(self):
         return self._websocket
 
+    def is_within_timeperiod(self, timeperiod: TimePeriod):
+        return timeperiod.does_timeperiod_overlap(self._datastream.valid_time)
+
+    def generate_url(self):
+        if self._playback_mode == TemporalModes.REAL_TIME:
+            self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
+                         f'{self._parent_system.get_parent_node().get_port()}'
+                         f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                         f'/observations?f=application%2Fjson')
+        elif self._playback_mode == TemporalModes.ARCHIVE:
+            self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
+                         f'{self._parent_system.get_parent_node().get_port()}'
+                         f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                         f'/observations?f=application%2Fjson&resultTime={self._datastream.valid_time.start}/'
+                         f'{self._datastream.valid_time.end}')
+        else:
+            raise ValueError("Playback mode not set. Cannot generate URL for DataSource.")
+
 
 class DataSourceHandler:
     datasource_map: dict[str, DataSource]
     _message_list: MessageHandler
+    _playback_mode: TemporalModes
 
-    def __init__(self):
+    def __init__(self, playback_mode: TemporalModes = TemporalModes.REAL_TIME):
         self.datasource_map = {}
         self._message_list = MessageHandler()
+        self._playback_mode = playback_mode
+
+    def set_playback_mode(self, mode: TemporalModes):
+        self._playback_mode = mode
 
     def add_datasource(self, datasource: DataSource):
+        datasource.set_mode(self._playback_mode)
         self.datasource_map[datasource.get_id()] = datasource
 
     def remove_datasource(self, datasource_id: str):
@@ -120,17 +141,27 @@ class DataSourceHandler:
         # list comp is faster than for loop
         [ds.initialize() for ds in self.datasource_map.values()]
 
-    def set_ds_mode(self, mode: str):
-        var = (ds.set_mode(mode) for ds in self.datasource_map.values())
+    def set_ds_mode(self):
+        var = (ds.set_mode(self._playback_mode) for ds in self.datasource_map.values())
 
     async def connect_ds(self, datasource_id: str):
         ds = self.datasource_map.get(datasource_id)
         await ds.connect()
 
-    async def connect_all(self):
-        # call connect for all datasources
-        [(ds, await ds.connect()) for ds in self.datasource_map.values()]
-        for ds in self.datasource_map.values():
+    async def connect_all(self, timeperiod: TimePeriod):
+        """
+        Connects all datasources, optionally within a provided TimePeriod
+        :param timeperiod:
+        :return:
+        """
+        # search for datasources that fall within the timeperiod
+        if timeperiod is not None:
+            ds_matches = [ds for ds in self.datasource_map.values() if ds.is_within_timeperiod(timeperiod)]
+        else:
+            ds_matches = self.datasource_map.values()
+
+        [(ds, await ds.connect()) for ds in ds_matches]
+        for ds in ds_matches:
             task = asyncio.create_task(self._handle_datastream_client(ds))
             # return task
 

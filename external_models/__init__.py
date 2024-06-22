@@ -4,10 +4,11 @@
 #   Author:  Ian Patterson
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
+from __future__ import annotations
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from pydantic._internal import _repr
 from shapely import Point
 from typing_extensions import Self
 
@@ -61,6 +62,12 @@ class TimePeriod(BaseModel):
 
     def __repr__(self):
         return f'{[self.start, self.end]}'
+
+    def does_timeperiod_overlap(self, checked_timeperiod: TimePeriod) -> bool:
+        if checked_timeperiod.start < self.end and checked_timeperiod.end > self.start:
+            return True
+        else:
+            return False
 
 
 
