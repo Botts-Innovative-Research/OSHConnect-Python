@@ -1,10 +1,7 @@
 name: Docs2Pages
-on:
-  push:
-    tags: '*'
-  pull_request:
-    branches:
-      - master
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: write
 
 jobs:
   build-docs:
