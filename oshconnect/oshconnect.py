@@ -4,11 +4,8 @@
 #  Author:  Ian Patterson
 #  Contact email:  ian@botts-inc.com
 #   ==============================================================================
-import asyncio
-import json
 
 from conSys4Py.core.default_api_helpers import APIHelper
-from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
 from external_models import TimePeriod
 from oshconnect import TemporalModes
@@ -50,12 +47,27 @@ class OSHConnect:
             self._datasource_handler.set_playback_mode(self._playback_mode)
 
     def get_name(self):
+        """
+        Get the name of the OSHConnect instance.
+        :return:
+        """
         return self._name
 
     def add_node(self, node: Node):
+        """
+        Add a node to the OSHConnect instance.
+        :param node: Node object
+        :return:
+        """
         self._nodes.append(node)
 
     def remove_node(self, node_id: str):
+        """
+        Remove a node from the OSHConnect instance.
+        :param node_id:
+        :return:
+        """
+        # TODO: should disconnect datastreams and delete them and all systems at the same time.
         # list of nodes in our node list that do not have the id of the node we want to remove
         self._nodes = [node for node in self._nodes if node.get_id() != node_id]
 
@@ -92,6 +104,12 @@ class OSHConnect:
         pass
 
     async def playback_streams(self, stream_ids: list = None):
+        """
+        Begins playback of the datastreams that have been connected to the app. The method of playback is determined
+        by the temporal mode that has been set.
+        :param stream_ids:
+        :return:
+        """
         if stream_ids is None:
             await self._datasource_handler.connect_all(self.timestream.get_time_range())
         else:
@@ -106,6 +124,11 @@ class OSHConnect:
         pass
 
     def discover_datastreams(self):
+        """
+        Discover datastreams of the current systems of the OSHConnect instance and create objects for them that are
+        stored in the DataSourceHandler.
+        :return:
+        """
         # NOTE: This will need to check to prevent dupes in the future
         for system in self._systems:
             res_datastreams = system.discover_datastreams()
@@ -117,6 +140,12 @@ class OSHConnect:
             list(map(self._datasource_handler.add_datasource, new_datasource))
 
     def discover_systems(self, nodes: list[str] = None):
+        """
+        Discover systems from the nodes that have been added to the OSHConnect instance. They are associated with the
+        nodes that they are discovered from so access to them flows through there.
+        :param nodes:
+        :return:
+        """
         search_nodes = self._nodes
         if nodes is not None:
             search_nodes = [node for node in search_nodes if node.get_id() in nodes]
@@ -138,5 +167,12 @@ class OSHConnect:
         self._datasource_handler.set_playback_mode(mode)
 
     def set_timeperiod(self, start_time: str, end_time: str):
+        """
+        Sets the time range (TimePeriod) for the OSHConnect instance. This is used to bookend the playback of the
+        datastreams.
+        :param start_time: ISO8601 formatted string or one of (now or latest)
+        :param end_time:  ISO8601 formatted string or one of (now or latest)
+        :return:
+        """
         tp = TimePeriod(start=start_time, end=end_time)
         self.timestream = TimeManagement(time_range=tp)
