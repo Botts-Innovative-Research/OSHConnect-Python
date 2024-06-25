@@ -4,19 +4,20 @@
 #
 #  Contact Email: ian@botts-inc.com
 from __future__ import annotations
+
 import asyncio
 import json
 from uuid import uuid4
 
+import requests
 import websockets
+from conSys4Py import APIResourceTypes
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
 from external_models import TimePeriod
 from external_models.object_models import DatastreamResource
-from oshconnect import Utilities
-from oshconnect.datamodels.datamodels import System
-from oshconnect.datasource import Mode
 from oshconnect import TemporalModes
+from oshconnect.datamodels.datamodels import System
 
 
 class DataSource:
@@ -55,10 +56,6 @@ class DataSource:
     def subscribe(self):
         pass
 
-    def update_properties(self, properties: dict):
-        # TODO: need to stop in progress sub-processes and restart
-        self.properties = properties
-
     def set_mode(self, mode: TemporalModes):
         self._playback_mode = mode
         self.generate_url()
@@ -75,11 +72,13 @@ class DataSource:
             self._status = "connected"
             return self._websocket
         elif self._playback_mode == TemporalModes.ARCHIVE:
+            self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
             self._status = "connected"
-            return "Playback mode is not yet implemented."
+            return self._websocket
         elif self._playback_mode == TemporalModes.BATCH:
+            self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
             self._status = "connected"
-            return "Live-batch mode is not yet implemented."
+            return self._websocket
 
     def disconnect(self):
         self._websocket.close()
@@ -91,6 +90,9 @@ class DataSource:
     def get_status(self):
         return self._status
 
+    def get_parent_system(self):
+        return self._parent_system
+
     def get_ws_client(self):
         return self._websocket
 
@@ -98,6 +100,7 @@ class DataSource:
         return timeperiod.does_timeperiod_overlap(self._datastream.valid_time)
 
     def generate_url(self):
+        # TODO: need to specify secure vs insecure protocols
         if self._playback_mode == TemporalModes.REAL_TIME:
             self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
                          f'{self._parent_system.get_parent_node().get_port()}'
@@ -105,6 +108,13 @@ class DataSource:
                          f'/observations?f=application%2Fjson')
         elif self._playback_mode == TemporalModes.ARCHIVE:
             self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
+                         f'{self._parent_system.get_parent_node().get_port()}'
+                         f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                         f'/observations?f=application%2Fjson&resultTime={self._datastream.valid_time.start}/'
+                         f'{self._datastream.valid_time.end}')
+        elif self._playback_mode == TemporalModes.BATCH:
+            # TODO: need to allow for batch counts selection through DS Handler or TimeManager
+            self._url = (f'wss://{self._parent_system.get_parent_node().get_address()}:'
                          f'{self._parent_system.get_parent_node().get_port()}'
                          f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
                          f'/observations?f=application%2Fjson&resultTime={self._datastream.valid_time.start}/'
@@ -160,10 +170,15 @@ class DataSourceHandler:
         else:
             ds_matches = self.datasource_map.values()
 
-        [(ds, await ds.connect()) for ds in ds_matches]
-        for ds in ds_matches:
-            task = asyncio.create_task(self._handle_datastream_client(ds))
-            # return task
+        if self._playback_mode == TemporalModes.REAL_TIME:
+            [(ds, await ds.connect()) for ds in ds_matches]
+            for ds in ds_matches:
+                task = asyncio.create_task(self._handle_datastream_client(ds))
+        elif self._playback_mode == TemporalModes.ARCHIVE:
+            pass
+        elif self._playback_mode == TemporalModes.BATCH:
+            for ds in ds_matches:
+                task = asyncio.create_task(self.handle_http_batching(ds))
 
     def disconnect_ds(self, datasource_id: str):
         ds = self.datasource_map.get(datasource_id)
@@ -182,6 +197,33 @@ class DataSourceHandler:
 
         except Exception as e:
             print(f"An error occurred while reading from websocket: {e}")
+
+    async def handle_http_batching(self, datasource: DataSource, offset: int = None, query_params: dict = None,
+                                   next_link: str = None):
+        # access api_helper
+        api_helper = datasource.get_parent_system().get_parent_node().get_api_helper()
+        # needs to create a new call to make a request to the server if there is a link to a next page
+        resp = None
+        if next_link is None:
+            resp = api_helper.retrieve_resource(APIResourceTypes.OBSERVATION,
+                                                parent_res_id=datasource._datastream.ds_id,
+                                                req_headers={'Content-Type': 'application/json'})
+        elif next_link is not None:
+            resp = requests.get(next_link, auth=(datasource._parent_system.get_parent_node()._api_helper.username,
+                                                 datasource._parent_system.get_parent_node()._api_helper.password))
+        results = resp.json()
+        if 'links' in results:
+            for link in results['links']:
+                if link['rel'] == 'next':
+                    new_offset = link['href'].split('=')[-1]
+                    asyncio.create_task(self.handle_http_batching(datasource, next_link=link['href']))
+
+        # print(results)
+        for obs in results['items']:
+            obs_obj = ObservationOMJSONInline.model_validate(obs)
+            msg_wrapper = MessageWrapper(datasource=datasource, message=obs_obj)
+            self._message_list.add_message(msg_wrapper)
+        return resp.json()
 
 
 class MessageHandler:

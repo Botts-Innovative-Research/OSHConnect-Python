@@ -10,6 +10,7 @@ import json
 from conSys4Py.core.default_api_helpers import APIHelper
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
+from external_models import TimePeriod
 from oshconnect import TemporalModes
 from oshconnect.datamodels.datamodels import Node, System
 from oshconnect.datasource.datasource import DataSource, DataSourceHandler
@@ -46,6 +47,7 @@ class OSHConnect:
         self._datasource_handler = DataSourceHandler()
         if 'playback_mode' in kwargs:
             self._playback_mode = kwargs['playback_mode']
+            self._datasource_handler.set_playback_mode(self._playback_mode)
 
     def get_name(self):
         return self._name
@@ -91,7 +93,7 @@ class OSHConnect:
 
     async def playback_streams(self, stream_ids: list = None):
         if stream_ids is None:
-            await self._datasource_handler.connect_all(None)
+            await self._datasource_handler.connect_all(self.timestream.get_time_range())
         else:
             for stream_id in stream_ids:
                 await self._datasource_handler.connect_ds(stream_id)
@@ -134,3 +136,7 @@ class OSHConnect:
 
     def set_playback_mode(self, mode: TemporalModes):
         self._datasource_handler.set_playback_mode(mode)
+
+    def set_timeperiod(self, start_time: str, end_time: str):
+        tp = TimePeriod(start=start_time, end=end_time)
+        self.timestream = TimeManagement(time_range=tp)

@@ -58,7 +58,11 @@ class TimePeriod(BaseModel):
         if isinstance(data, list):
             if data[0] > data[1]:
                 raise ValueError("Time period start must be before end.")
-        return {"start": data[0], "end": data[1]}
+            return {"start": data[0], "end": data[1]}
+        elif isinstance(data, dict):
+            if data['start'] > data['end']:
+                raise ValueError("Time period start must be before end.")
+            return data
 
     def __repr__(self):
         return f'{[self.start, self.end]}'
