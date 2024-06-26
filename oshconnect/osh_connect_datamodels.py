@@ -1,21 +1,19 @@
 #   ==============================================================================
 #   Copyright (c) 2024 Botts Innovative Research, Inc.
-#   Date:  2024/6/13
+#   Date:  2024/6/26
 #   Author:  Ian Patterson
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 from __future__ import annotations
-
 import base64
-import json
 import uuid
 from dataclasses import dataclass, field
 
-from conSys4Py import APIResourceTypes, DatastreamBodyJSON
+from conSys4Py import APIResourceTypes
 from conSys4Py.core.default_api_helpers import APIHelper
 
-from external_models.object_models import DatastreamResource, System as SystemResource
 from oshconnect import Endpoints
+from oshconnect.core_datamodels import DatastreamResource, SystemResource
 
 
 @dataclass(kw_only=True)
@@ -30,7 +28,9 @@ class Node:
     _api_helper: APIHelper
     _system_ids: list[uuid] = field(default_factory=list)
 
-    def __init__(self, protocol: str, address: str, port: int, username: str = None, password: str = None, **kwargs: dict):
+    def __init__(self, protocol: str, address: str, port: int,
+                 username: str = None, password: str = None,
+                 **kwargs: dict):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
@@ -39,8 +39,10 @@ class Node:
         if self.is_secure:
             self.add_basicauth(username, password)
         self.endpoints = Endpoints()
-        self._api_helper = APIHelper(server_url=f'{self.protocol}://{self.address}:{self.port}',
-                                     api_root=self.endpoints.connected_systems, username=username, password=password)
+        self._api_helper = APIHelper(
+            server_url=f'{self.protocol}://{self.address}:{self.port}',
+            api_root=self.endpoints.connected_systems, username=username,
+            password=password)
         if self.is_secure:
             self._api_helper.user_auth = True
         self._system_ids = []
@@ -60,13 +62,15 @@ class Node:
     def add_basicauth(self, username: str, password: str):
         if not self.is_secure:
             self.is_secure = True
-        self._basic_auth = base64.b64encode(f"{username}:{password}".encode('utf-8'))
+        self._basic_auth = base64.b64encode(
+            f"{username}:{password}".encode('utf-8'))
 
     def get_decoded_auth(self):
         return self._basic_auth.decode('utf-8')
 
     def discover_systems(self):
-        result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM, req_headers={})
+        result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM,
+                                                    req_headers={})
         if result.ok:
             new_systems = []
             system_objs = result.json()['items']
@@ -112,7 +116,8 @@ class System:
         return self._parent_node
 
     def discover_datastreams(self):
-        res = self._parent_node.get_api_helper().retrieve_resource(APIResourceTypes.DATASTREAM, req_headers={})
+        res = self._parent_node.get_api_helper().retrieve_resource(
+            APIResourceTypes.DATASTREAM, req_headers={})
         datastream_json = res.json()['items']
         datastreams = []
         for ds in datastream_json:
@@ -128,9 +133,11 @@ class System:
 
         # case 1: has properties a la geojson
         if 'properties' in other_props:
-            new_system = System(name=other_props['properties']['name'], label=other_props['properties']['name'])
+            new_system = System(name=other_props['properties']['name'],
+                                label=other_props['properties']['name'])
         else:
-            new_system = System(name=system_resource.name, label=system_resource.label)
+            new_system = System(name=system_resource.name,
+                                label=system_resource.label)
         return new_system
 
 

@@ -1,4 +1,9 @@
-#  Copyright (c) 2024 Ian Patterson
+#   ==============================================================================
+#   Copyright (c) 2024 Botts Innovative Research, Inc.
+#   Date:  2024/6/26
+#   Author:  Ian Patterson
+#   Contact Email:  ian@botts-inc.com
+#   ==============================================================================
 #
 #  Author: Ian Patterson <ian@botts-inc.com>
 #
@@ -14,10 +19,8 @@ import websockets
 from conSys4Py import APIResourceTypes
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
-from external_models import TimePeriod
-from external_models.object_models import DatastreamResource
 from oshconnect import TemporalModes
-from oshconnect.datamodels.datamodels import System
+from oshconnect.core_datamodels import DatastreamResource, System, TimePeriod
 
 
 class DataSource:
@@ -41,7 +44,8 @@ class DataSource:
     _websocket: websockets.WebSocketClientProtocol = None
     _extra_headers: dict = None
 
-    def __init__(self, name: str, datastream: DatastreamResource, parent_system: System):
+    def __init__(self, name: str, datastream: DatastreamResource,
+                 parent_system: System):
         """
         :param name: Human-readable name of the DataSource
         :param datastream: DatastreamResource object
@@ -130,15 +134,18 @@ class DataSource:
         :return: The websocket connection if in REAL_TIME or ARCHIVE mode, ``None`` if in BATCH mode.
         """
         if self._playback_mode == TemporalModes.REAL_TIME:
-            self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
+            self._websocket = await websockets.connect(self._url,
+                                                       extra_headers=self._extra_headers)
             self._status = "connected"
             return self._websocket
         elif self._playback_mode == TemporalModes.ARCHIVE:
-            self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
+            self._websocket = await websockets.connect(self._url,
+                                                       extra_headers=self._extra_headers)
             self._status = "connected"
             return self._websocket
         elif self._playback_mode == TemporalModes.BATCH:
-            self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
+            self._websocket = await websockets.connect(self._url,
+                                                       extra_headers=self._extra_headers)
             self._status = "connected"
             return None
 
@@ -205,25 +212,29 @@ class DataSource:
         """
         # TODO: need to specify secure vs insecure protocols
         if self._playback_mode == TemporalModes.REAL_TIME:
-            self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
-                         f'{self._parent_system.get_parent_node().get_port()}'
-                         f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
-                         f'/observations?f=application%2Fjson')
+            self._url = (
+                f'ws://{self._parent_system.get_parent_node().get_address()}:'
+                f'{self._parent_system.get_parent_node().get_port()}'
+                f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                f'/observations?f=application%2Fjson')
         elif self._playback_mode == TemporalModes.ARCHIVE:
-            self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
-                         f'{self._parent_system.get_parent_node().get_port()}'
-                         f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
-                         f'/observations?f=application%2Fjson&resultTime={self._datastream.valid_time.start}/'
-                         f'{self._datastream.valid_time.end}')
+            self._url = (
+                f'ws://{self._parent_system.get_parent_node().get_address()}:'
+                f'{self._parent_system.get_parent_node().get_port()}'
+                f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                f'/observations?f=application%2Fjson&resultTime={self._datastream.valid_time.start}/'
+                f'{self._datastream.valid_time.end}')
         elif self._playback_mode == TemporalModes.BATCH:
             # TODO: need to allow for batch counts selection through DS Handler or TimeManager
-            self._url = (f'wss://{self._parent_system.get_parent_node().get_address()}:'
-                         f'{self._parent_system.get_parent_node().get_port()}'
-                         f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
-                         f'/observations?f=application%2Fjson&resultTime={self._datastream.valid_time.start}/'
-                         f'{self._datastream.valid_time.end}')
+            self._url = (
+                f'wss://{self._parent_system.get_parent_node().get_address()}:'
+                f'{self._parent_system.get_parent_node().get_port()}'
+                f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                f'/observations?f=application%2Fjson&resultTime={self._datastream.valid_time.start}/'
+                f'{self._datastream.valid_time.end}')
         else:
-            raise ValueError("Playback mode not set. Cannot generate URL for DataSource.")
+            raise ValueError(
+                "Playback mode not set. Cannot generate URL for DataSource.")
 
 
 class DataSourceHandler:
@@ -296,7 +307,7 @@ class DataSourceHandler:
         DataSourceHandler
         :return:
         """
-        var = (ds.set_mode(self._playback_mode) for ds in self.datasource_map.values())
+        (ds.set_mode(self._playback_mode) for ds in self.datasource_map.values())
 
     async def connect_ds(self, datasource_id: str):
         """
@@ -317,19 +328,20 @@ class DataSourceHandler:
         """
         # search for datasources that fall within the timeperiod
         if timeperiod is not None:
-            ds_matches = [ds for ds in self.datasource_map.values() if ds.is_within_timeperiod(timeperiod)]
+            ds_matches = [ds for ds in self.datasource_map.values() if
+                          ds.is_within_timeperiod(timeperiod)]
         else:
             ds_matches = self.datasource_map.values()
 
         if self._playback_mode == TemporalModes.REAL_TIME:
             [(ds, await ds.connect()) for ds in ds_matches]
             for ds in ds_matches:
-                task = asyncio.create_task(self._handle_datastream_client(ds))
+                asyncio.create_task(self._handle_datastream_client(ds))
         elif self._playback_mode == TemporalModes.ARCHIVE:
             pass
         elif self._playback_mode == TemporalModes.BATCH:
             for ds in ds_matches:
-                task = asyncio.create_task(self.handle_http_batching(ds))
+                asyncio.create_task(self.handle_http_batching(ds))
 
     def disconnect_ds(self, datasource_id: str):
         """
@@ -360,13 +372,16 @@ class DataSourceHandler:
             async for msg in datasource.get_ws_client():
                 msg_dict = json.loads(msg.decode('utf-8'))
                 obs = ObservationOMJSONInline.model_validate(msg_dict)
-                msg_wrapper = MessageWrapper(datasource=datasource, message=obs)
+                msg_wrapper = MessageWrapper(datasource=datasource,
+                                             message=obs)
                 self._message_list.add_message(msg_wrapper)
 
         except Exception as e:
             print(f"An error occurred while reading from websocket: {e}")
 
-    async def handle_http_batching(self, datasource: DataSource, offset: int = None, query_params: dict = None,
+    async def handle_http_batching(self, datasource: DataSource,
+                                   offset: int = None,
+                                   query_params: dict = None,
                                    next_link: str = None) -> dict:
         """
         Handles the batching of HTTP requests for a DataSource object, passes Observations to the MessageHandler
@@ -385,21 +400,24 @@ class DataSourceHandler:
         if next_link is None:
             resp = api_helper.retrieve_resource(APIResourceTypes.OBSERVATION,
                                                 parent_res_id=datasource._datastream.ds_id,
-                                                req_headers={'Content-Type': 'application/json'})
+                                                req_headers={
+                                                    'Content-Type': 'application/json'})
         elif next_link is not None:
-            resp = requests.get(next_link, auth=(datasource._parent_system.get_parent_node()._api_helper.username,
-                                                 datasource._parent_system.get_parent_node()._api_helper.password))
+            resp = requests.get(next_link, auth=(
+                datasource._parent_system.get_parent_node()._api_helper.username,
+                datasource._parent_system.get_parent_node()._api_helper.password))
         results = resp.json()
         if 'links' in results:
             for link in results['links']:
                 if link['rel'] == 'next':
-                    new_offset = link['href'].split('=')[-1]
+                    # new_offset = link['href'].split('=')[-1]
                     asyncio.create_task(self.handle_http_batching(datasource, next_link=link['href']))
 
         # print(results)
         for obs in results['items']:
             obs_obj = ObservationOMJSONInline.model_validate(obs)
-            msg_wrapper = MessageWrapper(datasource=datasource, message=obs_obj)
+            msg_wrapper = MessageWrapper(datasource=datasource,
+                                         message=obs_obj)
             self._message_list.add_message(msg_wrapper)
         return resp.json()
 
@@ -458,7 +476,8 @@ class MessageWrapper:
     Combines a DataSource and a Message into a single object for easier access
     """
 
-    def __init__(self, datasource: DataSource, message: ObservationOMJSONInline):
+    def __init__(self, datasource: DataSource,
+                 message: ObservationOMJSONInline):
         self._message = message
         self._datasource = datasource
 

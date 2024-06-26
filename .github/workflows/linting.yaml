@@ -1,0 +1,13 @@
+  on: [push, pull_request]
+  jobs:
+    lint:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - uses: actions/setup-python@v4
+        - name: Install dependencies
+          run: |
+            poetry install --with dev
+        - name: Lint
+          run: |
+            flake8
