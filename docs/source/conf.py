@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'OSHConnect-Python'
-copyright = '2024, Ian Patterson'
+copyright = '2024, Botts Innovative Research, Inc.'
 author = 'Ian Patterson'
 release = '0.1'
 
