@@ -367,7 +367,7 @@ class DataSourceHandler:
             print(f"An error occurred while reading from websocket: {e}")
 
     async def handle_http_batching(self, datasource: DataSource, offset: int = None, query_params: dict = None,
-                                   next_link: str = None):
+                                   next_link: str = None) -> dict:
         """
         Handles the batching of HTTP requests for a DataSource object, passes Observations to the MessageHandler
 
@@ -376,7 +376,7 @@ class DataSourceHandler:
         :param query_params:
         :param next_link:
 
-        :return:
+        :return: dict of the response from the server
         """
         # access api_helper
         api_helper = datasource.get_parent_system().get_parent_node().get_api_helper()
@@ -425,7 +425,7 @@ class MessageHandler:
         self._message_list.append(message)
         print(self._message_list)
 
-    def get_messages(self):
+    def get_messages(self) -> list[MessageWrapper]:
         """
         Get the list of MessageWrapper objects
 
@@ -441,7 +441,7 @@ class MessageHandler:
         """
         self._message_list.clear()
 
-    def sort_messages(self):
+    def sort_messages(self) -> list[MessageWrapper]:
         """
         Sorts the list of MessageWrapper objects by their resultTime
 
@@ -462,7 +462,7 @@ class MessageWrapper:
         self._message = message
         self._datasource = datasource
 
-    def get_message(self):
+    def get_message(self) -> ObservationOMJSONInline:
         """
         Get the observation data from the MessageWrapper
 
