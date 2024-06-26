@@ -17,8 +17,8 @@ from oshconnect.timemanagement.timemanagement import TimeManagement
 
 
 class OSHConnect:
+
     _name: str = None
-    # datasource: DataSource = None
     datastore: DataStore = None
     styling: Styling = None
     timestream: TimeManagement = None

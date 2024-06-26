@@ -22,10 +22,31 @@ from oshconnect.datamodels.datamodels import System
 
 class DataSource:
     """
-    DataSource: represents the active connection of a datastream object
+    DataSource: represents the active connection of a datastream object.
+    This class may later be used to connect to a control channel as well. It will almost certainly be used
+    for Control Stream status monitoring.
+
+    Attributes:
+        name: Human readable name of the DataSource
+        _datastream: DatastreamResource object
+        _parent_system: System object that the DataSource is associated with.
     """
+    name: str = None
+    _id: str = None
+    _datastream: DatastreamResource = None
+    _parent_system: System = None
+    _playback_mode: TemporalModes = None
+    _url: str = None
+    _auth: str = None
+    _websocket: websockets.WebSocketClientProtocol = None
+    _extra_headers: dict = None
 
     def __init__(self, name: str, datastream: DatastreamResource, parent_system: System):
+        """
+        :param name: Human-readable name of the DataSource
+        :param datastream: DatastreamResource object
+        :param parent_system: System object that the DataSource is associated with.
+        """
         self._status = None
         self._id = f'datasource-{uuid4()}'
         self.name = name
@@ -41,32 +62,73 @@ class DataSource:
             self._extra_headers = {'Authorization': f'Basic {self._auth}'}
 
     def get_id(self) -> str:
+        """
+        Get the ID of the DataSource
+
+        :return: str UID of the DataSource
+        """
         return self._id
 
     def get_name(self):
-        pass
+        """
+        Get the name of the DataSource
+
+        :return: str name of the DataSource
+        """
+        return self.name
 
     def create_process(self):
+        """
+        **Unimplemented**
+
+        Create a process for the DataSource
+
+        :return:
+        """
         pass
 
     def terminate_process(self):
+        """
+        **Unimplemented**
+        """
         pass
 
     # Might not be necessary
     def subscribe(self):
+        """
+        **Unimplemented**
+
+        :return:
+        """
         pass
 
     def set_mode(self, mode: TemporalModes):
+        """
+        Sets the playback mode of the DataSource and regenerates the URL accordingly
+
+        :param mode: TemporalModes
+
+        :return:
+        """
         self._playback_mode = mode
         self.generate_url()
 
     def initialize(self):
+        """
+        Initializes the DataSource object, resetting the status and closing any open connections if necessary.
+
+        :return:
+        """
         if self._websocket.is_open():
             self._websocket.close()
         self._websocket = None
         self._status = "initialized"
 
-    async def connect(self):
+    async def connect(self) -> websockets.WebSocketClientProtocol or None:
+        """
+        Attempts to connect to the DataSource's websocket, or HTTP endpoint if in BATCH mode.
+        :return: The websocket connection if in REAL_TIME or ARCHIVE mode, ``None`` if in BATCH mode.
+        """
         if self._playback_mode == TemporalModes.REAL_TIME:
             self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
             self._status = "connected"
@@ -78,28 +140,69 @@ class DataSource:
         elif self._playback_mode == TemporalModes.BATCH:
             self._websocket = await websockets.connect(self._url, extra_headers=self._extra_headers)
             self._status = "connected"
-            return self._websocket
+            return None
 
     def disconnect(self):
+        """
+        Closes the websocket connection, *should* also stop any future http requests if in BATCH mode. This feature
+        is *WIP*.
+
+        :return:
+        """
         self._websocket.close()
 
     def reset(self):
+        """
+        Resets the DataSource object, closing any open connections and resetting the status. Currently has the same
+        effect as ``initialize()``.
+
+        :return:
+        """
+        if self._websocket.is_open():
+            self._websocket.close()
         self._websocket = None
         self._status = "initialized"
 
     def get_status(self):
+        """
+        Get the status code of the DataSource
+
+        :return:
+        """
         return self._status
 
-    def get_parent_system(self):
+    def get_parent_system(self) -> System:
+        """
+        Retrieve the DataSource's parent System
+
+        :return: The parent System object of the DataSource
+        """
         return self._parent_system
 
     def get_ws_client(self):
+        """
+        Get the websocket client object
+
+        :return:
+        """
         return self._websocket
 
-    def is_within_timeperiod(self, timeperiod: TimePeriod):
+    def is_within_timeperiod(self, timeperiod: TimePeriod) -> bool:
+        """
+        Checks if the DataSource's Datastream is within the provided TimePeriod
+
+        :param timeperiod: TimePeriod object
+        :return: ``True`` if the Datastream is within the TimePeriod, ``False`` otherwise
+        """
         return timeperiod.does_timeperiod_overlap(self._datastream.valid_time)
 
     def generate_url(self):
+        """
+        Generates the URL for the DataSource based on the playback mode. This url is used for accessing the datastream
+        on the OSH server.
+
+        :return:
+        """
         # TODO: need to specify secure vs insecure protocols
         if self._playback_mode == TemporalModes.REAL_TIME:
             self._url = (f'ws://{self._parent_system.get_parent_node().get_address()}:'
