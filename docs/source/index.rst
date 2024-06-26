@@ -1,8 +1,3 @@
-.. OSHConnect-Python documentation master file, created by
-sphinx-quickstart on Tue Jun 25 11:43:33 2024.
-You can adapt this file completely to your liking, but it should at least
-contain the root `toctree` directive.
-
 Welcome to OSHConnect-Python's documentation!
 =============================================
 

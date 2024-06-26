@@ -227,6 +227,10 @@ class DataSource:
 
 
 class DataSourceHandler:
+    """
+    Manages a collection of DataSource objects, allowing for easy access and control of multiple datastreams. As well
+    as providing them access to a message handler for processing incoming data.
+    """
     datasource_map: dict[str, DataSource]
     _message_list: MessageHandler
     _playback_mode: TemporalModes
@@ -237,34 +241,78 @@ class DataSourceHandler:
         self._playback_mode = playback_mode
 
     def set_playback_mode(self, mode: TemporalModes):
+        """
+        Sets the playback mode for the DataSourceHandler and all of its DataSources
+
+        :param mode: TemporalModes
+
+        :return:
+        """
         self._playback_mode = mode
 
     def add_datasource(self, datasource: DataSource):
+        """
+        Adds a DataSource object to the DataSourceHandler
+
+        :param datasource: DataSource
+
+        :return:
+        """
         datasource.set_mode(self._playback_mode)
         self.datasource_map[datasource.get_id()] = datasource
 
-    def remove_datasource(self, datasource_id: str):
+    def remove_datasource(self, datasource_id: str) -> DataSource:
+        """
+        Removes a DataSource object from the DataSourceHandler
+
+        :param datasource_id: str uid of the DataSource
+
+        :return: the removed DataSource object
+        """
         return self.datasource_map.pop(datasource_id)
 
-    def initialize_ds(self, datasource_id: str, properties: dict):
+    def initialize_ds(self, datasource_id: str):
+        """
+        Initializes a DataSource object by calling its initialize method
+
+        :param datasource_id:
+
+        :return:
+        """
         ds = self.datasource_map.get(datasource_id)
         ds.initialize()
 
     def initialize_all(self):
-        # list comp is faster than for loop
+        """
+        Initializes all DataSource objects in the DataSourceHandler
+
+        :return:
+        """
         [ds.initialize() for ds in self.datasource_map.values()]
 
     def set_ds_mode(self):
+        """
+        Sets the playback mode for all DataSource objects in the DataSourceHandler, uses the playback mode of the
+        DataSourceHandler
+        :return:
+        """
         var = (ds.set_mode(self._playback_mode) for ds in self.datasource_map.values())
 
     async def connect_ds(self, datasource_id: str):
+        """
+        Connects a DataSource object by calling its connect method
+
+        :param datasource_id:
+
+        :return:
+        """
         ds = self.datasource_map.get(datasource_id)
         await ds.connect()
 
     async def connect_all(self, timeperiod: TimePeriod):
         """
         Connects all datasources, optionally within a provided TimePeriod
-        :param timeperiod:
+        :param timeperiod: TimePeriod object
         :return:
         """
         # search for datasources that fall within the timeperiod
@@ -284,13 +332,30 @@ class DataSourceHandler:
                 task = asyncio.create_task(self.handle_http_batching(ds))
 
     def disconnect_ds(self, datasource_id: str):
+        """
+        Disconnects a DataSource object by calling its disconnect method
+        :param datasource_id:
+        :return:
+        """
         ds = self.datasource_map.get(datasource_id)
         ds.disconnect()
 
     def disconnect_all(self):
+        """
+        Disconnects all DataSource objects in the DataSourceHandler
+        :return:
+        """
         [ds.disconnect() for ds in self.datasource_map.values()]
 
     async def _handle_datastream_client(self, datasource: DataSource):
+        """
+        Handles the websocket client for a DataSource object, passes Observations to the MessageHandler in the
+        form of MessageWrapper objects
+
+        :param datasource:
+
+        :return:
+        """
         try:
             async for msg in datasource.get_ws_client():
                 msg_dict = json.loads(msg.decode('utf-8'))
@@ -303,6 +368,16 @@ class DataSourceHandler:
 
     async def handle_http_batching(self, datasource: DataSource, offset: int = None, query_params: dict = None,
                                    next_link: str = None):
+        """
+        Handles the batching of HTTP requests for a DataSource object, passes Observations to the MessageHandler
+
+        :param datasource:
+        :param offset:
+        :param query_params:
+        :param next_link:
+
+        :return:
+        """
         # access api_helper
         api_helper = datasource.get_parent_system().get_parent_node().get_api_helper()
         # needs to create a new call to make a request to the server if there is a link to a next page
@@ -330,22 +405,48 @@ class DataSourceHandler:
 
 
 class MessageHandler:
+    """
+    Manages a list of MessageWrapper objects, allowing for easy access and control of multiple messages. Works in
+    conjunction with the TimeManager to sort messages by their resultTime.
+    """
     _message_list: list[MessageWrapper]
 
     def __init__(self):
         self._message_list = []
 
     def add_message(self, message: MessageWrapper):
+        """
+        Adds a MessageWrapper object to the MessageHandler
+
+        :param message:
+
+        :return:
+        """
         self._message_list.append(message)
         print(self._message_list)
 
     def get_messages(self):
+        """
+        Get the list of MessageWrapper objects
+
+        :return: List of MessageWrapper objects
+        """
         return self._message_list
 
     def clear_messages(self):
+        """
+        Empties the list of MessageWrapper objects
+
+        :return:
+        """
         self._message_list.clear()
 
     def sort_messages(self):
+        """
+        Sorts the list of MessageWrapper objects by their resultTime
+
+        :return: the sorted List of MessageWrapper objects
+        """
         # copy the list
         sorted_list = self._message_list.copy()
         sorted_list.sort(key=lambda x: x.resultTime)
@@ -362,10 +463,20 @@ class MessageWrapper:
         self._datasource = datasource
 
     def get_message(self):
+        """
+        Get the observation data from the MessageWrapper
+
+        :return: ObservationOMJSONInline that is easily serializable
+        """
         return self._message
 
-    def get_message_as_dict(self):
-        return self._message.dict()
+    def get_message_as_dict(self) -> dict:
+        """
+        Get the observation data from the MessageWrapper as a dictionary
+
+        :return: disct of the observation result data
+        """
+        return self._message.model_dump()
 
     def __repr__(self):
         return f"{self._datasource}, {self._message}"
