@@ -8,10 +8,9 @@
 
 import os
 import sys
+import traceback
 
 sys.path.insert(0, os.path.abspath("../.."))
-
-import traceback
 
 
 def process_exception(app, what, name, obj, options, lines):
