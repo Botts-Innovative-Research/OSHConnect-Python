@@ -6,8 +6,23 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import os
+import sys
+import traceback
+
+sys.path.insert(0, os.path.abspath("../.."))
+
+
+def process_exception(app, what, name, obj, options, lines):
+    traceback.print_exc()
+
+
+def setup(app):
+    app.connect('autodoc-process-docstring', process_exception)
+
+
 project = 'OSHConnect-Python'
-copyright = '2024, Ian Patterson'
+copyright = '2024, Botts Innovative Research, Inc.'
 author = 'Ian Patterson'
 release = '0.1'
 
@@ -27,5 +42,10 @@ exclude_patterns = []
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'
+html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+html_theme_options = {
+    'sticky_navigation': True,
+    'display_version': True,
+    'prev_next_buttons_location': 'both',
+}

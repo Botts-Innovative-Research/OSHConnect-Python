@@ -7,18 +7,16 @@
 
 from conSys4Py.core.default_api_helpers import APIHelper
 
-from external_models import TimePeriod
-from oshconnect import TemporalModes
-from oshconnect.datamodels.datamodels import Node, System
-from oshconnect.datasource.datasource import DataSource, DataSourceHandler
-from oshconnect.datastore.datastore import DataStore
-from oshconnect.styling.styling import Styling
-from oshconnect.timemanagement.timemanagement import TimeManagement
+from .core_datamodels import TimePeriod
+from .datasource import DataSource, DataSourceHandler
+from .datastore import DataStore
+from .osh_connect_datamodels import Node, System, TemporalModes
+from .styling import Styling
+from .timemanagement import TimeManagement
 
 
 class OSHConnect:
     _name: str = None
-    # datasource: DataSource = None
     datastore: DataStore = None
     styling: Styling = None
     timestream: TimeManagement = None
@@ -41,6 +39,8 @@ class OSHConnect:
         self._name = name
         if 'nodes' in kwargs:
             self._nodes = kwargs['nodes']
+            self._playback_mode = kwargs['playback_mode']
+            self._datasource_handler.set_playback_mode(self._playback_mode)
         self._datasource_handler = DataSourceHandler()
         if 'playback_mode' in kwargs:
             self._playback_mode = kwargs['playback_mode']
@@ -69,7 +69,8 @@ class OSHConnect:
         """
         # TODO: should disconnect datastreams and delete them and all systems at the same time.
         # list of nodes in our node list that do not have the id of the node we want to remove
-        self._nodes = [node for node in self._nodes if node.get_id() != node_id]
+        self._nodes = [node for node in self._nodes if
+                       node.get_id() != node_id]
 
     def save_config(self, config: dict):
         pass
@@ -111,7 +112,8 @@ class OSHConnect:
         :return:
         """
         if stream_ids is None:
-            await self._datasource_handler.connect_all(self.timestream.get_time_range())
+            await self._datasource_handler.connect_all(
+                self.timestream.get_time_range())
         else:
             for stream_id in stream_ids:
                 await self._datasource_handler.connect_ds(stream_id)
@@ -134,7 +136,8 @@ class OSHConnect:
             res_datastreams = system.discover_datastreams()
             # create DataSource(s)
             new_datasource = [
-                DataSource(name=ds.name, datastream=ds, parent_system=system) for ds in
+                DataSource(name=ds.name, datastream=ds, parent_system=system)
+                for ds in
                 res_datastreams]
             self._datafeeds.extend(new_datasource)
             list(map(self._datasource_handler.add_datasource, new_datasource))
@@ -148,7 +151,8 @@ class OSHConnect:
         """
         search_nodes = self._nodes
         if nodes is not None:
-            search_nodes = [node for node in search_nodes if node.get_id() in nodes]
+            search_nodes = [node for node in search_nodes if
+                            node.get_id() in nodes]
 
         for node in search_nodes:
             res_systems = node.discover_systems()

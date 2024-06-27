@@ -5,12 +5,10 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 
-import pytest
-import requests
 import websockets
 
-from oshconnect.oshconnect import OSHConnect
-from oshconnect.datamodels.datamodels import Node, System
+from oshconnect.osh_connect_datamodels import Node
+from oshconnect.oshconnectapi import OSHConnect
 
 
 class TestOSHConnect:
@@ -55,5 +53,3 @@ class TestOSHConnect:
         async with websockets.connect(ds_url, extra_headers={'Authorization': 'Basic YWRtaW46YWRtaW4='}) as stream:
             async for message in stream:
                 print(message)
-
-
