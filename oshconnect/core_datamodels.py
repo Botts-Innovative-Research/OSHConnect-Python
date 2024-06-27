@@ -12,7 +12,7 @@ from conSys4Py.datamodels.api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from shapely import Point
 
-from oshconnect.timemanagement import TimePeriod
+from .timemanagement import TimePeriod
 
 
 class BoundingBox(BaseModel):

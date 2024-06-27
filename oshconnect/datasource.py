@@ -19,8 +19,8 @@ import websockets
 from conSys4Py import APIResourceTypes
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 
-from oshconnect import TemporalModes
-from oshconnect.core_datamodels import DatastreamResource, System, TimePeriod
+from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
+from .osh_connect_datamodels import TemporalModes
 
 
 class DataSource:
@@ -37,7 +37,7 @@ class DataSource:
     name: str = None
     _id: str = None
     _datastream: DatastreamResource = None
-    _parent_system: System = None
+    _parent_system: SystemResource = None
     _playback_mode: TemporalModes = None
     _url: str = None
     _auth: str = None
@@ -45,7 +45,7 @@ class DataSource:
     _extra_headers: dict = None
 
     def __init__(self, name: str, datastream: DatastreamResource,
-                 parent_system: System):
+                 parent_system: SystemResource):
         """
         :param name: Human-readable name of the DataSource
         :param datastream: DatastreamResource object
@@ -178,7 +178,7 @@ class DataSource:
         """
         return self._status
 
-    def get_parent_system(self) -> System:
+    def get_parent_system(self) -> SystemResource:
         """
         Retrieve the DataSource's parent System
 

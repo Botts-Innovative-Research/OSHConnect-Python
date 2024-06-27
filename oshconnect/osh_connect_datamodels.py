@@ -5,15 +5,38 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 from __future__ import annotations
+
 import base64
 import uuid
 from dataclasses import dataclass, field
+from enum import Enum
 
 from conSys4Py import APIResourceTypes
 from conSys4Py.core.default_api_helpers import APIHelper
 
-from oshconnect import Endpoints
-from oshconnect.core_datamodels import DatastreamResource, SystemResource
+from .core_datamodels import DatastreamResource, SystemResource
+
+
+class TemporalModes(Enum):
+    REAL_TIME = "realtime"
+    ARCHIVE = "archive"
+    BATCH = "batch"
+    RT_SYNC = "realtimesync"
+    ARCHIVE_SYNC = "archivesync"
+
+
+@dataclass(kw_only=True)
+class Endpoints:
+    root: str = "sensorhub"
+    sos: str = f"{root}/sos"
+    connected_systems: str = f"{root}/api"
+
+
+class Utilities:
+
+    @staticmethod
+    def convert_auth_to_base64(username: str, password: str) -> str:
+        return base64.b64encode(f"{username}:{password}".encode()).decode()
 
 
 @dataclass(kw_only=True)

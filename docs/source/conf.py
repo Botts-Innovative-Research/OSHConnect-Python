@@ -6,6 +6,22 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath("../.."))
+
+import traceback
+
+
+def process_exception(app, what, name, obj, options, lines):
+    traceback.print_exc()
+
+
+def setup(app):
+    app.connect('autodoc-process-docstring', process_exception)
+
+
 project = 'OSHConnect-Python'
 copyright = '2024, Botts Innovative Research, Inc.'
 author = 'Ian Patterson'

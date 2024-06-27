@@ -8,7 +8,7 @@
 import websockets
 
 from oshconnect.osh_connect_datamodels import Node
-from oshconnect.oshconnect import OSHConnect
+from oshconnect.oshconnectapi import OSHConnect
 
 
 class TestOSHConnect:

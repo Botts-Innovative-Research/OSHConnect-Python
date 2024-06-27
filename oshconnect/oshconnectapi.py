@@ -7,13 +7,12 @@
 
 from conSys4Py.core.default_api_helpers import APIHelper
 
-from oshconnect import TemporalModes
-from oshconnect.core_datamodels import TimePeriod
-from oshconnect.datasource import DataSource, DataSourceHandler
-from oshconnect.datastore import DataStore
-from oshconnect.osh_connect_datamodels import Node, System
-from oshconnect.styling import Styling
-from oshconnect.timemanagement import TimeManagement
+from .core_datamodels import TimePeriod
+from .datasource import DataSource, DataSourceHandler
+from .datastore import DataStore
+from .osh_connect_datamodels import Node, System, TemporalModes
+from .styling import Styling
+from .timemanagement import TimeManagement
 
 
 class OSHConnect:
