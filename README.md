@@ -3,7 +3,7 @@
 Library for communicating with Opensensorhub that provides options for saving configurations, getting visualization 
 recommendations for data, retrieving data in real time, archival streams, and batch modes, and more.
 
-API Documentation available [here](hhttps://botts-innovative-research.github.io/OSHConnect-Python/)
+API Documentation available [here](https://botts-innovative-research.github.io/OSHConnect-Python/)
 
 Links:  
  * [Architecture Doc](https://docs.google.com/document/d/1pIaeQw0ocU6ApNgqTVRZuSwjJAbhCcmweMq6RiVYEic/edit?usp=sharing)
