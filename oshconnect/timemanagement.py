@@ -11,6 +11,8 @@ import time
 from datetime import datetime, timezone
 from enum import Enum
 
+from oshconnect.core_datamodels import TimePeriod
+
 
 class TemporalMode(Enum):
     REAL_TIME = 0
@@ -115,41 +117,48 @@ class IndeterminateTime(Enum):
     # FIRST = "first"
 
 
-class TimePeriod:
-    _start_time: Time | IndeterminateTime
-    _end_time: Time | IndeterminateTime
-
-    def __init__(self, start_time: Time | IndeterminateTime,
-                 end_time: Time | IndeterminateTime):
-        if isinstance(start_time, Time) and isinstance(end_time, Time):
-            if start_time.get_epoch_time() > end_time.get_epoch_time():
-                raise ValueError("Start time cannot be later than end time")
-
-        if isinstance(start_time, IndeterminateTime) and isinstance(end_time,
-                                                                    IndeterminateTime):
-            raise ValueError(
-                "Start time and end time cannot be indeterminate at the same time")
-
-        self._start_time = start_time
-        self._end_time = end_time
-
-    def get_start_time(self):
-        return self._start_time
-
-    def get_end_time(self):
-        return self._end_time
-
-    def set_start_time(self, start_time: Time):
-        self._start_time = start_time
-
-    def set_end_time(self, end_time: Time):
-        self._end_time = end_time
-
-    def is_indeterminate_start_time(self):
-        return isinstance(self._start_time, IndeterminateTime)
-
-    def is_indeterminate_end_time(self):
-        return isinstance(self._end_time, IndeterminateTime)
+# class TimePeriod:
+#     _start_time: Time | IndeterminateTime
+#     _end_time: Time | IndeterminateTime
+#
+#     def __init__(self, start_time: Time | IndeterminateTime,
+#                  end_time: Time | IndeterminateTime):
+#         if isinstance(start_time, Time) and isinstance(end_time, Time):
+#             if start_time.get_epoch_time() > end_time.get_epoch_time():
+#                 raise ValueError("Start time cannot be later than end time")
+#
+#         if isinstance(start_time, IndeterminateTime) and isinstance(end_time,
+#                                                                     IndeterminateTime):
+#             raise ValueError(
+#                 "Start time and end time cannot be indeterminate at the same time")
+#
+#         self._start_time = start_time
+#         self._end_time = end_time
+#
+#     def get_start_time(self):
+#         return self._start_time
+#
+#     def get_end_time(self):
+#         return self._end_time
+#
+#     def set_start_time(self, start_time: Time):
+#         self._start_time = start_time
+#
+#     def set_end_time(self, end_time: Time):
+#         self._end_time = end_time
+#
+#     def is_indeterminate_start_time(self):
+#         return isinstance(self._start_time, IndeterminateTime)
+#
+#     def is_indeterminate_end_time(self):
+#         return isinstance(self._end_time, IndeterminateTime)
+#
+#     def does_timeperiod_overlap(self, checked_timeperiod: TimePeriod) -> bool:
+#         if (checked_timeperiod.get_start_time() < self._end_time
+#                 and checked_timeperiod.get_end_time() > self._start_time):
+#             return True
+#         else:
+#             return False
 
 
 class Utilities:

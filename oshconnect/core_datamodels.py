@@ -4,6 +4,8 @@
 #   Author:  Ian Patterson
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
+from __future__ import annotations
+
 import uuid
 from typing import Any, List, Self
 
@@ -11,8 +13,6 @@ from conSys4Py import DatastreamSchema, Geometry
 from conSys4Py.datamodels.api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from shapely import Point
-
-from .timemanagement import TimePeriod
 
 
 class BoundingBox(BaseModel):
