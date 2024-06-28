@@ -7,9 +7,13 @@
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any, Self
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TemporalMode(Enum):
@@ -28,6 +32,8 @@ class State(Enum):
 
 
 class TimeUtils:
+    iso_format = '%Y-%m-%dT%H:%M:%S.%fZ'
+
     @staticmethod
     def to_epoch_time(a_time: datetime | str) -> float:
         """
@@ -37,7 +43,7 @@ class TimeUtils:
         """
         if isinstance(a_time, str):
             return time.mktime(
-                datetime.strptime(a_time, "%Y-%m-%d %H:%M:%S").timetuple())
+                datetime.strptime(a_time, "%Y-%m-%d %H:%M:%S.%fZ").timetuple())
         elif isinstance(a_time, datetime):
             return time.mktime(a_time.timetuple())
 
@@ -49,8 +55,10 @@ class TimeUtils:
         :return:
         """
         if isinstance(a_time, str):
-            return datetime.strptime(a_time, "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=timezone.utc)
+            if re.match(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.)(\d+)(Z)', a_time):
+                return datetime.strptime(a_time, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+            else:
+                return datetime.strptime(a_time, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         elif isinstance(a_time, float):
             return datetime.fromtimestamp(a_time, tz=timezone.utc)
 
@@ -78,14 +86,57 @@ class TimeUtils:
         :return:
         """
         if isinstance(a_time, float):
-            return datetime.fromtimestamp(a_time,
-                                          tz=timezone.utc).isoformat() + "Z"
+            return datetime.fromtimestamp(a_time).strftime(TimeUtils.iso_format)
         elif isinstance(a_time, datetime):
-            return a_time.isoformat() + "Z"
+            return a_time.strftime(TimeUtils.iso_format)
+
+    @staticmethod
+    def compare_time_instants_or_indeterminate(time1: TimeInstant | str, time2: TimeInstant | str) -> int:
+        """
+        Compare two time instants or indeterminate times. This coerces the indeterminate time 'now' to the current time.
+        This may cause unexpected behavior if the times are very close together.
+        :param time1: TimeInstant or IndeterminateTime
+        :param time2: TimeInstant or IndeterminateTime
+        :return: 0 if equal, -1 if time1 < time2, 1 if time1 > time2
+        """
+        if isinstance(time1, TimeInstant) and isinstance(time2, TimeInstant):
+            if time1 < time2:
+                return -1
+            elif time1 > time2:
+                return 1
+            else:
+                return 0
+        elif isinstance(time1, TimeInstant) and isinstance(time2, str):
+            if time2 == "now":
+                now_as_time = TimeInstant.now_as_time_instant()
+                return TimeUtils.compare_time_instants_or_indeterminate(time1, now_as_time)
+            else:
+                t2_as_time = TimeInstant.from_string(time2)
+                return TimeUtils.compare_time_instants_or_indeterminate(time1, t2_as_time)
+        elif isinstance(time1, str) and isinstance(time2, TimeInstant):
+            if time1 == "now":
+                now_as_ti = TimeInstant.now_as_time_instant()
+                return TimeUtils.compare_time_instants_or_indeterminate(now_as_ti, time2)
+            else:
+                t1_as_ti = TimeInstant.from_string(time1)
+                return TimeUtils.compare_time_instants_or_indeterminate(t1_as_ti, time2)
+        elif isinstance(time1, str) and isinstance(time2, str):
+            if time1 == "now" and time2 == "now":
+                raise ValueError("Both times cannot be 'now'")
+            elif time1 == "now":
+                t1_as_ti = TimeInstant.now_as_time_instant()
+                t2_as_ti = TimeInstant.from_string(time2)
+            elif time2 == "now":
+                t2_as_ti = TimeInstant.now_as_time_instant()
+                t1_as_ti = TimeInstant.from_string(time1)
+            else:
+                t1_as_ti = TimeInstant.from_string(time1)
+                t2_as_ti = TimeInstant.from_string(time2)
+            return TimeUtils.compare_time_instants_or_indeterminate(t1_as_ti, t2_as_ti)
 
 
-class Time:
-    _epoch_time: float
+class TimeInstant:
+    _epoch_time: float | None
 
     def __init__(self, epoch_time: float = None, utc_time: datetime = None):
         if epoch_time is not None:
@@ -102,54 +153,140 @@ class Time:
         if hasattr(self, "_epoch_time"):
             raise AttributeError("Epoch time should not be changed once set")
 
-    def get_epoch_time(self):
-        return self._epoch_time
+    def has_epoch_time(self):
+        return self._epoch_time is not None
 
     def get_utc_time(self):
         return TimeUtils.to_utc_time(self._epoch_time)
 
+    def get_iso_time(self):
+        return TimeUtils.time_to_iso(self._epoch_time)
+
+    @staticmethod
+    def from_string(utc_time: str):
+        # TODO: handle timezones
+        if re.match(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.)(\d+)(Z)', utc_time):
+            dt = datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%S.%fZ")
+        else:
+            dt = datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%SZ")
+        return TimeInstant(utc_time=dt)
+
+    @staticmethod
+    def now_as_time_instant():
+        return TimeInstant(epoch_time=TimeUtils.current_epoch_time())
+
+    def __lt__(self, other: TimeInstant) -> bool:
+        return self.epoch_time < other.epoch_time
+
+    def __gt__(self, other: TimeInstant) -> bool:
+        return self.epoch_time > other.epoch_time
+
+    def __eq__(self, other: TimeInstant) -> bool:
+        return self.epoch_time == other.epoch_time
+
+    def __le__(self, other: TimeInstant) -> bool:
+        return self.epoch_time <= other.epoch_time
+
+    def __ge__(self, other: TimeInstant) -> bool:
+        return self.epoch_time >= other.epoch_time
+
+    def __ne__(self, other: TimeInstant) -> bool:
+        return self.epoch_time != other.epoch_time
+
+
+class DateTimeSchema(BaseModel):
+    is_instant: bool = Field(True, description="Whether the date time is an instant or a period.")
+    iso_date: str = Field(None, description="The ISO formatted date time.")
+    time_period: tuple = Field(None, description="The time period of the date time.")
+
+    @model_validator(mode='before')
+    def valid_datetime_type(self) -> Self:
+        if self.is_instant:
+            if self.iso_date is None:
+                raise ValueError("Instant date time must have a valid ISO8601 date.")
+        return self
+
+    @field_validator('iso_date')
+    @classmethod
+    def check_iso_date(cls, v) -> str:
+        if not v:
+            raise ValueError("Instant date time must have a valid ISO8601 date.")
+        return v
+
 
 class IndeterminateTime(Enum):
     NOW = "now"
-    # LATEST = "latest"
-    # FIRST = "first"
+    LATEST = "latest"
+    FIRST = "first"
 
 
-class TimePeriod:
-    _start_time: Time | IndeterminateTime
-    _end_time: Time | IndeterminateTime
+class TimePeriod(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def __init__(self, start_time: Time | IndeterminateTime,
-                 end_time: Time | IndeterminateTime):
-        if isinstance(start_time, Time) and isinstance(end_time, Time):
-            if start_time.get_epoch_time() > end_time.get_epoch_time():
-                raise ValueError("Start time cannot be later than end time")
+    start: TimeInstant | str = Field(...)
+    end: TimeInstant | str = Field(...)
 
-        if isinstance(start_time, IndeterminateTime) and isinstance(end_time,
-                                                                    IndeterminateTime):
-            raise ValueError(
-                "Start time and end time cannot be indeterminate at the same time")
+    @model_validator(mode='before')
+    @classmethod
+    def valid_time_period(cls, data) -> Any:
+        data_dict = {}
 
-        self._start_time = start_time
-        self._end_time = end_time
+        if isinstance(data, list):
+            data_dict['start'] = cls.check_mbr_type(data[0])
+            data_dict['end'] = cls.check_mbr_type(data[1])
+        elif isinstance(data, dict):
+            data_dict['start'] = cls.check_mbr_type(data['start'])
+            data_dict['end'] = cls.check_mbr_type(data['end'])
 
-    def get_start_time(self):
-        return self._start_time
+        if not cls.compare_start_lt_end(data_dict['start'], data_dict['end']):
+            raise ValueError("Start time must be less than end time")
 
-    def get_end_time(self):
-        return self._end_time
+        return data_dict
 
-    def set_start_time(self, start_time: Time):
-        self._start_time = start_time
+    @staticmethod
+    def check_mbr_type(value):
+        if isinstance(value, str):
+            if value == "now":
+                return value
+            else:
+                tp = TimeInstant.from_string(value)
+                return tp
+        elif isinstance(value, TimeInstant):
+            return value
 
-    def set_end_time(self, end_time: Time):
-        self._end_time = end_time
+    @classmethod
+    def compare_start_lt_end(cls, start: TimeInstant | str, end: TimeInstant | str) -> bool:
+        if isinstance(start, TimeInstant) and isinstance(end, TimeInstant):
+            return start < end
+        elif isinstance(start, str) and isinstance(end, str):
+            if start == "now" and end == "now":
+                raise ValueError("Start and end cannot both be 'now'")
+            else:
+                raise ValueError("Check the time strings for validity. This should not occur.")
+        elif isinstance(start, str) and start == "now" and isinstance(end, TimeInstant):
+            return TimeInstant.now_as_time_instant() < end
+        elif isinstance(start, TimeInstant) and isinstance(end, str) and end == "now":
+            return start < TimeInstant.now_as_time_instant()
 
-    def is_indeterminate_start_time(self):
-        return isinstance(self._start_time, IndeterminateTime)
+    def __repr__(self):
+        return f'{[self.start, self.end]}'
 
-    def is_indeterminate_end_time(self):
-        return isinstance(self._end_time, IndeterminateTime)
+    def does_timeperiod_overlap(self, checked_timeperiod: TimePeriod) -> bool:
+        """
+        Checks if the provided TimePeriod overlaps with the TimePeriod instance.
+
+        **Note**: This method does not check for some edge cases, but the TimePeriods *should never* be valid
+        in those situations.
+
+        :param checked_timeperiod:
+        :return: True if the TimePeriods overlap, False otherwise
+        """
+        # check that start of checked is not after end of this instance
+        start_check_lt_end_inst = TimeUtils.compare_time_instants_or_indeterminate(checked_timeperiod.start, self.end)
+        # check that end of checked is not before start of this instance
+        end_check_gt_start_inst = TimeUtils.compare_time_instants_or_indeterminate(self.end, checked_timeperiod.start)
+        if start_check_lt_end_inst == -1 and end_check_gt_start_inst == 1:
+            return True
 
 
 class Utilities:
@@ -175,9 +312,9 @@ class TimeController:
     _temporal_mode: TemporalMode
     _status: str
     _playback_speed: int
-    _timeline_begin: Time
-    _timeline_end: Time
-    _current_time: Time
+    _timeline_begin: TimeInstant
+    _timeline_end: TimeInstant
+    _current_time: TimeInstant
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -205,19 +342,19 @@ class TimeController:
     def rewind(self, speed: int):
         self._playback_speed = speed
 
-    def skip(self, a_time: Time):
+    def skip(self, a_time: TimeInstant):
         self._current_time = a_time
 
     def get_status(self):
         return self._status
 
-    def set_timeline_start(self, a_time: Time):
+    def set_timeline_start(self, a_time: TimeInstant):
         self._timeline_begin = a_time
 
-    def set_timeline_end(self, a_time: Time):
+    def set_timeline_end(self, a_time: TimeInstant):
         self._timeline_end = a_time
 
-    def set_current_time(self, a_time: Time):
+    def set_current_time(self, a_time: TimeInstant):
         if a_time < self._timeline_begin:
             self._current_time = self._timeline_begin
         elif a_time > self._timeline_end:

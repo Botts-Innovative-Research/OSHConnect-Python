@@ -18,9 +18,13 @@ import requests
 import websockets
 from conSys4Py import APIResourceTypes
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
+from conSys4Py.datamodels.swe_components import DataRecordSchema
 
 from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
 from .osh_connect_datamodels import TemporalModes
+
+
+# from swecommondm.component_implementations import DataRecord
 
 
 class DataSource:
@@ -43,6 +47,7 @@ class DataSource:
     _auth: str = None
     _websocket: websockets.WebSocketClientProtocol = None
     _extra_headers: dict = None
+    _result_schema: DataRecordSchema = None
 
     def __init__(self, name: str, datastream: DatastreamResource,
                  parent_system: SystemResource):
@@ -64,6 +69,15 @@ class DataSource:
         if self._parent_system.get_parent_node().is_secure:
             self._auth = self._parent_system.get_parent_node().get_decoded_auth()
             self._extra_headers = {'Authorization': f'Basic {self._auth}'}
+            # get result schema
+
+            # t_url = f'http://{self._parent_system.get_parent_node().get_address()}:{self._parent_system.get_parent_node().get_port()}'
+            #
+            # res = conSys4Py.part_2.datastreams.retrieve_datastream_schema(t_url,
+            #                                                               datastream_id=self._datastream.ds_id,
+            #                                                               api_root=self._parent_system.get_parent_node()._api_helper.api_root,
+            #                                                               headers=self._extra_headers)
+            # print(res.json())
 
     def get_id(self) -> str:
         """
@@ -421,6 +435,22 @@ class DataSourceHandler:
             self._message_list.add_message(msg_wrapper)
         return resp.json()
 
+    def get_message_handler(self) -> MessageHandler:
+        """
+        Get the MessageHandler object from the DataSourceHandler
+
+        :return: MessageHandler object
+        """
+        return self._message_list
+
+    def get_messages(self) -> list[MessageWrapper]:
+        """
+        Get the list of MessageWrapper objects from the MessageHandler
+
+        :return: List of MessageWrapper objects
+        """
+        return self._message_list.get_messages()
+
 
 class MessageHandler:
     """
@@ -441,7 +471,7 @@ class MessageHandler:
         :return:
         """
         self._message_list.append(message)
-        print(self._message_list)
+        # print(self._message_list)
 
     def get_messages(self) -> list[MessageWrapper]:
         """
@@ -493,7 +523,7 @@ class MessageWrapper:
         """
         Get the observation data from the MessageWrapper as a dictionary
 
-        :return: disct of the observation result data
+        :return: dict of the observation result data
         """
         return self._message.model_dump()
 

@@ -7,11 +7,35 @@
 
 import websockets
 
+from oshconnect.core_datamodels import TimePeriod
 from oshconnect.osh_connect_datamodels import Node
 from oshconnect.oshconnectapi import OSHConnect
+from oshconnect.timemanagement import TimeInstant
 
 
 class TestOSHConnect:
+
+    def test_time_period(self):
+        tp = TimePeriod(start="2024-06-18T15:46:32Z", end="2024-06-18T20:00:00Z")
+        assert tp is not None
+        tps = tp.start
+        tpe = tp.end
+        assert isinstance(tps, TimeInstant)
+        assert isinstance(tpe, TimeInstant)
+        assert tps.epoch_time == TimeInstant.from_string("2024-06-18T15:46:32Z").epoch_time
+        assert tpe.epoch_time == TimeInstant.from_string("2024-06-18T20:00:00Z").epoch_time
+
+        tp = TimePeriod(start="now", end="2025-06-18T20:00:00Z")
+        assert tp is not None
+        assert tp.start == "now"
+        assert tp.end.epoch_time == TimeInstant.from_string("2025-06-18T20:00:00Z").epoch_time
+
+        tp = TimePeriod(start="2024-06-18T20:00:00Z", end="now")
+        assert tp is not None
+        assert tp.start.epoch_time == TimeInstant.from_string("2024-06-18T20:00:00Z").epoch_time
+        assert tp.end == "now"
+
+        # tp = TimePeriod(start="now", end="now")
 
     def test_oshconnect_create(self):
         app = OSHConnect(name="Test OSH Connect")
@@ -28,7 +52,7 @@ class TestOSHConnect:
 
     def test_find_systems(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="http://localhost", port=8585, username="admin", password="admin")
+        node = Node(address="localhost", port=8585, username="admin", password="admin", protocol="http")
         # node.add_basicauth("admin", "admin")
         app.add_node(node)
         app.discover_systems()
@@ -38,7 +62,7 @@ class TestOSHConnect:
 
     def test_oshconnect_find_datastreams(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="http://localhost", port=8585, username="admin", password="admin")
+        node = Node(address="localhost", port=8585, username="admin", password="admin", protocol="http")
         app.add_node(node)
         app.discover_systems()
 

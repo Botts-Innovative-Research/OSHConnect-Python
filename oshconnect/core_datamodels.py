@@ -4,15 +4,17 @@
 #   Author:  Ian Patterson
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
+from __future__ import annotations
+
 import uuid
-from typing import Any, List, Self
+from typing import List
 
 from conSys4Py import DatastreamSchema, Geometry
 from conSys4Py.datamodels.api_utils import Link
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from shapely import Point
 
-from .timemanagement import TimePeriod
+from oshconnect.timemanagement import DateTimeSchema, TimePeriod
 
 
 class BoundingBox(BaseModel):
@@ -28,52 +30,6 @@ class BoundingBox(BaseModel):
     #     if self.min_value > self.max_value:
     #         raise ValueError("min_value must be less than max_value")
     #     return self
-
-
-class DateTime(BaseModel):
-    is_instant: bool = Field(True, description="Whether the date time is an instant or a period.")
-    iso_date: str = Field(None, description="The ISO formatted date time.")
-    time_period: tuple = Field(None, description="The time period of the date time.")
-
-    @model_validator(mode='before')
-    def valid_datetime_type(self) -> Self:
-        if self.is_instant:
-            if self.iso_date is None:
-                raise ValueError("Instant date time must have a valid ISO8601 date.")
-        return self
-
-    @field_validator('iso_date')
-    @classmethod
-    def check_iso_date(cls, v) -> str:
-        if not v:
-            raise ValueError("Instant date time must have a valid ISO8601 date.")
-        return v
-
-
-class TimePeriod(BaseModel):
-    start: str = Field(...)
-    end: str = Field(...)
-
-    @model_validator(mode='before')
-    @classmethod
-    def valid_time_period(cls, data) -> Any:
-        if isinstance(data, list):
-            if data[0] > data[1]:
-                raise ValueError("Time period start must be before end.")
-            return {"start": data[0], "end": data[1]}
-        elif isinstance(data, dict):
-            if data['start'] > data['end']:
-                raise ValueError("Time period start must be before end.")
-            return data
-
-    def __repr__(self):
-        return f'{[self.start, self.end]}'
-
-    def does_timeperiod_overlap(self, checked_timeperiod: TimePeriod) -> bool:
-        if checked_timeperiod.start < self.end and checked_timeperiod.end > self.start:
-            return True
-        else:
-            return False
 
 
 class SecurityConstraints:
@@ -148,7 +104,7 @@ class SystemResource(BaseModel):
     keywords: List[str] = Field(None)
     identifiers: List[str] = Field(None)
     classifiers: List[str] = Field(None)
-    valid_time: DateTime = Field(None, serialization_alias="validTime")
+    valid_time: DateTimeSchema = Field(None, serialization_alias="validTime")
     security_constraints: List[SecurityConstraints] = Field(None, serialization_alias="securityConstraints")
     legal_constraints: List[LegalConstraints] = Field(None, serialization_alias="legalConstraints")
     characteristics: List[Characteristics] = Field(None)
@@ -191,8 +147,8 @@ class DatastreamResource(BaseModel):
 class Observation(BaseModel):
     sampling_feature_id: str = Field(None, serialization_alias="samplingFeature@Id")
     procedure_link: Link = Field(None, serialization_alias="procedure@link")
-    phenomenon_time: DateTime = Field(None, serialization_alias="phenomenonTime")
-    result_time: DateTime = Field(..., serialization_alias="resultTime")
+    phenomenon_time: DateTimeSchema = Field(None, serialization_alias="phenomenonTime")
+    result_time: DateTimeSchema = Field(..., serialization_alias="resultTime")
     parameters: dict = Field(None)
     result: dict = Field(...)
     result_link: Link = Field(None, serialization_alias="result@link")
