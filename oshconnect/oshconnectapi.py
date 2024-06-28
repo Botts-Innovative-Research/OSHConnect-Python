@@ -181,7 +181,7 @@ class OSHConnect:
         tp = TimePeriod(start=start_time, end=end_time)
         self.timestream = TimeManagement(time_range=tp)
 
-    def get_message_list(self) ->list[MessageWrapper]:
+    def get_message_list(self) -> list[MessageWrapper]:
         """
         Get the list of messages that have been received by the OSHConnect instance.
         :return: list of MessageWrapper objects

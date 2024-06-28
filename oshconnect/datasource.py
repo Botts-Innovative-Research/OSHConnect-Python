@@ -14,16 +14,17 @@ import asyncio
 import json
 from uuid import uuid4
 
-import conSys4Py.part_2.datastreams
 import requests
 import websockets
 from conSys4Py import APIResourceTypes
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 from conSys4Py.datamodels.swe_components import DataRecordSchema
-# from swecommondm.component_implementations import DataRecord
 
 from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
 from .osh_connect_datamodels import TemporalModes
+
+
+# from swecommondm.component_implementations import DataRecord
 
 
 class DataSource:
