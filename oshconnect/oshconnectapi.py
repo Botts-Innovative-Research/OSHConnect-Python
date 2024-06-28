@@ -8,7 +8,7 @@
 from conSys4Py.core.default_api_helpers import APIHelper
 
 from .core_datamodels import TimePeriod
-from .datasource import DataSource, DataSourceHandler
+from .datasource import DataSource, DataSourceHandler, MessageWrapper
 from .datastore import DataStore
 from .osh_connect_datamodels import Node, System, TemporalModes
 from .styling import Styling
@@ -180,3 +180,10 @@ class OSHConnect:
         """
         tp = TimePeriod(start=start_time, end=end_time)
         self.timestream = TimeManagement(time_range=tp)
+
+    def get_message_list(self) ->list[MessageWrapper]:
+        """
+        Get the list of messages that have been received by the OSHConnect instance.
+        :return: list of MessageWrapper objects
+        """
+        return self._datasource_handler.get_messages()
