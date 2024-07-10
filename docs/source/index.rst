@@ -13,6 +13,7 @@ certain streaming features made possible by OpenSensorHub.
    :caption: Contents
 
    api
+   tutorial
 
 
 
