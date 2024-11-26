@@ -317,6 +317,10 @@ class TimeManagement:
         return self.time_range
 
 
+class TemporalMode:
+    pass
+
+
 class TimeController:
     _instance = None
     _temporal_mode: TemporalMode

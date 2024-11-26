@@ -6,7 +6,6 @@
 #   ==============================================================================
 from __future__ import annotations
 
-import uuid
 from typing import List
 
 from conSys4Py import DatastreamSchema, Geometry
