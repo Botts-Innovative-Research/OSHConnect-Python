@@ -21,13 +21,13 @@ from conSys4Py.datamodels.observations import ObservationOMJSONInline
 from conSys4Py.datamodels.swe_components import DataRecordSchema
 
 from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
-from .osh_connect_datamodels import TemporalModes
+from .timemanagement import TemporalModes
 
 
 # from swecommondm.component_implementations import DataRecord
 
 
-class DataSource:
+class DataStream:
     """
     DataSource: represents the active connection of a datastream object.
     This class may later be used to connect to a control channel as well. It will almost certainly be used
@@ -45,7 +45,7 @@ class DataSource:
     _playback_mode: TemporalModes = None
     _url: str = None
     _auth: str = None
-    _websocket: websockets.WebSocketClientProtocol = None
+    _playback_websocket: websockets.WebSocketClientProtocol = None
     _extra_headers: dict = None
     _result_schema: DataRecordSchema = None
 
@@ -60,7 +60,7 @@ class DataSource:
         self._id = f'datasource-{uuid4()}'
         self.name = name
         self._datastream = datastream
-        self._websocket = None
+        self._playback_websocket = None
         self._parent_system = parent_system
         self._playback_mode = None
         self._url = None
@@ -120,7 +120,7 @@ class DataSource:
         """
         pass
 
-    def set_mode(self, mode: TemporalModes):
+    def set_playback_mode(self, mode: TemporalModes):
         """
         Sets the playback mode of the DataSource and regenerates the URL accordingly
 
@@ -129,7 +129,7 @@ class DataSource:
         :return:
         """
         self._playback_mode = mode
-        self.generate_url()
+        self.generate_retrieval_url()
 
     def initialize(self):
         """
@@ -137,29 +137,29 @@ class DataSource:
 
         :return:
         """
-        if self._websocket.is_open():
-            self._websocket.close()
-        self._websocket = None
+        if self._playback_websocket.is_open():
+            self._playback_websocket.close()
+        self._playback_websocket = None
         self._status = "initialized"
 
     async def connect(self) -> websockets.WebSocketClientProtocol or None:
         """
-        Attempts to connect to the DataSource's websocket, or HTTP endpoint if in BATCH mode.
+        Attempts to connect to the DataSource's websocket, or HTTP endpoint if in BATCH mode. This is currently for retrieval
         :return: The websocket connection if in REAL_TIME or ARCHIVE mode, ``None`` if in BATCH mode.
         """
         if self._playback_mode == TemporalModes.REAL_TIME:
-            self._websocket = await websockets.connect(self._url,
-                                                       extra_headers=self._extra_headers)
+            self._playback_websocket = await websockets.connect(self._url,
+                                                                extra_headers=self._extra_headers)
             self._status = "connected"
-            return self._websocket
+            return self._playback_websocket
         elif self._playback_mode == TemporalModes.ARCHIVE:
-            self._websocket = await websockets.connect(self._url,
-                                                       extra_headers=self._extra_headers)
+            self._playback_websocket = await websockets.connect(self._url,
+                                                                extra_headers=self._extra_headers)
             self._status = "connected"
-            return self._websocket
+            return self._playback_websocket
         elif self._playback_mode == TemporalModes.BATCH:
-            self._websocket = await websockets.connect(self._url,
-                                                       extra_headers=self._extra_headers)
+            self._playback_websocket = await websockets.connect(self._url,
+                                                                extra_headers=self._extra_headers)
             self._status = "connected"
             return None
 
@@ -170,7 +170,7 @@ class DataSource:
 
         :return:
         """
-        self._websocket.close()
+        self._playback_websocket.close()
 
     def reset(self):
         """
@@ -179,9 +179,9 @@ class DataSource:
 
         :return:
         """
-        if self._websocket.is_open():
-            self._websocket.close()
-        self._websocket = None
+        if self._playback_websocket.is_open():
+            self._playback_websocket.close()
+        self._playback_websocket = None
         self._status = "initialized"
 
     def get_status(self):
@@ -206,7 +206,7 @@ class DataSource:
 
         :return:
         """
-        return self._websocket
+        return self._playback_websocket
 
     def is_within_timeperiod(self, timeperiod: TimePeriod) -> bool:
         """
@@ -217,7 +217,7 @@ class DataSource:
         """
         return timeperiod.does_timeperiod_overlap(self._datastream.valid_time)
 
-    def generate_url(self):
+    def generate_retrieval_url(self):
         """
         Generates the URL for the DataSource based on the playback mode. This url is used for accessing the datastream
         on the OSH server.
@@ -250,13 +250,38 @@ class DataSource:
             raise ValueError(
                 "Playback mode not set. Cannot generate URL for DataSource.")
 
+    def generate_insertion_url(self) -> str:
+        """
+        Generates the URL for the DataSource. This url is used for posting data to the
+        OSH server.
 
-class DataSourceHandler:
+        :return:
+        """
+        url_result = (
+            f'http://{self._parent_system.get_parent_node().get_address()}:'
+            f'{self._parent_system.get_parent_node().get_port()}'
+            f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+            f'/observations'
+        )
+        return url_result
+
+    def insert_observation(self, observation: ObservationOMJSONInline):
+        """
+        Posts an observation to the server
+        :param observation: ObservationOMJSONInline object
+        :return:
+        """
+        api_helper = self._parent_system.get_parent_node().get_api_helper()
+        api_helper.post_resource(APIResourceTypes.OBSERVATION, parent_res_id=self._datastream.ds_id,
+                                 data=observation.model_dump(), req_headers={'Content-Type': 'application/om+json'})
+
+
+class DataStreamHandler:
     """
     Manages a collection of DataSource objects, allowing for easy access and control of multiple datastreams. As well
     as providing them access to a message handler for processing incoming data.
     """
-    datasource_map: dict[str, DataSource]
+    datasource_map: dict[str, DataStream]
     _message_list: MessageHandler
     _playback_mode: TemporalModes
 
@@ -275,7 +300,7 @@ class DataSourceHandler:
         """
         self._playback_mode = mode
 
-    def add_datasource(self, datasource: DataSource):
+    def add_datasource(self, datasource: DataStream):
         """
         Adds a DataSource object to the DataSourceHandler
 
@@ -283,10 +308,10 @@ class DataSourceHandler:
 
         :return:
         """
-        datasource.set_mode(self._playback_mode)
+        datasource.set_playback_mode(self._playback_mode)
         self.datasource_map[datasource.get_id()] = datasource
 
-    def remove_datasource(self, datasource_id: str) -> DataSource:
+    def remove_datasource(self, datasource_id: str) -> DataStream:
         """
         Removes a DataSource object from the DataSourceHandler
 
@@ -321,7 +346,7 @@ class DataSourceHandler:
         DataSourceHandler
         :return:
         """
-        (ds.set_mode(self._playback_mode) for ds in self.datasource_map.values())
+        (ds.set_playback_mode(self._playback_mode) for ds in self.datasource_map.values())
 
     async def connect_ds(self, datasource_id: str):
         """
@@ -373,7 +398,7 @@ class DataSourceHandler:
         """
         [ds.disconnect() for ds in self.datasource_map.values()]
 
-    async def _handle_datastream_client(self, datasource: DataSource):
+    async def _handle_datastream_client(self, datasource: DataStream):
         """
         Handles the websocket client for a DataSource object, passes Observations to the MessageHandler in the
         form of MessageWrapper objects
@@ -393,7 +418,7 @@ class DataSourceHandler:
         except Exception as e:
             print(f"An error occurred while reading from websocket: {e}")
 
-    async def handle_http_batching(self, datasource: DataSource,
+    async def handle_http_batching(self, datasource: DataStream,
                                    offset: int = None,
                                    query_params: dict = None,
                                    next_link: str = None) -> dict:
@@ -451,6 +476,19 @@ class DataSourceHandler:
         """
         return self._message_list.get_messages()
 
+    def post_observation(self, datasource: DataStream, observation: ObservationOMJSONInline):
+        """
+        Posts an observation to the server
+
+        :param datasource: DataSource object
+        :param observation: ObservationOMJSONInline object
+
+        :return:
+        """
+        api_helper = datasource.get_parent_system().get_parent_node().get_api_helper()
+        api_helper.post_resource(APIResourceTypes.OBSERVATION, parent_res_id=datasource._datastream.ds_id,
+                                 data=observation.model_dump(), req_headers={'Content-Type': 'application/json'})
+
 
 class MessageHandler:
     """
@@ -506,7 +544,7 @@ class MessageWrapper:
     Combines a DataSource and a Message into a single object for easier access
     """
 
-    def __init__(self, datasource: DataSource,
+    def __init__(self, datasource: DataStream,
                  message: ObservationOMJSONInline):
         self._message = message
         self._datasource = datasource

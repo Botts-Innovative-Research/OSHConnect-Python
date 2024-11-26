@@ -7,12 +7,12 @@
 
 from conSys4Py.core.default_api_helpers import APIHelper
 
-from .core_datamodels import TimePeriod
-from .datasource import DataSource, DataSourceHandler, MessageWrapper
+from .core_datamodels import DatastreamResource, TimePeriod
+from .datasource import DataStream, DataStreamHandler, MessageWrapper
 from .datastore import DataStore
-from .osh_connect_datamodels import Node, System, TemporalModes
+from .osh_connect_datamodels import Node, System
 from .styling import Styling
-from .timemanagement import TimeManagement
+from .timemanagement import TemporalModes, TimeManagement
 
 
 class OSHConnect:
@@ -23,8 +23,8 @@ class OSHConnect:
     _nodes: list[Node] = []
     _systems: list[System] = []
     _cs_api_builder: APIHelper = None
-    _datasource_handler: DataSourceHandler = None
-    _datafeeds: list[DataSource] = []
+    _datasource_handler: DataStreamHandler = None
+    _datafeeds: list[DataStream] = []
     _datataskers: list[DataStore] = []
     _datagroups: list = []
     _tasks: list = []
@@ -41,7 +41,7 @@ class OSHConnect:
             self._nodes = kwargs['nodes']
             self._playback_mode = kwargs['playback_mode']
             self._datasource_handler.set_playback_mode(self._playback_mode)
-        self._datasource_handler = DataSourceHandler()
+        self._datasource_handler = DataStreamHandler()
         if 'playback_mode' in kwargs:
             self._playback_mode = kwargs['playback_mode']
             self._datasource_handler.set_playback_mode(self._playback_mode)
@@ -136,7 +136,7 @@ class OSHConnect:
             res_datastreams = system.discover_datastreams()
             # create DataSource(s)
             new_datasource = [
-                DataSource(name=ds.name, datastream=ds, parent_system=system)
+                DataStream(name=ds.name, datastream=ds, parent_system=system)
                 for ds in
                 res_datastreams]
             self._datafeeds.extend(new_datasource)
@@ -187,3 +187,42 @@ class OSHConnect:
         :return: list of MessageWrapper objects
         """
         return self._datasource_handler.get_messages()
+
+    def insert_system(self, system: System) -> str:
+        """
+        Insert a system into the OSHConnect instance.
+        :param system: System object
+        :return:
+        """
+        system.insert_self()
+        self._systems.append(system)
+
+    def insert_datastream(self, datastream: DatastreamResource, system: str | System) -> str:
+        """
+        Insert a datastream into the OSHConnect instance.
+        :param datastream: DataSource object
+        :param system: System object or system id
+        :return:
+        """
+        sys_obj: System
+        if isinstance(system, str):
+            sys_obj = self.find_system(system)
+            if sys_obj is None:
+                raise ValueError(f"System with id {system} not found")
+        else:
+            sys_obj = system
+
+        sys_obj.add_insert_datastream(datastream)
+
+        self._datafeeds.append(datastream)
+
+    def find_system(self, system_id: str) -> System | None:
+        """
+        Find a system in the OSHConnect instance.
+        :param system_id:
+        :return: the found system or None if not found
+        """
+        for system in self._systems:
+            if system.uid == system_id:
+                return system
+        return None

@@ -13,12 +13,15 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
-class TemporalMode(Enum):
-    REAL_TIME = 0
-    ARCHIVE = 1
+class TemporalModes(Enum):
+    REAL_TIME = "realtime"
+    ARCHIVE = "archive"
+    BATCH = "batch"
+    RT_SYNC = "realtimesync"
+    ARCHIVE_SYNC = "archivesync",
 
 
 class State(Enum):
@@ -193,6 +196,9 @@ class TimeInstant:
     def __ne__(self, other: TimeInstant) -> bool:
         return self.epoch_time != other.epoch_time
 
+    def __repr__(self):
+        return f'{self.get_iso_time()}'
+
 
 class DateTimeSchema(BaseModel):
     is_instant: bool = Field(True, description="Whether the date time is an instant or a period.")
@@ -242,6 +248,10 @@ class TimePeriod(BaseModel):
             raise ValueError("Start time must be less than end time")
 
         return data_dict
+
+    @model_serializer
+    def ser_model(self):
+        return [str(self.start), str(self.end)]
 
     @staticmethod
     def check_mbr_type(value):
@@ -305,6 +315,10 @@ class TimeManagement:
 
     def get_time_range(self):
         return self.time_range
+
+
+class TemporalMode:
+    pass
 
 
 class TimeController:
