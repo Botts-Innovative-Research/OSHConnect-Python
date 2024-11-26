@@ -11,7 +11,7 @@ from typing import List
 
 from conSys4Py import DatastreamSchema, Geometry
 from conSys4Py.datamodels.api_utils import Link
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 from shapely import Point
 
 from oshconnect.timemanagement import DateTimeSchema, TimePeriod
@@ -98,7 +98,7 @@ class SystemResource(BaseModel):
     bbox: BoundingBox = Field(None)
     links: List[Link] = Field(None)
     description: str = Field(None)
-    uid: uuid.UUID = Field(None)
+    uid: str = Field(None, serialization_alias="uniqueId")
     label: str = Field(None)
     lang: str = Field(None)
     keywords: List[str] = Field(None)
@@ -115,7 +115,7 @@ class SystemResource(BaseModel):
     definition: str = Field(None)
     type_of: str = Field(None, serialization_alias="typeOf")
     configuration: ConfigurationSettings = Field(None)
-    features_of_interest: List[FeatureOfInterest] = Field(None, alias="featuresOfInterest")
+    features_of_interest: List[FeatureOfInterest] = Field(None, serialization_alias="featuresOfInterest")
     inputs: List[Input] = Field(None)
     outputs: List[Output] = Field(None)
     parameters: List[Parameter] = Field(None)
@@ -124,27 +124,33 @@ class SystemResource(BaseModel):
 
 
 class DatastreamResource(BaseModel):
+    """
+    The DatastreamResource class is a Pydantic model that represents a datastream resource in the OGC SensorThings API.
+    It contains all the necessary and optional properties listed in the OGC Connected Systems API documentation. Note
+    that, depending on the format of the  request, the fields needed may differ. There may be derived models in a later
+    release that will have different sets of required fields to ease the validation process for users.
+    """
     # model_config = ConfigDict(populate_by_name=True)
 
-    ds_id: str = Field(..., alias="id")
+    ds_id: str = Field(..., serialization_alias="id")
     name: str = Field(...)
     description: str = Field(None)
-    valid_time: TimePeriod = Field(..., alias="validTime")
-    output_name: str = Field(None, alias="outputName")
-    procedure_link: Link = Field(None, alias="procedureLink@link")
-    deployment_link: Link = Field(None, alias="deploymentLink@link")
-    ultimate_feature_of_interest_link: Link = Field(None, alias="ultimateFeatureOfInterest@link")
-    sampling_feature_link: Link = Field(None, alias="samplingFeature@link")
+    valid_time: TimePeriod = Field(..., serialization_alias="validTime")
+    output_name: str = Field(None, serialization_alias="outputName")
+    procedure_link: Link = Field(None, serialization_alias="procedureLink@link")
+    deployment_link: Link = Field(None, serialization_alias="deploymentLink@link")
+    ultimate_feature_of_interest_link: Link = Field(None, serialization_alias="ultimateFeatureOfInterest@link")
+    sampling_feature_link: Link = Field(None, serialization_alias="samplingFeature@link")
     parameters: dict = Field(None)
-    phenomenon_time: TimePeriod = Field(None, alias="phenomenonTimeInterval")
-    result_time: TimePeriod = Field(None, alias="resultTimeInterval")
-    ds_type: str = Field(None, alias="type")
-    result_type: str = Field(None, alias="resultType")
+    phenomenon_time: TimePeriod = Field(None, serialization_alias="phenomenonTimeInterval")
+    result_time: TimePeriod = Field(None, serialization_alias="resultTimeInterval")
+    ds_type: str = Field(None, serialization_alias="type")
+    result_type: str = Field(None, serialization_alias="resultType")
     links: List[Link] = Field(None)
-    schema: DatastreamSchema = Field(None)
+    record_schema: SerializeAsAny[DatastreamSchema] = Field(None, serialization_alias="schema")
 
 
-class Observation(BaseModel):
+class ObservationResource(BaseModel):
     sampling_feature_id: str = Field(None, serialization_alias="samplingFeature@Id")
     procedure_link: Link = Field(None, serialization_alias="procedure@link")
     phenomenon_time: DateTimeSchema = Field(None, serialization_alias="phenomenonTime")
