@@ -171,7 +171,8 @@ class System:
                                 label=other_props['properties']['name'])
         else:
             new_system = System(name=system_resource.name,
-                                label=system_resource.label, urn=system_resource.urn, resource_id=system_resource.system_id)
+                                label=system_resource.label, urn=system_resource.urn,
+                                resource_id=system_resource.system_id)
         return new_system
 
     def to_system_resource(self) -> SystemResource:
@@ -193,19 +194,23 @@ class System:
         print(f'Adding datastream: {datastream.model_dump_json(exclude_none=True, by_alias=True)}')
         # Make the request to add the datastream
         # if successful, add the datastream to the system
-        datastream_schema = SWEDatastreamSchema(record_schema=datastream, obs_format='application/swe+json', encoding=JSONEncoding())
-        datastream_resource = DatastreamResource(ds_id="default", name=datastream.label, output_name=datastream.label, record_schema=datastream_schema,
+        datastream_schema = SWEDatastreamSchema(record_schema=datastream, obs_format='application/swe+json',
+                                                encoding=JSONEncoding())
+        datastream_resource = DatastreamResource(ds_id="default", name=datastream.label, output_name=datastream.label,
+                                                 record_schema=datastream_schema,
                                                  valid_time=TimePeriod(start=TimeInstant.now_as_time_instant(),
-                                                                       end=TimeInstant(utc_time=TimeUtils.to_utc_time("2026-12-31T00:00:00Z"))))
-        # datasource = DataStream(name=datastream.label, datastream=datastream_resource, parent_system=self._sys_resource)
+                                                                       end=TimeInstant(utc_time=TimeUtils.to_utc_time(
+                                                                           "2026-12-31T00:00:00Z"))))
 
         api = self._parent_node.get_api_helper()
-        print(f'Attempting to create datastream: {datastream_resource.model_dump_json(by_alias=True, exclude_none=True)}')
+        print(
+            f'Attempting to create datastream: {datastream_resource.model_dump_json(by_alias=True, exclude_none=True)}')
         print(
             f'Attempting to create datastream: {datastream_resource.model_dump(by_alias=True, exclude_none=True)}')
-        res = api.create_resource(APIResourceTypes.DATASTREAM, datastream_resource.model_dump_json(by_alias=True, exclude_none=True),
+        res = api.create_resource(APIResourceTypes.DATASTREAM,
+                                  datastream_resource.model_dump_json(by_alias=True, exclude_none=True),
                                   req_headers={
-                                        'Content-Type': 'application/json'
+                                      'Content-Type': 'application/json'
                                   }, parent_res_id=self.resource_id)
 
         if res.ok:
@@ -216,10 +221,12 @@ class System:
             raise Exception(f'Failed to create datastream: {datastream_resource.name}')
 
         self.datastreams.append(datastream_resource)
+        return Datastream(datastream_id, self._parent_node, datastream_resource)
 
     def insert_self(self):
         res = self._parent_node.get_api_helper().create_resource(
-            APIResourceTypes.SYSTEM, self.to_system_resource().model_dump_json(by_alias=True, exclude_none=True), req_headers={
+            APIResourceTypes.SYSTEM, self.to_system_resource().model_dump_json(by_alias=True, exclude_none=True),
+            req_headers={
                 'Content-Type': 'application/sml+json'
             })
 
@@ -232,7 +239,8 @@ class System:
     def retrieve_resource(self):
         if self.resource_id is None:
             return None
-        res = self._parent_node.get_api_helper().retrieve_resource(res_type=APIResourceTypes.SYSTEM, res_id=self.resource_id)
+        res = self._parent_node.get_api_helper().retrieve_resource(res_type=APIResourceTypes.SYSTEM,
+                                                                   res_id=self.resource_id)
         if res.ok:
             system_json = res.json()
             print(system_json)
@@ -241,31 +249,56 @@ class System:
             self._sys_resource = system_resource
 
 
-# class Datastream:
-#     should_poll: bool
-#     _datastream_resource: DatastreamResource
-#
-#     def __init__(self, datastream_resource: DatastreamResource):
-#         pass
-#
-#     def get_id(self):
-#         return self._datastream_resource.ds_id
-#
-#     def insert_observation(self, observation: Observation):
-#         pass
-#
-#     def to_resource(self) -> DatastreamResource:
-#         # if self._datastream_resource is None:
-#         #     self._datastream_resource = DatastreamResource(
-#         #         ds_id=uuid.uuid4(), name=self.name,
-#         #         valid_time=self.validTimeRange)
-#         return self._datastream_resource
-#
-#     # def create_from_record_schema(record_schema: DataRecordSchema, parent_system: System):
-#     #     new_ds = Datastream(name=record_schema.label, record_schema=record_schema)
-#     #     new_ds._datastream_resource = DatastreamResource(ds_id=uuid.uuid4(), name=new_ds.name)
-#     #     parent_system.datastreams.append(new_ds)
-#     #     return new_ds
+class Datastream:
+    should_poll: bool
+    _id: str
+    _datastream_resource: DatastreamResource
+    _parent_node: Node
+
+    def __init__(self, id: str = None, parent_node: Node = None, datastream_resource: DatastreamResource = None):
+        self._id = id
+        self._parent_node = parent_node
+        self._datastream_resource = datastream_resource
+
+    def get_id(self):
+        return self._datastream_resource.ds_id
+
+    def insert_observation(self, observation: Observation):
+        pass
+
+    def to_resource(self) -> DatastreamResource:
+        # if self._datastream_resource is None:
+        #     self._datastream_resource = DatastreamResource(
+        #         ds_id=uuid.uuid4(), name=self.name,
+        #         valid_time=self.validTimeRange)
+        return self._datastream_resource
+
+    def observation_template(self) -> Observation:
+        pass
+
+    def create_observation(self, obs_data: dict):
+        obs = ObservationResource(result=obs_data, result_time=TimeInstant.now_as_time_instant())
+        # Validate against the schema
+        if self._datastream_resource.record_schema is not None:
+            obs.validate_against_schema(self._datastream_resource.record_schema)
+        return obs
+
+    def insert_observation_dict(self, obs_data: dict):
+        res = self._parent_node.get_api_helper().create_resource(APIResourceTypes.OBSERVATION, obs_data,
+                                                                 parent_res_id=self._id,
+                                                                 req_headers={'Content-Type': 'application/json'})
+        if res.ok:
+            obs_id = res.headers['Location'].split('/')[-1]
+            print(f'Inserted observation: {obs_id}')
+            return id
+        else:
+            raise Exception(f'Failed to insert observation: {res.text}')
+
+    # def create_from_record_schema(record_schema: DataRecordSchema, parent_system: System):
+    #     new_ds = Datastream(name=record_schema.label, record_schema=record_schema)
+    #     new_ds._datastream_resource = DatastreamResource(ds_id=uuid.uuid4(), name=new_ds.name)
+    #     parent_system.datastreams.append(new_ds)
+    #     return new_ds
 
 
 class ControlChannel:
