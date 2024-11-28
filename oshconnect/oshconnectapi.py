@@ -5,7 +5,6 @@
 #  Contact email:  ian@botts-inc.com
 #   ==============================================================================
 import logging
-import pickle
 import shelve
 
 from conSys4Py.core.default_api_helpers import APIHelper
