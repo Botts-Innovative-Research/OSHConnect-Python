@@ -43,7 +43,8 @@ class Node:
     is_secure: bool
     _basic_auth: bytes = None
     _api_helper: APIHelper
-    _system_ids: list[uuid] = field(default_factory=list)
+    # _system_ids: list[uuid] = field(default_factory=list)
+    _systems: list[System] = field(default_factory=list)
 
     def __init__(self, protocol: str, address: str, port: int,
                  username: str = None, password: str = None,
@@ -62,7 +63,7 @@ class Node:
             password=password)
         if self.is_secure:
             self._api_helper.user_auth = True
-        self._system_ids = []
+        self._systems = []
 
     def get_id(self):
         return self._id
@@ -97,7 +98,7 @@ class Node:
                 system = SystemResource.model_validate(system_json)
                 sys_obj = System.from_system_resource(system)
                 sys_obj.update_parent_node(self)
-                self._system_ids.append(sys_obj.uid)
+                self._systems.append(sys_obj)
                 new_systems.append(sys_obj)
             return new_systems
         else:
@@ -105,10 +106,29 @@ class Node:
 
     def add_new_system(self, system: System):
         system.update_parent_node(self)
-        self._system_ids.append(system.uid)
+        self._systems.append(system)
 
     def get_api_helper(self) -> APIHelper:
         return self._api_helper
+
+    # System Management
+
+    def add_system(self, system: System, target_node: Node, insert_resource: bool = False):
+        """
+        Add a system to the target node.
+        :param system: System object
+        :param target_node: Node object
+        :param insert_resource: Whether to insert the system into the target node's server, default is False
+        :return:
+        """
+        if insert_resource:
+            system.insert_self()
+        target_node.add_new_system(system)
+        self._systems.append(system)
+        return system
+
+    def systems(self) -> list[System]:
+        return self._systems
 
 
 class System:
