@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-consys4py = { git = "https://github.com/Botts-Innovative-Research/CSAPI4Py.git", branch = "dev" }
+conSys4Py = { git = "https://github.com/Botts-Innovative-Research/CSAPI4Py.git", branch = "dev" }
 swecommondm = { git = "https://github.com/ChainReaction31/SWECommonDMPython.git", branch = "master" }
 pydantic = "^2.7.4"
 shapely = "^2.0.4"
