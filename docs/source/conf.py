@@ -24,7 +24,7 @@ def setup(app):
 project = 'OSHConnect-Python'
 copyright = '2024, Botts Innovative Research, Inc.'
 author = 'Ian Patterson'
-release = '0.1'
+release = '0.2'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

@@ -91,3 +91,89 @@ observations.
     for message in messages:
         for observation in message.observations:
             do_something_with(observation)
+
+
+Resource Insertion
+=========================================
+Other use cases of the OSH Connect library may involve inserting new resources into OpenSensorHub or another Connected Systems API server.
+
+Adding and Inserting a New System
+-----------------------------------------
+The first major step in a common workflow is to add a new system to the OSH Connect instance.
+There are a couple of ways to do this, but the recommended method is as follows:
+
+.. note::
+
+    The `insert_system` method requires a `Node` object to be passed in as the second argument.
+    Creating one is covered in an earlier section.
+
+.. code-block:: python
+
+    from oshconnect.osh_connect_datamodels import System
+
+    new_system = app.insert_system(
+        System(name="Test System", description="Test System Description", label="Test System",
+               urn="urn:system:test"), node)
+
+Adding and Inserting a New Datastream
+-----------------------------------------
+Once you have a `System` object, you can add a new datastream to it. This is one of the more complex operations
+in the library as the schema is very flexible by design. Luckily, the schemas are validated by the underlying data
+models, so you can be sure that your datastream is valid before inserting it.
+
+.. caution::
+
+    Some implementations of the Connected Systems API may require additional fields to be filled in.
+    OSH Connect is primarily focused on the OpenSensorHub implementation, but does not some of the fields that
+    are required by and OpenSensorHub node.
+
+In this example, we will add a new datastream to the `new_system` object that we created in the previous example.
+You'll note the creation of a `DataRecordSchema` object, in OSH's implementation, a DataRecord is the root of all
+datastream schemas.
+
+.. code-block:: python
+
+    from oshconnect.osh_connect_datamodels import Datastream
+
+    datarecord_schema = DataRecordSchema(label='Example Data Record', description='Example Data Record Description',
+                                         definition='www.test.org/records/example-datarecord', fields=[])
+    time_schema = TimeSchema(label="Timestamp", definition="http://test.com/Time", name="timestamp",
+                             uom=URI(href="http://test.com/TimeUOM"))
+    continuous_value_field = QuantitySchema(name='continuous-value-distance', label='Continuous Value Distance',
+                                            description='Continuous Value Description',
+                                            definition='www.test.org/fields/continuous-value',
+                                            uom=UCUMCode(code='m', label='meters'))
+    example_text_field = TextSchema(name='example-text-field', label='Example Text Field', definition='www.test.org/fields/example-text-field')
+    # add the fields to the datarecord schema, these can also be added added to the datarecord when it is created
+    datarecord_schema.fields.append(time_schema)   # TimeSchema is required to be the first field in the datarecord for OSH
+    datarecord_schema.fields.append(continuous_value_field)
+    datarecord_schema.fields.append(example_text_field)
+    # Add the datastream to the system
+    datastream = new_system.add_insert_datastream(datarecord_schema)
+
+.. note::
+
+    A TimeSchema is required to be the first field in the DataRecordSchema for OSH.
+
+Inserting an Observation into and OpenSensorHub Node
+-----------------------------------------
+Upon successfully adding a new datastream to a system, it is now possible to send observation data to the node.
+
+.. code-block:: python
+
+    datastream.insert_observation_dict({
+        "resultTime": TimeInstant.now_as_time_instant().get_iso_time(),     # resultTime is required for OSH
+        "phenomenonTime": TimeInstant.now_as_time_instant().get_iso_time(), # phenomenonTime is required for OSH
+        "result": {
+            "timestamp": TimeInstant.now_as_time_instant().epoch_time,
+            "continuous-value-distance": 1.0,
+            "example-text-field": "Here is some text"
+        }
+    })
+
+.. note::
+
+        The `resultTime` and `phenomenonTime` fields are required for OSH.
+        The `result` field is representative of the schemas included in the DataRecordSchema's fields.
+        You'll notice that they are referred to by their `name` field in the schema as it is the "machine" name
+        of the output.

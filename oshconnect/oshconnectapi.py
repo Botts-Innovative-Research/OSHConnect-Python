@@ -4,6 +4,8 @@
 #  Author:  Ian Patterson
 #  Contact email:  ian@botts-inc.com
 #   ==============================================================================
+import logging
+import shelve
 
 from conSys4Py.core.default_api_helpers import APIHelper
 
@@ -46,6 +48,8 @@ class OSHConnect:
             self._playback_mode = kwargs['playback_mode']
             self._datasource_handler.set_playback_mode(self._playback_mode)
 
+        logging.info(f"OSHConnect instance {name} created")
+
     def get_name(self):
         """
         Get the name of the OSHConnect instance.
@@ -73,10 +77,17 @@ class OSHConnect:
                        node.get_id() != node_id]
 
     def save_config(self, config: dict):
-        pass
+        logging.info(f"Saving configuration for {self._name}")
+        with shelve.open(f"{self._name}_config") as db:
+            db['app_config'] = self
+            db.close()
 
-    def load_config(self, config: dict):
-        pass
+    @classmethod
+    def load_config(cls, file_name: str) -> 'OSHConnect':
+        with shelve.open(file_name, 'r') as db:
+            app = db['app_config']
+            db.close()
+            return app
 
     def share_config(self, config: dict):
         pass
@@ -188,14 +199,16 @@ class OSHConnect:
         """
         return self._datasource_handler.get_messages()
 
-    def insert_system(self, system: System) -> str:
+    def insert_system(self, system: System, target_node: Node):
         """
-        Insert a system into the OSHConnect instance.
+        Create a system on the target node.
         :param system: System object
-        :return:
+        :param target_node: Node object, must be within the OSHConnect instance
+        :return: the created system
         """
-        system.insert_self()
-        self._systems.append(system)
+        if target_node in self._nodes:
+            self.add_system(system, target_node, insert_resource=True)
+            return system
 
     def insert_datastream(self, datastream: DatastreamResource, system: str | System) -> str:
         """
@@ -226,3 +239,34 @@ class OSHConnect:
             if system.uid == system_id:
                 return system
         return None
+
+    # System Management
+    def add_system(self, system: System, target_node: Node, insert_resource: bool = False):
+        """
+        Add a system to the target node.
+        :param system: System object
+        :param target_node: Node object,  must be within the OSHConnect instance
+        :param insert_resource: Whether to insert the system into the target node's server, default is False
+        :return:
+        """
+        if target_node in self._nodes:
+            target_node.add_new_system(system)
+            if insert_resource:
+                system.insert_self()
+            self._systems.append(system)
+            return
+
+    def create_and_insert_system(self, system_opts: dict, target_node: Node):
+        """
+        Create a system on the target node.
+        :param system_opts: System object parameters
+        :param target_node: Node object, must be within the OSHConnect instance
+        :return: the created system
+        """
+        if target_node in self._nodes:
+            new_system = System(**system_opts)
+            self.add_system(new_system, target_node, insert_resource=True)
+            return new_system
+
+    def remove_system(self, system_id: str):
+        pass
