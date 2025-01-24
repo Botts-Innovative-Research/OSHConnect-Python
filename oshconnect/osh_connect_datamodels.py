@@ -10,10 +10,11 @@ import base64
 import uuid
 from dataclasses import dataclass, field
 
-from conSys4Py import APIResourceTypes, DataRecordSchema
+from conSys4Py.constants import APIResourceTypes
 from conSys4Py.core.default_api_helpers import APIHelper
 from conSys4Py.datamodels.datastreams import SWEDatastreamSchema
 from conSys4Py.datamodels.encoding import JSONEncoding
+from conSys4Py.datamodels.swe_components import DataRecordSchema
 
 from .core_datamodels import DatastreamResource, ObservationResource, SystemResource
 from .timemanagement import TimeInstant, TimePeriod, TimeUtils
@@ -188,7 +189,9 @@ class System:
         # case 1: has properties a la geojson
         if 'properties' in other_props:
             new_system = System(name=other_props['properties']['name'],
-                                label=other_props['properties']['name'])
+                                label=other_props['properties']['name'],
+                                urn=other_props['properties']['uid'],
+                                resource_id=system_resource.system_id)
         else:
             new_system = System(name=system_resource.name,
                                 label=system_resource.label, urn=system_resource.urn,

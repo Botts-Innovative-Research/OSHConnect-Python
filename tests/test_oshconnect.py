@@ -14,6 +14,7 @@ from oshconnect.timemanagement import TimeInstant
 
 
 class TestOSHConnect:
+    TEST_PORT = 8282
 
     def test_time_period(self):
         tp = TimePeriod(start="2024-06-18T15:46:32Z", end="2024-06-18T20:00:00Z")
@@ -44,7 +45,7 @@ class TestOSHConnect:
 
     def test_oshconnect_add_node(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="http://localhost", port=8585)
+        node = Node(address="http://localhost", port=self.TEST_PORT, protocol="http", username="admin", password="admin")
         # node.add_basicauth("admin", "admin")
         app.add_node(node)
         assert len(app._nodes) == 1
@@ -52,7 +53,7 @@ class TestOSHConnect:
 
     def test_find_systems(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="localhost", port=8585, username="admin", password="admin", protocol="http")
+        node = Node(address="localhost", port=self.TEST_PORT, username="admin", password="admin", protocol="http")
         # node.add_basicauth("admin", "admin")
         app.add_node(node)
         app.discover_systems()
@@ -62,7 +63,7 @@ class TestOSHConnect:
 
     def test_oshconnect_find_datastreams(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="localhost", port=8585, username="admin", password="admin", protocol="http")
+        node = Node(address="localhost", port=self.TEST_PORT, username="admin", password="admin", protocol="http")
         app.add_node(node)
         app.discover_systems()
 
