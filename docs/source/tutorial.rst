@@ -156,7 +156,7 @@ datastream schemas.
     A TimeSchema is required to be the first field in the DataRecordSchema for OSH.
 
 Inserting an Observation into and OpenSensorHub Node
------------------------------------------
+-----------------------------------------------------
 Upon successfully adding a new datastream to a system, it is now possible to send observation data to the node.
 
 .. code-block:: python

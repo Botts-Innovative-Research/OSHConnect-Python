@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import requests
 import websockets
-from conSys4Py import APIResourceTypes
+from conSys4Py.constants import APIResourceTypes
 from conSys4Py.datamodels.observations import ObservationOMJSONInline
 from conSys4Py.datamodels.swe_components import DataRecordSchema
 
