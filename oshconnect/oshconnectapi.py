@@ -7,7 +7,7 @@
 import logging
 import shelve
 
-from conSys4Py.core.default_api_helpers import APIHelper
+from consys4py.core.default_api_helpers import APIHelper
 
 from .core_datamodels import DatastreamResource, TimePeriod
 from .datasource import DataStream, DataStreamHandler, MessageWrapper
