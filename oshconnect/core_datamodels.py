@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import List
 
-from conSys4Py.datamodels.swe_components import Geometry
-from conSys4Py.datamodels.datastreams import DatastreamSchema
-from conSys4Py.datamodels.api_utils import Link
+from consys4py.datamodels.swe_components import Geometry
+from consys4py.datamodels.datastreams import DatastreamSchema
+from consys4py.datamodels.api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 from shapely import Point
 

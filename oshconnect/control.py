@@ -5,9 +5,9 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 import websockets
-from conSys4Py.comm.mqtt import MQTTCommClient
-from conSys4Py.datamodels.commands import CommandJSON
-from conSys4Py.datamodels.control_streams import ControlStreamJSONSchema
+from consys4py.comm.mqtt import MQTTCommClient
+from consys4py.datamodels.commands import CommandJSON
+from consys4py.datamodels.control_streams import ControlStreamJSONSchema
 
 from oshconnect.osh_connect_datamodels import System
 

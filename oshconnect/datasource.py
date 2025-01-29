@@ -16,9 +16,9 @@ from uuid import uuid4
 
 import requests
 import websockets
-from conSys4Py.constants import APIResourceTypes
-from conSys4Py.datamodels.observations import ObservationOMJSONInline
-from conSys4Py.datamodels.swe_components import DataRecordSchema
+from consys4py.constants import APIResourceTypes
+from consys4py.datamodels.observations import ObservationOMJSONInline
+from consys4py.datamodels.swe_components import DataRecordSchema
 
 from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
 from .timemanagement import TemporalModes
@@ -73,7 +73,7 @@ class DataStream:
 
             # t_url = f'http://{self._parent_system.get_parent_node().get_address()}:{self._parent_system.get_parent_node().get_port()}'
             #
-            # res = conSys4Py.part_2.datastreams.retrieve_datastream_schema(t_url,
+            # res = consys4py.part_2.datastreams.retrieve_datastream_schema(t_url,
             #                                                               datastream_id=self._datastream.ds_id,
             #                                                               api_root=self._parent_system.get_parent_node()._api_helper.api_root,
             #                                                               headers=self._extra_headers)

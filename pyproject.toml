@@ -1,17 +1,17 @@
 [tool.poetry]
 name = "oshconnect"
-version = "0.2.0"
+version = "0.2.1"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations."
 authors = ["Ian Patterson <ian@botts-inc.com@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-conSys4Py = { git = "https://github.com/Botts-Innovative-Research/CSAPI4Py.git", branch = "dev" }
-swecommondm = { git = "https://github.com/ChainReaction31/SWECommonDMPython.git", branch = "master" }
 pydantic = "^2.7.4"
 shapely = "^2.0.4"
 websockets = "^12.0"
+consys4py = "^0.0.1a1"
+swecommondm = "^0.0.1a0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
