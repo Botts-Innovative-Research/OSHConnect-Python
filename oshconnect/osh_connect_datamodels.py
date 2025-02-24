@@ -16,6 +16,7 @@ from consys4py.datamodels.datastreams import SWEDatastreamSchema
 from consys4py.datamodels.encoding import JSONEncoding
 from consys4py.datamodels.swe_components import DataRecordSchema
 
+from .control import ControlStream
 from .core_datamodels import DatastreamResource, ObservationResource, SystemResource
 from .timemanagement import TimeInstant, TimePeriod, TimeUtils
 
@@ -139,7 +140,7 @@ class System:
     label: str
     # datastreams: list[Datastream]
     datastreams: list[DatastreamResource]
-    control_channels: list[ControlChannel]
+    control_channels: list[ControlStream]
     description: str
     urn: str
     _parent_node: Node
@@ -271,6 +272,26 @@ class System:
             print(f'System Resource: {system_resource}')
             self._sys_resource = system_resource
 
+    def add_insert_control_stream(self, control_stream: ControlStream):
+        """
+        Adds a control stream to the system while also inserting it into the system's parent node via HTTP POST.
+        :param control_stream: ControlStreamSchema to be used to define the control stream
+        :return:
+        """
+        print(f'Adding control stream: {control_stream.get_schema().model_dump_json(exclude_none=True)}')
+        api = self._parent_node.get_api_helper()
+        res = api.create_resource(APIResourceTypes.CONTROL_CHANNEL,
+                            control_stream.get_schema().model_dump_json(exclude_none=True, by_alias=True), req_headers={
+                'Content-Type': 'application/json'
+            }, parent_res_id=self.resource_id)
+        if res.ok:
+            control_stream_id = res.headers['Location'].split('/')[-1]
+            control_stream.set_id(control_stream_id)
+            self.control_channels.append(control_stream)
+        else:
+            raise Exception(f'Failed to create control stream: {control_stream.name}')
+        return control_stream
+
 
 class Datastream:
     should_poll: bool
@@ -324,11 +345,14 @@ class Datastream:
     #     return new_ds
 
 
-class ControlChannel:
-    # _cc_resource: ControlStream
-
-    def __init__(self):
-        pass
+# class ControlChannel:
+#     """
+#     * deprecated *
+#     """
+#     # _cc_resource: ControlStream
+#
+#     def __init__(self):
+#         pass
 
 
 class Observation:
