@@ -19,6 +19,7 @@ import websockets
 from consys4py.constants import APIResourceTypes
 from consys4py.datamodels.observations import ObservationOMJSONInline
 from consys4py.datamodels.swe_components import DataRecordSchema
+from websockets import ConnectionClosed
 
 from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
 from .timemanagement import TemporalModes
@@ -66,6 +67,9 @@ class DataStream:
         self._url = None
         self._auth = None
         self._extra_headers = None
+        self._insertion_websocket: websockets.client = None
+        self._insertion_mode = "http"
+
         if self._parent_system.get_parent_node().is_secure:
             self._auth = self._parent_system.get_parent_node().get_decoded_auth()
             self._extra_headers = {'Authorization': f'Basic {self._auth}'}
@@ -150,6 +154,8 @@ class DataStream:
         if self._playback_mode == TemporalModes.REAL_TIME:
             self._playback_websocket = await websockets.connect(self._url,
                                                                 extra_headers=self._extra_headers)
+            self._insertion_websocket = await websockets.connect(uri=self.generate_insertion_url(),
+                                                                 additional_headers=self._extra_headers)
             self._status = "connected"
             return self._playback_websocket
         elif self._playback_mode == TemporalModes.ARCHIVE:
@@ -171,6 +177,7 @@ class DataStream:
         :return:
         """
         self._playback_websocket.close()
+        self._insertion_websocket.close()
 
     def reset(self):
         """
@@ -257,12 +264,22 @@ class DataStream:
 
         :return:
         """
-        url_result = (
-            f'http://{self._parent_system.get_parent_node().get_address()}:'
-            f'{self._parent_system.get_parent_node().get_port()}'
-            f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
-            f'/observations'
-        )
+        # TODO: needs to respect secure vs insecure protocols as well as http/ws
+        # TODO: further implement MQTT client, esp bidirectional pub/sub
+        if self._insertion_mode is not None or self._insertion_mode == "http":
+            url_result = (
+                f'http://{self._parent_system.get_parent_node().get_address()}:'
+                f'{self._parent_system.get_parent_node().get_port()}'
+                f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                f'/observations'
+            )
+        elif self._insertion_mode == "realtime":
+            url_result = (
+                f'ws://{self._parent_system.get_parent_node().get_address()}:'
+                f'{self._parent_system.get_parent_node().get_port()}'
+                f'/sensorhub/api/datastreams/{self._datastream.ds_id}'
+                f'/observations'
+            )
         return url_result
 
     def insert_observation(self, observation: ObservationOMJSONInline):
@@ -271,9 +288,26 @@ class DataStream:
         :param observation: ObservationOMJSONInline object
         :return:
         """
-        api_helper = self._parent_system.get_parent_node().get_api_helper()
-        api_helper.post_resource(APIResourceTypes.OBSERVATION, parent_res_id=self._datastream.ds_id,
-                                 data=observation.model_dump(), req_headers={'Content-Type': 'application/om+json'})
+        if self._insertion_mode is None or self._insertion_mode == "http":
+            api_helper = self._parent_system.get_parent_node().get_api_helper()
+            api_helper.post_resource(APIResourceTypes.OBSERVATION, parent_res_id=self._datastream.ds_id,
+                                     data=observation.model_dump(), req_headers={'Content-Type': 'application/om+json'})
+        elif self._insertion_mode == "realtime":
+            try:
+                self._insertion_websocket.send(observation.model_dump())
+            except ConnectionClosed:
+                print("Connection closed")
+
+    # async def _produce_observation(self, observation: ObservationOMJSONInline):
+    #     """
+    #     Posts an observation to the server using the websocket connection
+    #     :param observation: ObservationOMJSONInline object
+    #     :return:
+    #     """
+    #     if self._insertion_websocket is not None:
+    #         await self._insertion_websocket.send(observation.model_dump())
+    #     else:
+    #         raise ValueError("Websocket connection not established")
 
 
 class DataStreamHandler:
