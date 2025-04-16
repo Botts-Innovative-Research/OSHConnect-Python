@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "oshconnect"
-version = "0.2.1"
+version = "0.2.2"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations."
 authors = ["Ian Patterson <ian@botts-inc.com@gmail.com>"]
 readme = "README.md"
@@ -10,7 +10,7 @@ python = "^3.12"
 pydantic = "^2.7.4"
 shapely = "^2.0.4"
 websockets = "^12.0"
-consys4py = "^0.0.1a1"
+consys4py = "^0.0.1a8"
 swecommondm = "^0.0.1a0"
 
 [tool.poetry.group.dev.dependencies]
