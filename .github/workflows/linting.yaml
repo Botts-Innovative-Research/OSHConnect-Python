@@ -12,7 +12,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install uv
-          uv install --group dev
+          uv sync --all-extras
 
       - name: Lint
         run: |
