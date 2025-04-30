@@ -11,7 +11,7 @@ dependencies = [
     "pydantic<3.0.0,>=2.7.4",
     "shapely<3.0.0,>=2.0.4",
     "websockets<13.0,>=12.0",
-    "consys4py<1.0.0,>=0.0.1a8",
+    "consys4py<1.0.0,>=0.0.1b1",
     "swecommondm<1.0.0,>=0.0.1a0",
 ]
 
