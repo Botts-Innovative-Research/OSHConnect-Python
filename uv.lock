@@ -84,16 +84,16 @@ wheels = [
 
 [[package]]
 name = "consys4py"
-version = "0.0.1b1"
+version = "0.0.1b3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "paho-mqtt" },
     { name = "pydantic" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/62/33/5d4cf57adf7d0d42584638ceaeaacbec66810698b40cb1e302981777b7ba/consys4py-0.0.1b1.tar.gz", hash = "sha256:a571f3ef940773f55c6e4b133bb048bddce13a2c4a8bbf3b37d68d9e0c5d09b4", size = 15720 }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/26/5185fdf57b9ade4f5b2df9141ed01b938986bd1b8155c534536bd665c6d1/consys4py-0.0.1b3.tar.gz", hash = "sha256:10b8a8a3e3644e811af10b21052d7fa7172fd07b80c8fa60755d0c6ff3d8f816", size = 27114 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/5b/1390bd68753b339e6347237cf79a8755d81d8f4c6c6d7285cd433b1a0bf5/consys4py-0.0.1b1-py3-none-any.whl", hash = "sha256:fdccc610715689f0a9905c89687561653974caaf58316d1eaac46aecde87faae", size = 8256 },
+    { url = "https://files.pythonhosted.org/packages/27/ee/27dd55fc1068a89707a4f8205393c8c3424a77e170d7cde42319742e790b/consys4py-0.0.1b3-py3-none-any.whl", hash = "sha256:968cdd83386f64184dda6b3cd478e5b68ae4e77581901393e83a1df83922dcc5", size = 31383 },
 ]
 
 [[package]]
@@ -245,7 +245,7 @@ wheels = [
 
 [[package]]
 name = "oshconnect"
-version = "0.2.3"
+version = "0.2.4.post1"
 source = { virtual = "." }
 dependencies = [
     { name = "consys4py" },
@@ -265,7 +265,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "consys4py", specifier = ">=0.0.1b1,<1.0.0" },
+    { name = "consys4py", specifier = ">=0.0.1b3,<1.0.0" },
     { name = "pydantic", specifier = ">=2.7.4,<3.0.0" },
     { name = "shapely", specifier = ">=2.0.4,<3.0.0" },
     { name = "swecommondm", specifier = ">=0.0.1a0,<1.0.0" },

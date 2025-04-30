@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.2.4"
+version = "0.2.4-1"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations."
 readme = "README.md"
 authors = [
@@ -11,7 +11,7 @@ dependencies = [
     "pydantic<3.0.0,>=2.7.4",
     "shapely<3.0.0,>=2.0.4",
     "websockets<13.0,>=12.0",
-    "consys4py<1.0.0,>=0.0.1b1",
+    "consys4py<1.0.0,>=0.0.1b3",
     "swecommondm<1.0.0,>=0.0.1a0",
 ]
 

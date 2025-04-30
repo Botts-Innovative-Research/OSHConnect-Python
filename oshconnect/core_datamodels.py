@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List
 
-from consys4py.datamodels.swe_components import Geometry
+from consys4py.datamodels.swe_components import GeometrySchema
 from consys4py.datamodels.datastreams import DatastreamSchema
 from consys4py.datamodels.api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
@@ -94,7 +94,7 @@ class SystemResource(BaseModel):
     feature_type: str = Field(None, serialization_alias="type")
     system_id: str = Field(None, serialization_alias="id")
     properties: dict = Field(None)
-    geometry: Geometry | None = Field(None)
+    geometry: GeometrySchema | None = Field(None)
     bbox: BoundingBox = Field(None)
     links: List[Link] = Field(None)
     description: str = Field(None)
