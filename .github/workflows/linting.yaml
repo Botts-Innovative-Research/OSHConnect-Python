@@ -9,12 +9,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-
       - name: Install dependencies
         run: |
-          poetry install --with dev
+          pip install uv
+          uv sync --all-extras
+
       - name: Lint
         run: |
-          poetry run flake8
+          uv run flake8 oshconnect
