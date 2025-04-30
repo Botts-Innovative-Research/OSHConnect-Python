@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Reference &mdash; OSHConnect-Python 0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="_static/jquery.js?v=5d32c60e"></script>
+        <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="_static/documentation_options.js?v=10f1778b"></script>
+        <script src="_static/doctools.js?v=9a2dae69"></script>
+        <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="OSH Connect Tutorial" href="tutorial.html" />
+    <link rel="prev" title="Welcome to OSHConnect-Python’s documentation!" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            OSHConnect-Python
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#oshconnect">OSHConnect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#oshconnect-utilities-and-helpers">OSHConnect Utilities and Helpers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#osh-connect-data-models">OSH Connect Data Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#datasources-and-messaging">DataSources and Messaging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#time-management">Time Management</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.DateTimeSchema"><code class="docutils literal notranslate"><span class="pre">DateTimeSchema</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.DateTimeSchema.check_iso_date"><code class="docutils literal notranslate"><span class="pre">DateTimeSchema.check_iso_date()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.DateTimeSchema.is_instant"><code class="docutils literal notranslate"><span class="pre">DateTimeSchema.is_instant</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.DateTimeSchema.iso_date"><code class="docutils literal notranslate"><span class="pre">DateTimeSchema.iso_date</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.DateTimeSchema.model_config"><code class="docutils literal notranslate"><span class="pre">DateTimeSchema.model_config</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.DateTimeSchema.time_period"><code class="docutils literal notranslate"><span class="pre">DateTimeSchema.time_period</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.DateTimeSchema.valid_datetime_type"><code class="docutils literal notranslate"><span class="pre">DateTimeSchema.valid_datetime_type()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.IndeterminateTime"><code class="docutils literal notranslate"><span class="pre">IndeterminateTime</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.IndeterminateTime.FIRST"><code class="docutils literal notranslate"><span class="pre">IndeterminateTime.FIRST</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.IndeterminateTime.LATEST"><code class="docutils literal notranslate"><span class="pre">IndeterminateTime.LATEST</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.IndeterminateTime.NOW"><code class="docutils literal notranslate"><span class="pre">IndeterminateTime.NOW</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.State"><code class="docutils literal notranslate"><span class="pre">State</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.State.BUFFERING"><code class="docutils literal notranslate"><span class="pre">State.BUFFERING</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.State.FAST_FORWARDING"><code class="docutils literal notranslate"><span class="pre">State.FAST_FORWARDING</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.State.INITIALIZED"><code class="docutils literal notranslate"><span class="pre">State.INITIALIZED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.State.PLAYING"><code class="docutils literal notranslate"><span class="pre">State.PLAYING</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.State.REWINDING"><code class="docutils literal notranslate"><span class="pre">State.REWINDING</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.State.STOPPED"><code class="docutils literal notranslate"><span class="pre">State.STOPPED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.State.UNINITIALIZED"><code class="docutils literal notranslate"><span class="pre">State.UNINITIALIZED</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.Synchronizer"><code class="docutils literal notranslate"><span class="pre">Synchronizer</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.Synchronizer.synchronize"><code class="docutils literal notranslate"><span class="pre">Synchronizer.synchronize()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.TemporalMode"><code class="docutils literal notranslate"><span class="pre">TemporalMode</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.TemporalModes"><code class="docutils literal notranslate"><span class="pre">TemporalModes</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TemporalModes.ARCHIVE"><code class="docutils literal notranslate"><span class="pre">TemporalModes.ARCHIVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TemporalModes.ARCHIVE_SYNC"><code class="docutils literal notranslate"><span class="pre">TemporalModes.ARCHIVE_SYNC</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TemporalModes.BATCH"><code class="docutils literal notranslate"><span class="pre">TemporalModes.BATCH</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TemporalModes.REAL_TIME"><code class="docutils literal notranslate"><span class="pre">TemporalModes.REAL_TIME</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TemporalModes.RT_SYNC"><code class="docutils literal notranslate"><span class="pre">TemporalModes.RT_SYNC</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.TimeController"><code class="docutils literal notranslate"><span class="pre">TimeController</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.add_listener"><code class="docutils literal notranslate"><span class="pre">TimeController.add_listener()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.clear_streams"><code class="docutils literal notranslate"><span class="pre">TimeController.clear_streams()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.fast_forward"><code class="docutils literal notranslate"><span class="pre">TimeController.fast_forward()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.get_buffer_time"><code class="docutils literal notranslate"><span class="pre">TimeController.get_buffer_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.get_current_time"><code class="docutils literal notranslate"><span class="pre">TimeController.get_current_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.get_status"><code class="docutils literal notranslate"><span class="pre">TimeController.get_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.get_temporal_mode"><code class="docutils literal notranslate"><span class="pre">TimeController.get_temporal_mode()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.get_timeline_end"><code class="docutils literal notranslate"><span class="pre">TimeController.get_timeline_end()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.get_timeline_start"><code class="docutils literal notranslate"><span class="pre">TimeController.get_timeline_start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.pause"><code class="docutils literal notranslate"><span class="pre">TimeController.pause()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.play_from_start"><code class="docutils literal notranslate"><span class="pre">TimeController.play_from_start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.remove_listener"><code class="docutils literal notranslate"><span class="pre">TimeController.remove_listener()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.reset"><code class="docutils literal notranslate"><span class="pre">TimeController.reset()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.rewind"><code class="docutils literal notranslate"><span class="pre">TimeController.rewind()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.set_buffer_time"><code class="docutils literal notranslate"><span class="pre">TimeController.set_buffer_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.set_current_time"><code class="docutils literal notranslate"><span class="pre">TimeController.set_current_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.set_temporal_mode"><code class="docutils literal notranslate"><span class="pre">TimeController.set_temporal_mode()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.set_timeline_end"><code class="docutils literal notranslate"><span class="pre">TimeController.set_timeline_end()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.set_timeline_start"><code class="docutils literal notranslate"><span class="pre">TimeController.set_timeline_start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.skip"><code class="docutils literal notranslate"><span class="pre">TimeController.skip()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.skip_to_end"><code class="docutils literal notranslate"><span class="pre">TimeController.skip_to_end()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.start"><code class="docutils literal notranslate"><span class="pre">TimeController.start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeController.stop"><code class="docutils literal notranslate"><span class="pre">TimeController.stop()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant"><code class="docutils literal notranslate"><span class="pre">TimeInstant</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant.epoch_time"><code class="docutils literal notranslate"><span class="pre">TimeInstant.epoch_time</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant.from_string"><code class="docutils literal notranslate"><span class="pre">TimeInstant.from_string()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant.get_iso_time"><code class="docutils literal notranslate"><span class="pre">TimeInstant.get_iso_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant.get_utc_time"><code class="docutils literal notranslate"><span class="pre">TimeInstant.get_utc_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant.has_epoch_time"><code class="docutils literal notranslate"><span class="pre">TimeInstant.has_epoch_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant.now_as_time_instant"><code class="docutils literal notranslate"><span class="pre">TimeInstant.now_as_time_instant()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.TimeManagement"><code class="docutils literal notranslate"><span class="pre">TimeManagement</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeManagement.get_time_range"><code class="docutils literal notranslate"><span class="pre">TimeManagement.get_time_range()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeManagement.time_controller"><code class="docutils literal notranslate"><span class="pre">TimeManagement.time_controller</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeManagement.time_range"><code class="docutils literal notranslate"><span class="pre">TimeManagement.time_range</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod"><code class="docutils literal notranslate"><span class="pre">TimePeriod</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.check_mbr_type"><code class="docutils literal notranslate"><span class="pre">TimePeriod.check_mbr_type()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.compare_start_lt_end"><code class="docutils literal notranslate"><span class="pre">TimePeriod.compare_start_lt_end()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.does_timeperiod_overlap"><code class="docutils literal notranslate"><span class="pre">TimePeriod.does_timeperiod_overlap()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.end"><code class="docutils literal notranslate"><span class="pre">TimePeriod.end</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.model_config"><code class="docutils literal notranslate"><span class="pre">TimePeriod.model_config</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.ser_model"><code class="docutils literal notranslate"><span class="pre">TimePeriod.ser_model()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.start"><code class="docutils literal notranslate"><span class="pre">TimePeriod.start</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod.valid_time_period"><code class="docutils literal notranslate"><span class="pre">TimePeriod.valid_time_period()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils.compare_time_instants_or_indeterminate"><code class="docutils literal notranslate"><span class="pre">TimeUtils.compare_time_instants_or_indeterminate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils.current_epoch_time"><code class="docutils literal notranslate"><span class="pre">TimeUtils.current_epoch_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils.current_utc_time"><code class="docutils literal notranslate"><span class="pre">TimeUtils.current_utc_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils.iso_format"><code class="docutils literal notranslate"><span class="pre">TimeUtils.iso_format</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils.time_to_iso"><code class="docutils literal notranslate"><span class="pre">TimeUtils.time_to_iso()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils.to_epoch_time"><code class="docutils literal notranslate"><span class="pre">TimeUtils.to_epoch_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#oshconnect.timemanagement.TimeUtils.to_utc_time"><code class="docutils literal notranslate"><span class="pre">TimeUtils.to_utc_time()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#oshconnect.timemanagement.Utilities"><code class="docutils literal notranslate"><span class="pre">Utilities</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#styling">Styling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#datastore">Datastore</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#core-data-models">Core Data Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#helpers">Helpers</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial.html">OSH Connect Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial.html#resource-insertion">Resource Insertion</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OSHConnect-Python</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">API Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to OSHConnect-Python’s documentation!" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tutorial.html" class="btn btn-neutral float-right" title="OSH Connect Tutorial" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="api-reference">
+<h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading"></a></h1>
+<section id="oshconnect">
+<h2>OSHConnect<a class="headerlink" href="#oshconnect" title="Link to this heading"></a></h2>
+</section>
+<section id="oshconnect-utilities-and-helpers">
+<h2>OSHConnect Utilities and Helpers<a class="headerlink" href="#oshconnect-utilities-and-helpers" title="Link to this heading"></a></h2>
+</section>
+<section id="osh-connect-data-models">
+<h2>OSH Connect Data Models<a class="headerlink" href="#osh-connect-data-models" title="Link to this heading"></a></h2>
+<p>These are the second highest level pieces in the hierarchy of the library and the utilities needed to help almost
+everything else in the app function.</p>
+</section>
+<section id="datasources-and-messaging">
+<h2>DataSources and Messaging<a class="headerlink" href="#datasources-and-messaging" title="Link to this heading"></a></h2>
+<p>Due to their extreme importance in the library, the data sources are listed separately along with the classes that help
+manage them and their data.</p>
+</section>
+<section id="time-management">
+<h2>Time Management<a class="headerlink" href="#time-management" title="Link to this heading"></a></h2>
+<p>Currently <strong>WIP</strong> but this module will contain the classes and functions that help manage the current time and other
+playback features of groups of datasources/datafeeds</p>
+<dl class="py class" id="module-oshconnect.timemanagement">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.DateTimeSchema">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">DateTimeSchema</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_instant</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iso_date</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_period</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.DateTimeSchema" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseModel</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.DateTimeSchema.check_iso_date">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">check_iso_date</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.DateTimeSchema.check_iso_date" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.DateTimeSchema.is_instant">
+<span class="sig-name descname"><span class="pre">is_instant</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><a class="headerlink" href="#oshconnect.timemanagement.DateTimeSchema.is_instant" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.DateTimeSchema.iso_date">
+<span class="sig-name descname"><span class="pre">iso_date</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#oshconnect.timemanagement.DateTimeSchema.iso_date" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.DateTimeSchema.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">ConfigDict</span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></em><a class="headerlink" href="#oshconnect.timemanagement.DateTimeSchema.model_config" title="Link to this definition"></a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.DateTimeSchema.time_period">
+<span class="sig-name descname"><span class="pre">time_period</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">tuple</span></em><a class="headerlink" href="#oshconnect.timemanagement.DateTimeSchema.time_period" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.DateTimeSchema.valid_datetime_type">
+<span class="sig-name descname"><span class="pre">valid_datetime_type</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Self</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.DateTimeSchema.valid_datetime_type" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.IndeterminateTime">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">IndeterminateTime</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names=&lt;not</span> <span class="pre">given&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start=1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.IndeterminateTime" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.IndeterminateTime.FIRST">
+<span class="sig-name descname"><span class="pre">FIRST</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'first'</span></em><a class="headerlink" href="#oshconnect.timemanagement.IndeterminateTime.FIRST" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.IndeterminateTime.LATEST">
+<span class="sig-name descname"><span class="pre">LATEST</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'latest'</span></em><a class="headerlink" href="#oshconnect.timemanagement.IndeterminateTime.LATEST" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.IndeterminateTime.NOW">
+<span class="sig-name descname"><span class="pre">NOW</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'now'</span></em><a class="headerlink" href="#oshconnect.timemanagement.IndeterminateTime.NOW" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">State</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names=&lt;not</span> <span class="pre">given&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start=1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.State" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State.BUFFERING">
+<span class="sig-name descname"><span class="pre">BUFFERING</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></em><a class="headerlink" href="#oshconnect.timemanagement.State.BUFFERING" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State.FAST_FORWARDING">
+<span class="sig-name descname"><span class="pre">FAST_FORWARDING</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5</span></em><a class="headerlink" href="#oshconnect.timemanagement.State.FAST_FORWARDING" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State.INITIALIZED">
+<span class="sig-name descname"><span class="pre">INITIALIZED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1</span></em><a class="headerlink" href="#oshconnect.timemanagement.State.INITIALIZED" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State.PLAYING">
+<span class="sig-name descname"><span class="pre">PLAYING</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">4</span></em><a class="headerlink" href="#oshconnect.timemanagement.State.PLAYING" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State.REWINDING">
+<span class="sig-name descname"><span class="pre">REWINDING</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">6</span></em><a class="headerlink" href="#oshconnect.timemanagement.State.REWINDING" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State.STOPPED">
+<span class="sig-name descname"><span class="pre">STOPPED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2</span></em><a class="headerlink" href="#oshconnect.timemanagement.State.STOPPED" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.State.UNINITIALIZED">
+<span class="sig-name descname"><span class="pre">UNINITIALIZED</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#oshconnect.timemanagement.State.UNINITIALIZED" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.Synchronizer">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">Synchronizer</span></span><a class="headerlink" href="#oshconnect.timemanagement.Synchronizer" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.Synchronizer.synchronize">
+<span class="sig-name descname"><span class="pre">synchronize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">systems</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.Synchronizer.synchronize" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TemporalMode">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">TemporalMode</span></span><a class="headerlink" href="#oshconnect.timemanagement.TemporalMode" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TemporalModes">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">TemporalModes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names=&lt;not</span> <span class="pre">given&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start=1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TemporalModes" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TemporalModes.ARCHIVE">
+<span class="sig-name descname"><span class="pre">ARCHIVE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'archive'</span></em><a class="headerlink" href="#oshconnect.timemanagement.TemporalModes.ARCHIVE" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TemporalModes.ARCHIVE_SYNC">
+<span class="sig-name descname"><span class="pre">ARCHIVE_SYNC</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">('archivesync',)</span></em><a class="headerlink" href="#oshconnect.timemanagement.TemporalModes.ARCHIVE_SYNC" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TemporalModes.BATCH">
+<span class="sig-name descname"><span class="pre">BATCH</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'batch'</span></em><a class="headerlink" href="#oshconnect.timemanagement.TemporalModes.BATCH" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TemporalModes.REAL_TIME">
+<span class="sig-name descname"><span class="pre">REAL_TIME</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'realtime'</span></em><a class="headerlink" href="#oshconnect.timemanagement.TemporalModes.REAL_TIME" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TemporalModes.RT_SYNC">
+<span class="sig-name descname"><span class="pre">RT_SYNC</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'realtimesync'</span></em><a class="headerlink" href="#oshconnect.timemanagement.TemporalModes.RT_SYNC" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">TimeController</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.add_listener">
+<span class="sig-name descname"><span class="pre">add_listener</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">datastream</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event_listener</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.add_listener" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.clear_streams">
+<span class="sig-name descname"><span class="pre">clear_streams</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.clear_streams" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.fast_forward">
+<span class="sig-name descname"><span class="pre">fast_forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">speed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.fast_forward" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.get_buffer_time">
+<span class="sig-name descname"><span class="pre">get_buffer_time</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.get_buffer_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.get_current_time">
+<span class="sig-name descname"><span class="pre">get_current_time</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.get_current_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.get_status">
+<span class="sig-name descname"><span class="pre">get_status</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.get_status" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.get_temporal_mode">
+<span class="sig-name descname"><span class="pre">get_temporal_mode</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.get_temporal_mode" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.get_timeline_end">
+<span class="sig-name descname"><span class="pre">get_timeline_end</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.get_timeline_end" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.get_timeline_start">
+<span class="sig-name descname"><span class="pre">get_timeline_start</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.get_timeline_start" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.pause">
+<span class="sig-name descname"><span class="pre">pause</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.pause" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.play_from_start">
+<span class="sig-name descname"><span class="pre">play_from_start</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.play_from_start" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.remove_listener">
+<span class="sig-name descname"><span class="pre">remove_listener</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">stream_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.remove_listener" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.reset">
+<span class="sig-name descname"><span class="pre">reset</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.reset" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.rewind">
+<span class="sig-name descname"><span class="pre">rewind</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">speed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.rewind" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.set_buffer_time">
+<span class="sig-name descname"><span class="pre">set_buffer_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.set_buffer_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.set_current_time">
+<span class="sig-name descname"><span class="pre">set_current_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.set_current_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.set_temporal_mode">
+<span class="sig-name descname"><span class="pre">set_temporal_mode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TemporalMode" title="oshconnect.timemanagement.TemporalMode"><span class="pre">TemporalMode</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.set_temporal_mode" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.set_timeline_end">
+<span class="sig-name descname"><span class="pre">set_timeline_end</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.set_timeline_end" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.set_timeline_start">
+<span class="sig-name descname"><span class="pre">set_timeline_start</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.set_timeline_start" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.skip">
+<span class="sig-name descname"><span class="pre">skip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.skip" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.skip_to_end">
+<span class="sig-name descname"><span class="pre">skip_to_end</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.skip_to_end" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.start">
+<span class="sig-name descname"><span class="pre">start</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.start" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeController.stop">
+<span class="sig-name descname"><span class="pre">stop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeController.stop" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeInstant">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">TimeInstant</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">utc_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">datetime</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeInstant" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py property">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeInstant.epoch_time">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">epoch_time</span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeInstant.epoch_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeInstant.from_string">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_string</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">utc_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeInstant.from_string" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeInstant.get_iso_time">
+<span class="sig-name descname"><span class="pre">get_iso_time</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeInstant.get_iso_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeInstant.get_utc_time">
+<span class="sig-name descname"><span class="pre">get_utc_time</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeInstant.get_utc_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeInstant.has_epoch_time">
+<span class="sig-name descname"><span class="pre">has_epoch_time</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeInstant.has_epoch_time" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeInstant.now_as_time_instant">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">now_as_time_instant</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeInstant.now_as_time_instant" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeManagement">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">TimeManagement</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">time_range</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod" title="oshconnect.timemanagement.TimePeriod"><span class="pre">TimePeriod</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeManagement" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeManagement.get_time_range">
+<span class="sig-name descname"><span class="pre">get_time_range</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeManagement.get_time_range" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeManagement.time_controller">
+<span class="sig-name descname"><span class="pre">time_controller</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#oshconnect.timemanagement.TimeController" title="oshconnect.timemanagement.TimeController"><span class="pre">TimeController</span></a></em><a class="headerlink" href="#oshconnect.timemanagement.TimeManagement.time_controller" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeManagement.time_range">
+<span class="sig-name descname"><span class="pre">time_range</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod" title="oshconnect.timemanagement.TimePeriod"><span class="pre">TimePeriod</span></a></em><a class="headerlink" href="#oshconnect.timemanagement.TimeManagement.time_range" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">TimePeriod</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseModel</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.check_mbr_type">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">check_mbr_type</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.check_mbr_type" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.compare_start_lt_end">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">compare_start_lt_end</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.compare_start_lt_end" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.does_timeperiod_overlap">
+<span class="sig-name descname"><span class="pre">does_timeperiod_overlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">checked_timeperiod</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimePeriod" title="oshconnect.timemanagement.TimePeriod"><span class="pre">TimePeriod</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.does_timeperiod_overlap" title="Link to this definition"></a></dt>
+<dd><p>Checks if the provided TimePeriod overlaps with the TimePeriod instance.</p>
+<p><strong>Note</strong>: This method does not check for some edge cases, but the TimePeriods <em>should never</em> be valid
+in those situations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>checked_timeperiod</strong></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if the TimePeriods overlap, False otherwise</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.end">
+<span class="sig-name descname"><span class="pre">end</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.end" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">ConfigDict</span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'arbitrary_types_allowed':</span> <span class="pre">True}</span></em><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.model_config" title="Link to this definition"></a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.ser_model">
+<span class="sig-name descname"><span class="pre">ser_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.ser_model" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.start">
+<span class="sig-name descname"><span class="pre">start</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.start" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimePeriod.valid_time_period">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">valid_time_period</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimePeriod.valid_time_period" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">TimeUtils</span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils.compare_time_instants_or_indeterminate">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">compare_time_instants_or_indeterminate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">time1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#oshconnect.timemanagement.TimeInstant" title="oshconnect.timemanagement.TimeInstant"><span class="pre">TimeInstant</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils.compare_time_instants_or_indeterminate" title="Link to this definition"></a></dt>
+<dd><p>Compare two time instants or indeterminate times. This coerces the indeterminate time ‘now’ to the current time.
+This may cause unexpected behavior if the times are very close together.
+:param time1: TimeInstant or IndeterminateTime
+:param time2: TimeInstant or IndeterminateTime
+:return: 0 if equal, -1 if time1 &lt; time2, 1 if time1 &gt; time2</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils.current_epoch_time">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">current_epoch_time</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils.current_epoch_time" title="Link to this definition"></a></dt>
+<dd><p>Get the current time in epoch format
+:return:</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils.current_utc_time">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">current_utc_time</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">datetime</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils.current_utc_time" title="Link to this definition"></a></dt>
+<dd><p>Get the current time in UTC timezone
+:return:</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils.iso_format">
+<span class="sig-name descname"><span class="pre">iso_format</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'%Y-%m-%dT%H:%M:%S.%fZ'</span></em><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils.iso_format" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils.time_to_iso">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">time_to_iso</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">datetime</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils.time_to_iso" title="Link to this definition"></a></dt>
+<dd><p>Convert a datetime object to iso format
+:param a_time: datetime object in UTC timezone or epoch time (float)
+:return:</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils.to_epoch_time">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">to_epoch_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">datetime</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">float</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils.to_epoch_time" title="Link to this definition"></a></dt>
+<dd><p>Convert a datetime or string to epoch time
+:param a_time:
+:return:</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.TimeUtils.to_utc_time">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">to_utc_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_time</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">datetime</span></span></span><a class="headerlink" href="#oshconnect.timemanagement.TimeUtils.to_utc_time" title="Link to this definition"></a></dt>
+<dd><p>Convert epoch time or string to UTC time object
+:param a_time:
+:return:</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="oshconnect.timemanagement.Utilities">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">oshconnect.timemanagement.</span></span><span class="sig-name descname"><span class="pre">Utilities</span></span><a class="headerlink" href="#oshconnect.timemanagement.Utilities" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+</dd></dl>
+
+</section>
+<section id="styling">
+<h2>Styling<a class="headerlink" href="#styling" title="Link to this heading"></a></h2>
+<p><strong>WIP</strong> This module contains the classes and functions that help manage the styling and visualization recommendations that
+the library provides.</p>
+</section>
+<section id="datastore">
+<h2>Datastore<a class="headerlink" href="#datastore" title="Link to this heading"></a></h2>
+<p><strong>WIP</strong> This module is for managing the state of the app. The configurations files are intended to be interchgangale
+among all language versions of the OSHConnect ecosystem.</p>
+</section>
+<section id="core-data-models">
+<h2>Core Data Models<a class="headerlink" href="#core-data-models" title="Link to this heading"></a></h2>
+<p>Theses data models are not often intended to be used directly by the user, but are used by the library to help manage
+validation of data that flows to and from the API.</p>
+<section id="helpers">
+<h3>Helpers<a class="headerlink" href="#helpers" title="Link to this heading"></a></h3>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to OSHConnect-Python’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="tutorial.html" class="btn btn-neutral float-right" title="OSH Connect Tutorial" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Botts Innovative Research, Inc..</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
