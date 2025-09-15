@@ -10,11 +10,11 @@ import base64
 import uuid
 from dataclasses import dataclass, field
 
-from consys4py.constants import APIResourceTypes
-from consys4py.core.default_api_helpers import APIHelper
-from consys4py.datamodels.datastreams import SWEDatastreamSchema
-from consys4py.datamodels.encoding import JSONEncoding
-from consys4py.datamodels.swe_components import DataRecordSchema
+from oshconnect.csapi4py.constants import APIResourceTypes
+from oshconnect.csapi4py.core.default_api_helpers import APIHelper
+from oshconnect.datamodels.datastreams import SWEDatastreamSchema
+from oshconnect.datamodels.encoding import JSONEncoding
+from oshconnect.datamodels.swe_components import DataRecordSchema
 
 from .core_datamodels import DatastreamResource, ObservationResource, SystemResource
 from .timemanagement import TimeInstant, TimePeriod, TimeUtils
