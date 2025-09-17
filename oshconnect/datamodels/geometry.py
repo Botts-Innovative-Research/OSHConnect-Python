@@ -1,10 +1,11 @@
 from pydantic import BaseModel, Field
 
 from oshconnect.csapi4py.constants import GeometryTypes
+from shapely import Geometry
 
 
 # TODO: Add specific validations for each type
-# TODO: update to either use third party Geometry definitions or create a more robust definition
+# TODO: determine if serializing 'shapely' objects gives valid JSON structures from our own serialization
 class Geometry(BaseModel):
     """
     A class to represent the geometry of a feature

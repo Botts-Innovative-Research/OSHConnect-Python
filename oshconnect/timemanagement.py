@@ -299,12 +299,6 @@ class TimePeriod(BaseModel):
             return True
 
 
-class Utilities:
-    pass
-    # @staticmethod
-    # def parse_systems_result(result) -> System:
-
-
 class TimeManagement:
     time_range: TimePeriod
     time_controller: TimeController
@@ -329,6 +323,7 @@ class TimeController:
     _timeline_begin: TimeInstant
     _timeline_end: TimeInstant
     _current_time: TimeInstant
+    _synchronizer: Synchronizer
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -420,6 +415,10 @@ class TimeController:
 
 class Synchronizer:
     _buffer: any
+    _buffering_time: int
 
     def synchronize(self, systems: list):
+        pass
+
+    def check_in_sync(self):
         pass

@@ -231,7 +231,7 @@ wheels = [
 
 [[package]]
 name = "oshconnect"
-version = "0.2.4.post1"
+version = "0.3.0a1"
 source = { virtual = "." }
 dependencies = [
     { name = "paho-mqtt" },
@@ -253,15 +253,15 @@ requires-dist = [
     { name = "paho-mqtt", specifier = ">=2.1.0" },
     { name = "pydantic", specifier = ">=2.7.4,<3.0.0" },
     { name = "shapely", specifier = ">=2.0.4,<3.0.0" },
-    { name = "websockets", specifier = ">=12.0,<13.0" },
+    { name = "websockets", specifier = ">=12.0,<16.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "flake8", specifier = ">=7.1.0,<8.0.0" },
-    { name = "pytest", specifier = ">=8.2.2,<9.0.0" },
-    { name = "sphinx", specifier = ">=7.3.7,<8.0.0" },
-    { name = "sphinx-rtd-theme", specifier = ">=2.0.0,<3.0.0" },
+    { name = "flake8", specifier = ">=7.2.0" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "sphinx", specifier = ">=7.4.7" },
+    { name = "sphinx-rtd-theme", specifier = ">=2.0.0" },
 ]
 
 [[package]]
