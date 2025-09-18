@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 
 from oshconnect.csapi4py.constants import GeometryTypes
-from shapely import Geometry
 
 
 # TODO: Add specific validations for each type

@@ -5,5 +5,5 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 
-from .oshconnectapi import OSHConnect, Node
+from .oshconnectapi import OSHConnect
 from .osh_connect_datamodels import System, Node, Datastream, Observation, ControlChannel
