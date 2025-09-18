@@ -68,7 +68,7 @@ class TestOSHConnect:
         app.discover_systems()
 
         app.discover_datastreams()
-        assert len(app._datafeeds) > 0
+        assert len(app._datastreams) > 0
 
     async def test_obs_ws_stream(self):
         ds_url = ("ws://localhost:8585/sensorhub/api/datastreams/e07n5sbjqvalm/observations?f=application%2Fjson"

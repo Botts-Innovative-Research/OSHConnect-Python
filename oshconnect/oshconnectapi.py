@@ -7,8 +7,7 @@
 import logging
 import shelve
 
-from consys4py.core.default_api_helpers import APIHelper
-
+from oshconnect.csapi4py.core.default_api_helpers import APIHelper
 from .core_datamodels import DatastreamResource, TimePeriod
 from .datasource import DataStream, DataStreamHandler, MessageWrapper
 from .datastore import DataStore
@@ -26,7 +25,7 @@ class OSHConnect:
     _systems: list[System] = []
     _cs_api_builder: APIHelper = None
     _datasource_handler: DataStreamHandler = None
-    _datafeeds: list[DataStream] = []
+    _datastreams: list[DataStream] = []
     _datataskers: list[DataStore] = []
     _datagroups: list = []
     _tasks: list = []
@@ -150,7 +149,7 @@ class OSHConnect:
                 DataStream(name=ds.name, datastream=ds, parent_system=system)
                 for ds in
                 res_datastreams]
-            self._datafeeds.extend(new_datasource)
+            self._datastreams.extend(new_datasource)
             list(map(self._datasource_handler.add_datasource, new_datasource))
 
     def discover_systems(self, nodes: list[str] = None):
@@ -199,7 +198,7 @@ class OSHConnect:
         """
         return self._datasource_handler.get_messages()
 
-    def insert_system(self, system: System, target_node: Node):
+    def _insert_system(self, system: System, target_node: Node):
         """
         Create a system on the target node.
         :param system: System object
@@ -227,7 +226,7 @@ class OSHConnect:
 
         sys_obj.add_insert_datastream(datastream)
 
-        self._datafeeds.append(datastream)
+        self._datastreams.append(datastream)
 
     def find_system(self, system_id: str) -> System | None:
         """
@@ -270,3 +269,7 @@ class OSHConnect:
 
     def remove_system(self, system_id: str):
         pass
+
+    # DataStream Helpers
+    def get_datastreams(self) -> list[DataStream]:
+        return self._datastreams

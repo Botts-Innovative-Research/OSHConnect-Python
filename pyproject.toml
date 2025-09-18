@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.2.4-1"
+version = "0.3.0a1"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations."
 readme = "README.md"
 authors = [
@@ -8,19 +8,18 @@ authors = [
 ]
 requires-python = "<4.0,>=3.12"
 dependencies = [
-    "pydantic<3.0.0,>=2.7.4",
-    "shapely<3.0.0,>=2.0.4",
-    "websockets<13.0,>=12.0",
-    "consys4py<1.0.0,>=0.0.1b3",
-    "swecommondm<1.0.0,>=0.0.1a0",
+    "paho-mqtt>=2.1.0",
+    "pydantic>=2.7.4,<3.0.0",
+    "shapely>=2.0.4,<3.0.0",
+    "websockets>=12.0,<16.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest<9.0.0,>=8.2.2",
-    "sphinx<8.0.0,>=7.3.7",
-    "flake8<8.0.0,>=7.1.0",
-    "sphinx-rtd-theme<3.0.0,>=2.0.0",
+    "flake8>=7.2.0",
+    "pytest>=8.3.5",
+    "sphinx>=7.4.7",
+    "sphinx-rtd-theme>=2.0.0",
 ]
 
 [tool.setuptools]

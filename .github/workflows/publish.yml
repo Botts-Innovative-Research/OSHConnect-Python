@@ -1,0 +1,27 @@
+name: publish.yml
+on:
+  push:
+    tags:
+      # publishes any tag starting with 'v' as in 'v.1.0'
+      - v*
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - name: Install Python 3.13
+        run: uv python install 3.13
+      - name: Build
+        run: uv build
+        # Need to add a test that verifies the builds
+      - name: Publish
+        run: uv publish
