@@ -2,14 +2,14 @@ name: publish.yml
 on:
   push:
     tags:
-      # publishes any tag starting with 'v' as in 'v.1.0'
+      # publishes any tag starting with 'v' as in 'v1.0'
       - v*
 
 jobs:
   run:
     runs-on: ubuntu-latest
     environment:
-      name: pypi
+      name: publish
     permissions:
       id-token: write
       contents: read
