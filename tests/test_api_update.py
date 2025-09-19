@@ -1,6 +1,4 @@
-import pytest
-
-from oshconnect import OSHConnect, System, Node, Datastream
+from src.oshconnect import OSHConnect, Node
 
 node = Node()
 app = OSHConnect()

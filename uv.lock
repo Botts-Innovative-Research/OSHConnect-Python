@@ -231,7 +231,7 @@ wheels = [
 
 [[package]]
 name = "oshconnect"
-version = "0.3.0a3"
+version = "0.3.0a3.post1"
 source = { virtual = "." }
 dependencies = [
     { name = "paho-mqtt" },

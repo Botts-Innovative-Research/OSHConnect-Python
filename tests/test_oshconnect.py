@@ -7,10 +7,10 @@
 
 import websockets
 
-from oshconnect.core_datamodels import TimePeriod
-from oshconnect.osh_connect_datamodels import Node
-from oshconnect.oshconnectapi import OSHConnect
-from oshconnect.timemanagement import TimeInstant
+from src.oshconnect import TimePeriod
+from src.oshconnect import Node
+from src.oshconnect import OSHConnect
+from src.oshconnect import TimeInstant
 
 
 class TestOSHConnect:
