@@ -231,11 +231,12 @@ wheels = [
 
 [[package]]
 name = "oshconnect"
-version = "0.3.0a3.post2"
+version = "0.3.0a3.post3"
 source = { virtual = "." }
 dependencies = [
     { name = "paho-mqtt" },
     { name = "pydantic" },
+    { name = "requests" },
     { name = "shapely" },
     { name = "websockets" },
 ]
@@ -252,6 +253,7 @@ dev = [
 requires-dist = [
     { name = "paho-mqtt", specifier = ">=2.1.0" },
     { name = "pydantic", specifier = ">=2.7.4,<3.0.0" },
+    { name = "requests" },
     { name = "shapely", specifier = ">=2.0.4,<3.0.0" },
     { name = "websockets", specifier = ">=12.0,<16.0" },
 ]
