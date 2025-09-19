@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from typing import List
 
-from src.oshconnect.datamodels.geometry import Geometry
-from src.oshconnect.datamodels.datastreams import DatastreamSchema
-from src.oshconnect.datamodels.api_utils import Link
+from oshconnect.datamodels.geometry import Geometry
+from oshconnect.datamodels.datastreams import DatastreamSchema
+from oshconnect.datamodels.api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 from shapely import Point
 
-from src.oshconnect.timemanagement import DateTimeSchema, TimePeriod
+from oshconnect.timemanagement import DateTimeSchema, TimePeriod
 
 
 class BoundingBox(BaseModel):

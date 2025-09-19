@@ -1,7 +1,7 @@
 from pydantic import HttpUrl
 
-from src.oshconnect.csapi4py.con_sys_api import ConnectedSystemsRequestBuilder
-from src.oshconnect.csapi4py.constants import APITerms
+from oshconnect.csapi4py.con_sys_api import ConnectedSystemsRequestBuilder
+from oshconnect.csapi4py.constants import APITerms
 
 
 def list_system_events(server_addr: HttpUrl, api_root: str = APITerms.API.value, headers: dict = None):

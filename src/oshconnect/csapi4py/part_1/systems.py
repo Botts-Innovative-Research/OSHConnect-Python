@@ -3,9 +3,9 @@ from typing import Union
 import requests
 from pydantic import HttpUrl
 
-from src.oshconnect.csapi4py.con_sys_api import ConnectedSystemsRequestBuilder
-from src.oshconnect.csapi4py.constants import APITerms
-from src.oshconnect.csapi4py.request_wrappers import post_request
+from oshconnect.csapi4py.con_sys_api import ConnectedSystemsRequestBuilder
+from oshconnect.csapi4py.constants import APITerms
+from oshconnect.csapi4py.request_wrappers import post_request
 
 
 def list_all_systems(server_addr: HttpUrl, api_root: str = APITerms.API.value, headers: dict = None):

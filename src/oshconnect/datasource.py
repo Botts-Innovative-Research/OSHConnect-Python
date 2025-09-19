@@ -16,9 +16,9 @@ from uuid import uuid4
 
 import requests
 import websockets
-from src.oshconnect.csapi4py.constants import APIResourceTypes
-from src.oshconnect.datamodels.observations import ObservationOMJSONInline
-from src.oshconnect.datamodels.swe_components import DataRecordSchema
+from oshconnect.csapi4py.constants import APIResourceTypes
+from oshconnect.datamodels.observations import ObservationOMJSONInline
+from oshconnect.datamodels.swe_components import DataRecordSchema
 
 from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
 from .timemanagement import TemporalModes, Synchronizer

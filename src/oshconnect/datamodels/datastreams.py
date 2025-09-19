@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field, field_validator, SerializeAsAny
 
-from src.oshconnect.csapi4py.constants import ObservationFormat
-from src.oshconnect.datamodels.encoding import Encoding
-from src.oshconnect.datamodels.swe_components import AnyComponentSchema
+from oshconnect.csapi4py.constants import ObservationFormat
+from oshconnect.datamodels.encoding import Encoding
+from oshconnect.datamodels.swe_components import AnyComponentSchema
 
 
 class DatastreamSchema(BaseModel):

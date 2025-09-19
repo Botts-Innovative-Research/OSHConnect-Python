@@ -5,9 +5,9 @@ from typing import Union, Any
 
 from pydantic import BaseModel, Field, field_validator, SerializeAsAny
 
-from src.oshconnect.csapi4py.constants import GeometryTypes
-from src.oshconnect.datamodels.api_utils import UCUMCode, URI
-from src.oshconnect.datamodels.geometry import Geometry
+from oshconnect.csapi4py.constants import GeometryTypes
+from oshconnect.datamodels.api_utils import UCUMCode, URI
+from oshconnect.datamodels.geometry import Geometry
 
 """
  NOTE: The following classes are used to represent the Record Schemas that are required for use with Datastreams

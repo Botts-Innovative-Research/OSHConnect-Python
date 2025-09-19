@@ -4,8 +4,8 @@ from typing import Union
 
 from pydantic import BaseModel, Field, SerializeAsAny
 
-from src.oshconnect.datamodels.encoding import Encoding
-from src.oshconnect.datamodels.swe_components import AnyComponentSchema
+from oshconnect.datamodels.encoding import Encoding
+from oshconnect.datamodels.swe_components import AnyComponentSchema
 
 
 class ControlStreamJSONSchema(BaseModel):

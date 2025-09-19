@@ -4,7 +4,7 @@ import requests
 # import websockets
 from pydantic import BaseModel, Field
 
-from src.oshconnect.csapi4py.constants import APITerms
+from oshconnect.csapi4py.constants import APITerms
 
 
 class Endpoint(BaseModel):

@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from src.oshconnect.csapi4py.con_sys_api import ConnectedSystemAPIRequest
-from src.oshconnect.csapi4py.constants import APIResourceTypes, EncodingSchema, APITerms
+from oshconnect.csapi4py.con_sys_api import ConnectedSystemAPIRequest
+from oshconnect.csapi4py.constants import APIResourceTypes, EncodingSchema, APITerms
 
 
 def determine_parent_type(res_type: APIResourceTypes):

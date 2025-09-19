@@ -5,11 +5,11 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 import websockets
-from src.oshconnect.csapi4py.comm.mqtt import MQTTCommClient
-from src.oshconnect.datamodels.commands import CommandJSON
-from src.oshconnect.datamodels.control_streams import ControlStreamJSONSchema
+from oshconnect.csapi4py.comm.mqtt import MQTTCommClient
+from oshconnect.datamodels.commands import CommandJSON
+from oshconnect.datamodels.control_streams import ControlStreamJSONSchema
 
-from src.oshconnect.osh_connect_datamodels import System
+from oshconnect.osh_connect_datamodels import System
 
 
 class ControlSchema:

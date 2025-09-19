@@ -2,10 +2,10 @@ from typing import Union
 
 from pydantic import BaseModel, HttpUrl, Field, model_serializer, RootModel, SerializeAsAny
 
-from src.oshconnect.csapi4py.constants import DatastreamResultTypes
-from src.oshconnect.datamodels.datastreams import DatastreamSchema
-from src.oshconnect.datamodels.geometry import Geometry
-from src.oshconnect.csapi4py.sensor_ml.sml import TypeOf
+from oshconnect.csapi4py.constants import DatastreamResultTypes
+from oshconnect.datamodels.datastreams import DatastreamSchema
+from oshconnect.datamodels.geometry import Geometry
+from oshconnect.csapi4py.sensor_ml.sml import TypeOf
 
 
 # TODO: Consider some sort of Abstract Base Class for all valid request bodies to inherit from to reduce the complexity

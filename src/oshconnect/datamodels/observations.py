@@ -3,7 +3,7 @@ from typing import Union, List
 
 from pydantic import BaseModel, Field
 
-from src.oshconnect.datamodels.api_utils import Link
+from oshconnect.datamodels.api_utils import Link
 
 
 class ObservationOMJSONInline(BaseModel):

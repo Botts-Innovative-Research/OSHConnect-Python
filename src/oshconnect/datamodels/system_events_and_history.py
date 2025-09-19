@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, HttpUrl
 
-from src.oshconnect.datamodels.api_utils import Link, URI
-from src.oshconnect.datamodels.geometry import Geometry
+from oshconnect.datamodels.api_utils import Link, URI
+from oshconnect.datamodels.geometry import Geometry
 
 
 class SystemEventOMJSON(BaseModel):
