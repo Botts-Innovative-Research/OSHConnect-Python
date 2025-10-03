@@ -16,11 +16,11 @@ from uuid import uuid4
 
 import requests
 import websockets
-from oshconnect.csapi4py.constants import APIResourceTypes
-from oshconnect.datamodels.observations import ObservationOMJSONInline
-from oshconnect.datamodels.swe_components import DataRecordSchema
+from .csapi4py.constants import APIResourceTypes
+from .schema_datamodels import ObservationOMJSONInline
+from .swe_components import DataRecordSchema
 
-from .core_datamodels import DatastreamResource, SystemResource, TimePeriod
+from .resource_datamodels import DatastreamResource, TimePeriod
 from .timemanagement import TemporalModes, Synchronizer
 
 
@@ -29,7 +29,8 @@ from .timemanagement import TemporalModes, Synchronizer
 
 class DataStream:
     """
-    DataSource: represents the active connection of a datastream object.
+    To Be Deprecated with next minor prerelease version of OSHConnect
+    DataStream: represents the active connection of a datastream object.
     This class may later be used to connect to a control channel as well. It will almost certainly be used
     for Control Stream status monitoring.
 
@@ -41,7 +42,7 @@ class DataStream:
     name: str = None
     _id: str = None
     _datastream: DatastreamResource = None
-    _parent_system: SystemResource = None
+    # _parent_system: SystemResource = None
     _playback_mode: TemporalModes = None
     _url: str = None
     _auth: str = None
@@ -50,8 +51,7 @@ class DataStream:
     _result_schema: DataRecordSchema = None
     _synchronizer: Synchronizer = None
 
-    def __init__(self, name: str, datastream: DatastreamResource,
-                 parent_system: SystemResource):
+    def __init__(self, name: str, datastream: DatastreamResource):
         """
         :param name: Human-readable name of the DataSource
         :param datastream: DatastreamResource object
@@ -62,23 +62,14 @@ class DataStream:
         self.name = name
         self._datastream = datastream
         self._playback_websocket = None
-        self._parent_system = parent_system
+        # self._parent_system = parent_system
         self._playback_mode = None
         self._url = None
         self._auth = None
         self._extra_headers = None
-        if self._parent_system.get_parent_node().is_secure:
-            self._auth = self._parent_system.get_parent_node().get_decoded_auth()
-            self._extra_headers = {'Authorization': f'Basic {self._auth}'}
-            # get result schema
-
-            # t_url = f'http://{self._parent_system.get_parent_node().get_address()}:{self._parent_system.get_parent_node().get_port()}'
-            #
-            # res = consys4py.part_2.datastreams.retrieve_datastream_schema(t_url,
-            #                                                               datastream_id=self._datastream.ds_id,
-            #                                                               api_root=self._parent_system.get_parent_node()._api_helper.api_root,
-            #                                                               headers=self._extra_headers)
-            # print(res.json())
+        # if self._parent_system._parent_node().is_secure:
+        #     self._auth = self._parent_system._parent_node().get_decoded_auth()
+        #     self._extra_headers = {'Authorization': f'Basic {self._auth}'}
 
     def get_id(self) -> str:
         """
@@ -96,41 +87,16 @@ class DataStream:
         """
         return self.name
 
-    def create_process(self):
-        """
-        **Unimplemented**
-
-        Create a process for the DataSource
-
-        :return:
-        """
-        pass
-
-    def terminate_process(self):
-        """
-        **Unimplemented**
-        """
-        pass
-
-    # Might not be necessary
-    def subscribe(self):
-        """
-        **Unimplemented**
-
-        :return:
-        """
-        pass
-
-    def set_playback_mode(self, mode: TemporalModes):
-        """
-        Sets the playback mode of the DataSource and regenerates the URL accordingly
-
-        :param mode: TemporalModes
-
-        :return:
-        """
-        self._playback_mode = mode
-        self.generate_retrieval_url()
+    # def set_playback_mode(self, mode: TemporalModes):
+    #     """
+    #     Sets the playback mode of the DataSource and regenerates the URL accordingly
+    #
+    #     :param mode: TemporalModes
+    #
+    #     :return:
+    #     """
+    #     self._playback_mode = mode
+    #     self.generate_retrieval_url()
 
     def initialize(self):
         """
@@ -193,13 +159,13 @@ class DataStream:
         """
         return self._status
 
-    def get_parent_system(self) -> SystemResource:
-        """
-        Retrieve the DataSource's parent System
-
-        :return: The parent System object of the DataSource
-        """
-        return self._parent_system
+    # def get_parent_system(self) -> SystemResource:
+    #     """
+    #     Retrieve the DataSource's parent System
+    #
+    #     :return: The parent System object of the DataSource
+    #     """
+    #     return self._parent_system
 
     def get_ws_client(self):
         """
@@ -309,7 +275,7 @@ class DataStreamHandler:
 
         :return:
         """
-        datasource.set_playback_mode(self._playback_mode)
+        # datasource.set_playback_mode(self._playback_mode)
         self.datasource_map[datasource.get_id()] = datasource
 
     def remove_datasource(self, datasource_id: str) -> DataStream:

@@ -1,3 +1,10 @@
+#  =============================================================================
+#  Copyright (c) 2025 Botts Innovative Research Inc.
+#  Date: 2025/9/30
+#  Author: Ian Patterson
+#  Contact Email: ian@botts-inc.com
+#  =============================================================================
+
 from __future__ import annotations
 
 from abc import ABC
@@ -5,8 +12,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from oshconnect.csapi4py.con_sys_api import ConnectedSystemAPIRequest
-from oshconnect.csapi4py.constants import APIResourceTypes, EncodingSchema, APITerms
+from .con_sys_api import ConnectedSystemAPIRequest
+from .constants import APIResourceTypes, EncodingSchema, APITerms
 
 
 def determine_parent_type(res_type: APIResourceTypes):
@@ -75,6 +82,8 @@ def resource_type_to_endpoint(res_type: APIResourceTypes, parent_type: APIResour
 @dataclass
 class APIHelper(ABC):
     server_url: str = None
+    port: int = None
+    protocol: str = "https"
     api_root: str = "api"
     username: str = None
     password: str = None
@@ -193,17 +202,19 @@ class APIHelper(ABC):
 
         return self.construct_url(parent_type, res_id, res_type, parent_res_id)
 
-    def construct_url(self, parent_type, res_id, res_type, parent_res_id):
+    def construct_url(self, parent_type, res_id, res_type, parent_res_id, for_socket: bool = False):
         """
         Constructs an API endpoint url from the given parameters
         :param parent_type:
         :param res_id:
         :param res_type:
         :param parent_res_id:
+        :param for_socket: If true, will construct a WebSocket URL (ws:// or wss://) instead of HTTP/HTTPS.
         :return:
         """
         # TODO: Test for less common cases to ensure that the URL is being constructed correctly
-        base_url = f'{self.server_url}/{self.api_root}'
+        base_url = self.get_api_root_url(socket=for_socket)
+
         resource_endpoint = resource_type_to_endpoint(res_type, parent_type)
         url = f'{base_url}/{resource_endpoint}'
 
@@ -220,6 +231,25 @@ class APIHelper(ABC):
         if self.user_auth:
             return self.username, self.password
         return None
+
+    def get_base_url(self, socket: bool = False):
+        if socket:
+            protocol = 'ws' if self.protocol == 'http' else 'wss'
+            return f'{protocol}://{self.server_url}{f":{self.port}" if self.port else ""}'
+        return f'{self.protocol}://{self.server_url}{f":{self.port}" if self.port else ""}'
+
+    def get_api_root_url(self, socket: bool = False):
+        """
+        Returns the full API root URL including protocol, server address, port (if applicable), and API root path.
+        :param socket: If true, will return a WebSocket URL (ws:// or wss://) instead of HTTP/HTTPS.
+        :return:
+        """
+        return f'{self.get_base_url(socket=socket)}/{self.api_root}'
+
+    def set_protocol(self, protocol: str):
+        if protocol not in ['http', 'https', 'ws', 'wss']:
+            raise ValueError('Protocol must be either "http" or "https"')
+        self.protocol = protocol
 
 
 @dataclass(kw_only=True)

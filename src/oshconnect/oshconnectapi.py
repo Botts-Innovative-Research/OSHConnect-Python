@@ -7,13 +7,13 @@
 import logging
 import shelve
 
-from oshconnect.csapi4py.core.default_api_helpers import APIHelper
-from .core_datamodels import DatastreamResource, TimePeriod
-from .datasource import DataStream, DataStreamHandler, MessageWrapper
+from .csapi4py.default_api_helpers import APIHelper
+from .resource_datamodels import DatastreamResource
+from .datasource import DataStream, MessageWrapper
 from .datastore import DataStore
-from .osh_connect_datamodels import Node, System
+from .streamableresource import Node, System, SessionManager, Datastream
 from .styling import Styling
-from .timemanagement import TemporalModes, TimeManagement
+from .timemanagement import TemporalModes, TimeManagement, TimePeriod
 
 
 class OSHConnect:
@@ -24,30 +24,31 @@ class OSHConnect:
     _nodes: list[Node] = []
     _systems: list[System] = []
     _cs_api_builder: APIHelper = None
-    _datasource_handler: DataStreamHandler = None
+    # _datasource_handler: DataStreamHandler = None
     _datastreams: list[DataStream] = []
     _datataskers: list[DataStore] = []
     _datagroups: list = []
     _tasks: list = []
     _playback_mode: TemporalModes = TemporalModes.REAL_TIME
+    _session_manager: SessionManager = None
 
     def __init__(self, name: str, **kwargs):
         """
         :param name: name of the OSHConnect instance, in the event that
         :param kwargs:
-            - 'playback_mode': TemporalModes
         """
         self._name = name
-        if 'nodes' in kwargs:
-            self._nodes = kwargs['nodes']
-            self._playback_mode = kwargs['playback_mode']
-            self._datasource_handler.set_playback_mode(self._playback_mode)
-        self._datasource_handler = DataStreamHandler()
-        if 'playback_mode' in kwargs:
-            self._playback_mode = kwargs['playback_mode']
-            self._datasource_handler.set_playback_mode(self._playback_mode)
+        # if 'nodes' in kwargs:
+        #     self._nodes = kwargs['nodes']
+        #     self._playback_mode = kwargs['playback_mode']
+        #     self._datasource_handler.set_playback_mode(self._playback_mode)
+        # self._datasource_handler = DataStreamHandler()
+        # if 'playback_mode' in kwargs:
+        #     self._playback_mode = kwargs['playback_mode']
+        #     self._datasource_handler.set_playback_mode(self._playback_mode)
 
         logging.info(f"OSHConnect instance {name} created")
+        self._session_manager = SessionManager()
 
     def get_name(self):
         """
@@ -62,6 +63,7 @@ class OSHConnect:
         :param node: Node object
         :return:
         """
+        node.register_with_session_manager(self._session_manager)
         self._nodes.append(node)
 
     def remove_node(self, node_id: str):
@@ -135,7 +137,7 @@ class OSHConnect:
     def get_visualization_recommendations(self, streams: list):
         pass
 
-    def discover_datastreams(self):
+    def dep_discover_datastreams(self):
         """
         Discover datastreams of the current systems of the OSHConnect instance and create objects for them that are
         stored in the DataSourceHandler.
@@ -146,11 +148,17 @@ class OSHConnect:
             res_datastreams = system.discover_datastreams()
             # create DataSource(s)
             new_datasource = [
-                DataStream(name=ds.name, datastream=ds, parent_system=system)
+                DataStream(name=ds.name, datastream=ds, parent_system=system.get_system_resource())
                 for ds in
                 res_datastreams]
             self._datastreams.extend(new_datasource)
             list(map(self._datasource_handler.add_datasource, new_datasource))
+
+    def discover_datastreams(self):
+        for system in self._systems:
+            res_datastreams = system.discover_datastreams()
+            datastreams = list(map(lambda ds: Datastream(parent_node=system.get_parent_node(), id=ds.ds_id, datastream_resource=ds), res_datastreams))
+            self._datastreams.extend(datastreams)
 
     def discover_systems(self, nodes: list[str] = None):
         """
@@ -206,12 +214,12 @@ class OSHConnect:
         :return: the created system
         """
         if target_node in self._nodes:
-            self.add_system(system, target_node, insert_resource=True)
+            self.add_system_to_node(system, target_node, insert_resource=True)
             return system
 
-    def insert_datastream(self, datastream: DatastreamResource, system: str | System) -> str:
+    def add_datastream(self, datastream: DatastreamResource, system: str | System) -> str:
         """
-        Insert a datastream into the OSHConnect instance.
+        Adds a datastream into the OSHConnect instance.
         :param datastream: DataSource object
         :param system: System object or system id
         :return:
@@ -240,7 +248,7 @@ class OSHConnect:
         return None
 
     # System Management
-    def add_system(self, system: System, target_node: Node, insert_resource: bool = False):
+    def add_system_to_node(self, system: System, target_node: Node, insert_resource: bool = False):
         """
         Add a system to the target node.
         :param system: System object
@@ -264,7 +272,7 @@ class OSHConnect:
         """
         if target_node in self._nodes:
             new_system = System(**system_opts)
-            self.add_system(new_system, target_node, insert_resource=True)
+            self.add_system_to_node(new_system, target_node, insert_resource=True)
             return new_system
 
     def remove_system(self, system_id: str):
@@ -273,3 +281,11 @@ class OSHConnect:
     # DataStream Helpers
     def get_datastreams(self) -> list[DataStream]:
         return self._datastreams
+
+    def connect_session_streams(self, session_id: str):
+        """
+        Connects all datastreams that are associated with the given session ID.
+        :param session_id:
+        :return:
+        """
+        self._session_manager.start_session_streams(session_id)

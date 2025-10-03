@@ -77,6 +77,7 @@ class APIResourceTypes(Enum):
     """
     Defines the resource types
     """
+    ROOT = ""
     COLLECTION = "Collection"
     COMMAND = "Command"
     COMPONENT = "Component"
