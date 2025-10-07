@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
+import traceback
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from multiprocessing import Process
@@ -21,6 +24,7 @@ from uuid import UUID, uuid4
 from aiohttp import ClientSession, BasicAuth
 from aiohttp import WSMsgType, ClientWebSocketResponse
 
+from .csapi4py.mqtt import MQTTCommClient
 from .csapi4py.constants import APIResourceTypes
 from .csapi4py.default_api_helpers import APIHelper
 from .encoding import JSONEncoding
@@ -105,19 +109,24 @@ class Node:
     protocol: str
     address: str
     port: int
+    server_root: str = 'sensorhub'
     endpoints: Endpoints
     is_secure: bool
     _basic_auth: bytes = None
     _api_helper: APIHelper
     _systems: list[System] = field(default_factory=list)
     _client_session: OSHClientSession = None
+    _mqtt_client: MQTTCommClient = None
+    _mqtt_port: int = 1883
 
     def __init__(self, protocol: str, address: str, port: int,
-                 username: str = None, password: str = None, session_manager: SessionManager = None,
-                 **kwargs: dict):
+                 username: str = None, password: str = None, server_root: str = 'sensorhub',
+                 session_manager: SessionManager = None,
+                 **kwargs):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
+        self.server_root = server_root
         self.port = port
         self.is_secure = username is not None and password is not None
         if self.is_secure:
@@ -127,13 +136,22 @@ class Node:
             server_url=self.address,
             protocol=self.protocol,
             port=self.port,
-            api_root=self.endpoints.connected_systems, username=username,
+            server_root=self.server_root,
+            api_root='api', username=username,
             password=password)
         if self.is_secure:
             self._api_helper.user_auth = True
         self._systems = []
         if session_manager is not None:
-            self.register_with_session_manager(session_manager)
+            session_task = self.register_with_session_manager(session_manager)
+            asyncio.gather(session_task)
+
+        if kwargs.get('enable_mqtt'):
+            if kwargs.get('mqtt_port') is not None:
+                self._mqtt_port = kwargs.get('mqtt_port')
+            self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port)
+            # self._mqtt_client = MQTTCommClient(url=self.address + self.server_root, port=self._mqtt_port,
+            #                                    username=username, password=password, )
 
     def get_id(self):
         return self._id
@@ -157,6 +175,12 @@ class Node:
     def get_decoded_auth(self):
         return self._basic_auth.decode('utf-8')
 
+    def get_basicauth(self):
+        return BasicAuth(self._api_helper.username, self._api_helper.password)
+
+    def get_mqtt_client(self) -> MQTTCommClient:
+        return self._mqtt_client
+
     def discover_systems(self):
         result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM,
                                                     req_headers={})
@@ -168,7 +192,6 @@ class Node:
                 print(system_json)
                 system = SystemResource.model_validate(system_json)
                 sys_obj = System.from_system_resource(system, self)
-                sys_obj.set_parent_node(self)
                 self._systems.append(sys_obj)
                 new_systems.append(sys_obj)
             return new_systems
@@ -226,11 +249,16 @@ class Status(Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
 
+class StreamableModes(Enum):
+    PUSH = "push"
+    PULL = "pull"
+    BIDIRECTIONAL = "bidirectional"
 
-T = TypeVar('T', SystemResource, DatastreamResource)
+
+T = TypeVar('T', SystemResource, DatastreamResource, ControlStreamResource)
 
 
-class StreamableResource(Generic[T]):
+class StreamableResource(Generic[T], ABC):
     _id: UUID = None
     _resource_id: str = None
     _canonical_link: str = None
@@ -242,13 +270,18 @@ class StreamableResource(Generic[T]):
     _parent_node: Node = None
     _underlying_resource: T = None
     _process: Process = None
-    _msg_queue: asyncio.Queue[Union[str, bytes, float, int]] = None
+    _msg_reader_queue: asyncio.Queue[Union[str, bytes, float, int]] = None
+    _msg_writer_queue: asyncio.Queue[Union[str, bytes, float, int]] = None
+    _mqtt_client: MQTTCommClient = None
+    _parent_resource_id: str = None
+    _connection_mode: StreamableModes = StreamableModes.PUSH.value
 
-    def __init__(self, node: Node):
+    def __init__(self, node: Node, connection_mode: StreamableModes = StreamableModes.PUSH.value):
         self._id = uuid4()
         self._message_handler = self._default_message_handler_fn
         self._parent_node = node
         self._parent_node.register_streamable(self)
+        self._mqtt_client = self._parent_node.get_mqtt_client()
 
     def get_streamable_id(self) -> UUID:
         return self._id
@@ -264,10 +297,16 @@ class StreamableResource(Generic[T]):
         elif isinstance(self._underlying_resource, DatastreamResource):
             resource_type = APIResourceTypes.DATASTREAM
         if resource_type is None:
-            raise ValueError("Underlying resource must be set to either SystemResource or DatastreamResource before initialization.")
+            raise ValueError(
+                "Underlying resource must be set to either SystemResource or DatastreamResource before initialization.")
         # This needs to be implemented separately for each subclass
-        self.ws_url = self._parent_node.get_api_helper().construct_url(parent_type=resource_type, res_type=APIResourceTypes.OBSERVATION, parent_res_id=self._underlying_resource.ds_id, res_id=None)
-        self._msg_queue = asyncio.Queue()
+        self.ws_url = self._parent_node.get_api_helper().construct_url(resource_type=resource_type,
+                                                                       subresource_type=APIResourceTypes.OBSERVATION,
+                                                                       resource_id=self._underlying_resource.ds_id,
+                                                                       subresource_id=None)
+        self._msg_reader_queue = asyncio.Queue()
+        self._msg_writer_queue = asyncio.Queue()
+        self.init_mqtt()
         self._status = Status.INITIALIZED.value
 
     def start(self):
@@ -275,24 +314,88 @@ class StreamableResource(Generic[T]):
             logging.warning(f"Streamable resource {self._id} not initialized. Call initialize() first.")
             return
         self._status = Status.STARTING.value
-        # self._process.start()
         self._status = Status.STARTED.value
 
-        asyncio.gather(self.stream())
+        # if asyncio.get_running_loop().is_running():
+        #     asyncio.create_task(self.stream())
+        # else:
+        #     loop = asyncio.get_event_loop()
+        #     loop.create_task(self.stream())
 
     async def stream(self):
-        if self._msg_queue is None:
-            self._msg_queue = asyncio.Queue()
-
         session = self._parent_node.get_session()
 
-        #  TODO: handle auth properly and not right here...
-        auth = BasicAuth("admin", "admin")
+        try:
+            async with session.ws_connect(self.ws_url, auth=self._parent_node.get_basicauth()) as ws:
+                logging.info(f"Streamable resource {self._id} started.")
+                read_task = asyncio.create_task(self._read_from_ws(ws))
+                write_task = asyncio.create_task(self._write_to_ws(ws))
+                await asyncio.gather(read_task, write_task)
+        except Exception as e:
+            logging.error(f"Error in streamable resource {self._id}: {e}")
+            logging.error(traceback.format_exc())
 
-        async with session.ws_connect(self.ws_url, auth=auth) as ws:
-            logging.info(f"Streamable resource {self._id} started.")
-            async for msg in ws:
-                self._message_handler(ws, msg)
+    def init_mqtt(self):
+        if self._mqtt_client is None:
+            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            return
+
+        self.get_mqtt_topic()
+
+    def get_mqtt_topic(self, subresource: APIResourceTypes | None = None):
+        """
+        Retrieves the MQTT topic for this streamable resource based on its underlying resource type. By default, the topic
+        is actually for listening to subresources of a default type
+        :param subresource : Optional subresource type to get the topic for, defaults to None
+        """
+        resource_type = None
+        parent_res_type = None
+        res_id = None
+        parent_id = None
+
+        if isinstance(self._underlying_resource, ControlStreamResource):
+            parent_res_type = APIResourceTypes.CONTROL_CHANNEL
+            resource_type = APIResourceTypes.COMMAND
+            parent_id = self._resource_id
+
+        elif isinstance(self._underlying_resource, DatastreamResource):
+            parent_res_type = APIResourceTypes.DATASTREAM
+            resource_type = APIResourceTypes.OBSERVATION
+            parent_id = self._resource_id
+
+        elif isinstance(self._underlying_resource, SystemResource):
+            match subresource:
+                case APIResourceTypes.DATASTREAM:
+                    resource_type = APIResourceTypes.DATASTREAM
+                    parent_res_type = APIResourceTypes.SYSTEM
+                    parent_id = self._resource_id
+                case APIResourceTypes.CONTROL_CHANNEL:
+                    resource_type = APIResourceTypes.CONTROL_CHANNEL
+                    parent_res_type = APIResourceTypes.SYSTEM
+                    parent_id = self._resource_id
+                case None:
+                    resource_type = APIResourceTypes.SYSTEM
+                    parent_res_type = None
+                    parent_id = None
+                case _:
+                    raise ValueError(f"Unsupported subresource type {subresource} for SystemResource.")
+
+        topic = self._parent_node.get_api_helper().get_mqtt_topic(subresource_type=resource_type,
+                                                                  resource_id=parent_id,
+                                                                  resource_type=parent_res_type)
+        return topic
+
+    async def _read_from_ws(self, ws):
+        async for msg in ws:
+            self._message_handler(ws, msg)
+
+    async def _write_to_ws(self, ws):
+        while self._status is Status.STARTED.value:
+            try:
+                msg = self._msg_writer_queue.get_nowait()
+                await ws.send_bytes(msg)
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0.05)
 
     def stop(self):
         # It would be nicer to join() here once we have cleaner shutdown logic in place to avoid corrupting processes
@@ -304,10 +407,10 @@ class StreamableResource(Generic[T]):
     def _default_message_handler_fn(self, ws, msg):
         if msg.type == WSMsgType.TEXT:
             print(f"Received text message: {msg.data}")
-            self._msg_queue.put(msg.data)
+            self._msg_reader_queue.put(msg.data)
         elif msg.type == WSMsgType.BINARY:
             print(f"Received binary message: {msg.data}")
-            self._msg_queue.put(msg.data)
+            self._msg_reader_queue.put(msg.data)
         elif msg.type == WSMsgType.CLOSE:
             print("WebSocket closed")
         elif msg.type == WSMsgType.ERROR:
@@ -319,26 +422,87 @@ class StreamableResource(Generic[T]):
     def get_parent_node(self) -> Node:
         return self._parent_node
 
+    def set_parent_resource_id(self, res_id: str):
+        self._parent_resource_id = res_id
+
+    def get_parent_resource_id(self) -> str:
+        return self._parent_resource_id
+
     def poll(self):
         pass
 
     def fetch(self, time_period: TimePeriod):
         pass
 
-    def get_msg_queue(self) -> Queue:
+    def get_msg_reader_queue(self) -> Queue:
         """
         Returns the message queue for this streamable resource. In cases where a custom message handler is used this is
         not guaranteed to return anything or provided a queue with data.
         :return: Queue object
         """
-        return self._msg_queue
+        return self._msg_reader_queue
+
+    def get_msg_writer_queue(self) -> Queue:
+        """
+        Returns the message queue for writing messages to this streamable resource.
+        :return: Queue object
+        """
+        return self._msg_writer_queue
 
     def get_underlying_resource(self) -> T:
         return self._underlying_resource
 
+    def get_internal_id(self) -> UUID:
+        return self._id
+
+    def insert_data(self, data: dict):
+        """ Naively inserts data into the message writer queue to be sent over the WebSocket connection.
+            No Checks are performed to ensure the data is valid for the underlying resource.
+            :param data: Data to be sent, typically bytes or str
+        """
+        print(f"Inserting data into message writer queue: {data}")
+        data_bytes = json.dumps(data).encode("utf-8") if isinstance(data, dict) else data
+        self._msg_writer_queue.put_nowait(data_bytes)
+
+    def subscribe_mqtt(self, topic: str, qos: int = 0):
+        if self._mqtt_client is None:
+            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            return
+        self._mqtt_client.subscribe(topic, qos=qos, msg_callback=self._message_handler)
+
+    def _publish_mqtt(self, topic, payload):
+        if self._mqtt_client is None:
+            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            return
+        print(f'Publishing to MQTT topic {topic}: {payload}')
+        self._mqtt_client.publish(topic, payload, qos=0)
+
+    async def _write_to_mqtt(self):
+        while self._status is Status.STARTED.value:
+            try:
+                msg = self._msg_writer_queue.get_nowait()
+                print(f"Popped message: {msg}, attempting to publish...")
+                self._publish_mqtt(self._topic, msg)
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0.05)
+            except Exception as e:
+                print(f"Error in Write To MQTT {self._id}: {e}")
+                print(traceback.format_exc())
+        if self._status is Status.STOPPED.value:
+            print("MQTT write task stopping as streamable resource is stopped.")
+
+    def set_connection_mode(self, mode: StreamableModes):
+        self._connection_mode = mode
+
+    @abstractmethod
+    def publish(self, payload):
+        """
+        Publishes data to the MQTT topic associated with this streamable resource.
+        """
+        pass
+
 
 class System(StreamableResource[SystemResource]):
-    resources_id: str
     name: str
     label: str
     datastreams: list[Datastream]
@@ -362,7 +526,7 @@ class System(StreamableResource[SystemResource]):
         self.control_channels = []
         self.urn = urn
         if kwargs.get('resource_id'):
-            self.resource_id = kwargs['resource_id']
+            self._resource_id = kwargs['resource_id']
         if kwargs.get('description'):
             self.description = kwargs['description']
 
@@ -442,7 +606,7 @@ class System(StreamableResource[SystemResource]):
                                   datastream_resource.model_dump_json(by_alias=True, exclude_none=True),
                                   req_headers={
                                       'Content-Type': 'application/json'
-                                  }, parent_res_id=self.resource_id)
+                                  }, parent_res_id=self._resource_id)
 
         if res.ok:
             datastream_id = res.headers['Location'].split('/')[-1]
@@ -452,7 +616,9 @@ class System(StreamableResource[SystemResource]):
             raise Exception(f'Failed to create datastream: {datastream_resource.name}')
 
         self.datastreams.append(datastream_resource)
-        return Datastream(datastream_id, self._parent_node, datastream_resource)
+        new_ds = Datastream(datastream_id, self._parent_node, datastream_resource)
+        new_ds.set_parent_resource_id(self._underlying_resource.system_id)
+        return new_ds
 
     def insert_self(self):
         res = self._parent_node.get_api_helper().create_resource(
@@ -464,14 +630,14 @@ class System(StreamableResource[SystemResource]):
         if res.ok:
             location = res.headers['Location']
             sys_id = location.split('/')[-1]
-            self.resource_id = sys_id
-            print(f'Created system: {self.resource_id}')
+            self._resource_id = sys_id
+            print(f'Created system: {self._resource_id}')
 
     def retrieve_resource(self):
-        if self.resource_id is None:
+        if self._resource_id is None:
             return None
         res = self._parent_node.get_api_helper().retrieve_resource(res_type=APIResourceTypes.SYSTEM,
-                                                                   res_id=self.resource_id)
+                                                                   res_id=self._resource_id)
         if res.ok:
             system_json = res.json()
             print(system_json)
@@ -480,19 +646,20 @@ class System(StreamableResource[SystemResource]):
             self._underlying_resource = system_resource
             return None
 
+    def publish(self, payload):
+        self._publish_mqtt(self.get_mqtt_topic(), payload)
+
 
 class Datastream(StreamableResource[DatastreamResource]):
     should_poll: bool
-    resource_id: str
     # _datastream_resource: DatastreamResource
     _parent_node: Node
 
     def __init__(self, id: str = None, parent_node: Node = None, datastream_resource: DatastreamResource = None):
         super().__init__(node=parent_node)
-        self.resource_id = id
         self._parent_node = parent_node
-        # self._datastream_resource = datastream_resource
         self._underlying_resource = datastream_resource
+        self._resource_id = datastream_resource.ds_id
 
     def get_id(self):
         return self._underlying_resource.ds_id
@@ -523,7 +690,7 @@ class Datastream(StreamableResource[DatastreamResource]):
 
     def insert_observation_dict(self, obs_data: dict):
         res = self._parent_node.get_api_helper().create_resource(APIResourceTypes.OBSERVATION, obs_data,
-                                                                 parent_res_id=self.resource_id,
+                                                                 parent_res_id=self._resource_id,
                                                                  req_headers={'Content-Type': 'application/json'})
         if res.ok:
             obs_id = res.headers['Location'].split('/')[-1]
@@ -532,23 +699,62 @@ class Datastream(StreamableResource[DatastreamResource]):
         else:
             raise Exception(f'Failed to insert observation: {res.text}')
 
-    # def initialize(self):
+    def start(self):
+        super().start()
+        if self._mqtt_client is not None:
+            self._mqtt_client.connect()
+            self._mqtt_client.start()
+            self.subscribe_mqtt(self._topic)
+            if self._connection_mode is StreamableModes.PULL or self._connection_mode is StreamableModes.BIDIRECTIONAL:
+                self._mqtt_client.subscribe(self._topic, msg_callback=self._mqtt_sub_callback)
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._write_to_mqtt())
+        except Exception as e:
+            # TODO: Use logging instead of print
+            print(traceback.format_exc())
+            print(f"Error starting MQTT write task: {e}")
+
+    def init_mqtt(self):
+        super().init_mqtt()
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+
+    def publish(self, payload):
+        self._publish_mqtt(self._topic, payload)
+
+    def _queue_push(self, msg):
+        print(f'Pushing message to reader queue: {msg}')
+        self._msg_writer_queue.put_nowait(msg)
+        print(f'Queue size is now: {self._msg_writer_queue.qsize()}')
+
+    def _queue_pop(self):
+        return self._msg_reader_queue.get_nowait()
+
+    def _mqtt_sub_callback(self, client, userdata, msg):
+        print(f"MQTT Message received on topic {msg.topic}: {msg.payload}")
+        self._queue_push(msg.payload)
+
+    def insert(self, data: dict):
+        # self._queue_push(data)
+        encoded = json.dumps(data).encode('utf-8')
+        self._publish_mqtt(self._topic, encoded)
 
 
-    # def create_from_record_schema(record_schema: DataRecordSchema, parent_system: System):
-    #     new_ds = Datastream(name=record_schema.label, record_schema=record_schema)
-    #     new_ds._datastream_resource = DatastreamResource(ds_id=uuid.uuid4(), name=new_ds.name)
-    #     parent_system.datastreams.append(new_ds)
-    #     return new_ds
+class ControlChannel(StreamableResource[ControlStreamResource]):
 
+    def __init__(self, node: Node = None):
+        super().__init__(node=node)
 
-class ControlChannel:
-    _cc_resource: ControlStreamResource
-    resource_id: str
-    _parent_node: Node
+    def add_underlying_resource(self, resource: ControlStreamResource):
+        self._underlying_resource = resource
 
-    def __init__(self):
-        pass
+    def init_mqtt(self):
+        super().init_mqtt()
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
+
+    def publish(self, payload):
+        self._publish_mqtt(self._topic, payload)
 
 
 class Observation:

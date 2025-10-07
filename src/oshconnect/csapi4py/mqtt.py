@@ -173,7 +173,7 @@ class MQTTCommClient:
 
     def stop(self):
         """
-        Stop the MQTT client.\
+        Stop the MQTT client.
 
         :return:
         """

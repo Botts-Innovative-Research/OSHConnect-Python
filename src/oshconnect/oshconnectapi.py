@@ -6,11 +6,12 @@
 #   ==============================================================================
 import logging
 import shelve
+from uuid import UUID
 
 from .csapi4py.default_api_helpers import APIHelper
-from .resource_datamodels import DatastreamResource
-from .datasource import DataStream, MessageWrapper
+from .datasource import MessageWrapper
 from .datastore import DataStore
+from .resource_datamodels import DatastreamResource
 from .streamableresource import Node, System, SessionManager, Datastream
 from .styling import Styling
 from .timemanagement import TemporalModes, TimeManagement, TimePeriod
@@ -25,7 +26,7 @@ class OSHConnect:
     _systems: list[System] = []
     _cs_api_builder: APIHelper = None
     # _datasource_handler: DataStreamHandler = None
-    _datastreams: list[DataStream] = []
+    _datastreams: list[Datastream] = []
     _datataskers: list[DataStore] = []
     _datagroups: list = []
     _tasks: list = []
@@ -38,15 +39,6 @@ class OSHConnect:
         :param kwargs:
         """
         self._name = name
-        # if 'nodes' in kwargs:
-        #     self._nodes = kwargs['nodes']
-        #     self._playback_mode = kwargs['playback_mode']
-        #     self._datasource_handler.set_playback_mode(self._playback_mode)
-        # self._datasource_handler = DataStreamHandler()
-        # if 'playback_mode' in kwargs:
-        #     self._playback_mode = kwargs['playback_mode']
-        #     self._datasource_handler.set_playback_mode(self._playback_mode)
-
         logging.info(f"OSHConnect instance {name} created")
         self._session_manager = SessionManager()
 
@@ -116,20 +108,6 @@ class OSHConnect:
         """
         pass
 
-    async def playback_streams(self, stream_ids: list = None):
-        """
-        Begins playback of the datastreams that have been connected to the app. The method of playback is determined
-        by the temporal mode that has been set.
-        :param stream_ids:
-        :return:
-        """
-        if stream_ids is None:
-            await self._datasource_handler.connect_all(
-                self.timestream.get_time_range())
-        else:
-            for stream_id in stream_ids:
-                await self._datasource_handler.connect_ds(stream_id)
-
     def visualize_streams(self, streams: list):
         pass
 
@@ -137,27 +115,13 @@ class OSHConnect:
     def get_visualization_recommendations(self, streams: list):
         pass
 
-    def dep_discover_datastreams(self):
-        """
-        Discover datastreams of the current systems of the OSHConnect instance and create objects for them that are
-        stored in the DataSourceHandler.
-        :return:
-        """
-        # NOTE: This will need to check to prevent dupes in the future
-        for system in self._systems:
-            res_datastreams = system.discover_datastreams()
-            # create DataSource(s)
-            new_datasource = [
-                DataStream(name=ds.name, datastream=ds, parent_system=system.get_system_resource())
-                for ds in
-                res_datastreams]
-            self._datastreams.extend(new_datasource)
-            list(map(self._datasource_handler.add_datasource, new_datasource))
-
     def discover_datastreams(self):
         for system in self._systems:
             res_datastreams = system.discover_datastreams()
-            datastreams = list(map(lambda ds: Datastream(parent_node=system.get_parent_node(), id=ds.ds_id, datastream_resource=ds), res_datastreams))
+            datastreams = list(
+                map(lambda ds: Datastream(parent_node=system.get_parent_node(), id=ds.ds_id, datastream_resource=ds),
+                    res_datastreams))
+            datastreams = [ds.set_parent_resource_id(system.get_underlying_resource().system_id) for ds in datastreams]
             self._datastreams.extend(datastreams)
 
     def discover_systems(self, nodes: list[str] = None):
@@ -279,8 +243,11 @@ class OSHConnect:
         pass
 
     # DataStream Helpers
-    def get_datastreams(self) -> list[DataStream]:
+    def get_datastreams(self) -> list[Datastream]:
         return self._datastreams
+
+    def get_datastream_ids(self) -> list[UUID]:
+        return [ds.get_internal_id() for ds in self._datastreams]
 
     def connect_session_streams(self, session_id: str):
         """
@@ -289,3 +256,41 @@ class OSHConnect:
         :return:
         """
         self._session_manager.start_session_streams(session_id)
+
+    def get_resource_group(self, resource_ids: list[UUID]) -> tuple[list[System], list[Datastream]]:
+        """
+        Get a group of resources by their IDs. Can be any mix of systems, datastreams, and controlstreams.
+        :param resource_ids: list of resource IDs (internal UUID)
+        """
+        systems = [system for system in self._systems if system.get_internal_id() in resource_ids]
+        datastreams = [ds for ds in self._datastreams if ds.get_internal_id() in resource_ids]
+        return systems, datastreams
+
+    def initialize_resource_groups(self, resource_ids: list = None):
+        """
+        Initializes the datastreams that are specified.
+        """
+        systems, datastreams = self.get_resource_group(resource_ids)
+
+        if systems:
+            for system in systems:
+                system.initialize()
+        if datastreams:
+            for ds in datastreams:
+                ds.initialize()
+
+    def start_datastreams(self, dsid_list: list = None):
+        """
+        Starts the datastreams that are specified.
+        """
+        datastreams = self.get_resource_group(dsid_list)[1]
+        for ds in datastreams:
+            ds.start()
+
+    def start_systems(self, sysid_list: list = None):
+        """
+        Starts the systems that are specified.
+        """
+        systems = self.get_resource_group(sysid_list)[0]
+        for system in systems:
+            system.start()

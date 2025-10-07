@@ -16,6 +16,8 @@ from .con_sys_api import ConnectedSystemAPIRequest
 from .constants import APIResourceTypes, EncodingSchema, APITerms
 
 
+# TODO: rework to make the first resource in the endpoint the primary key for URL construction, currently, the implementation is a bit on the confusing side with what is being generated and why.
+
 def determine_parent_type(res_type: APIResourceTypes):
     match res_type:
         case APIResourceTypes.SYSTEM:
@@ -84,6 +86,7 @@ class APIHelper(ABC):
     server_url: str = None
     port: int = None
     protocol: str = "https"
+    server_root: str = "sensorhub"
     api_root: str = "api"
     username: str = None
     password: str = None
@@ -178,52 +181,54 @@ class APIHelper(ABC):
         return api_request.make_request()
 
     # Helpers
-    def resource_url_resolver(self, res_type: APIResourceTypes, res_id: str = None, parent_res_id: str = None,
+    def resource_url_resolver(self, subresource_type: APIResourceTypes, subresource_id: str = None,
+                              resource_id: str = None,
                               from_collection: bool = False):
         """
         Helper to generate a URL endpoint for a given resource type and id by matching the resource type to an
         appropriate parent endpoint and inserting the resource ids as necessary.
-        :param res_type:
-        :param res_id:
-        :param parent_res_id:
+        :param subresource_type:
+        :param subresource_id:
+        :param resource_id:
         :param from_collection:
         :return:
         """
-        if res_type is None:
+        if subresource_type is None:
             raise ValueError('Resource type must contain a valid APIResourceType')
-        if res_type is APIResourceTypes.COLLECTION and from_collection:
+        if subresource_type is APIResourceTypes.COLLECTION and from_collection:
             raise ValueError('Collections are not sub-resources of other collections')
 
         parent_type = None
-        if parent_res_id and not from_collection:
-            parent_type = determine_parent_type(res_type)
-        elif parent_res_id and from_collection:
+        if resource_id and not from_collection:
+            parent_type = determine_parent_type(subresource_type)
+        elif resource_id and from_collection:
             parent_type = APIResourceTypes.COLLECTION
 
-        return self.construct_url(parent_type, res_id, res_type, parent_res_id)
+        return self.construct_url(parent_type, subresource_id, subresource_type, resource_id)
 
-    def construct_url(self, parent_type, res_id, res_type, parent_res_id, for_socket: bool = False):
+    def construct_url(self, resource_type: APIResourceTypes, subresource_id, subresource_type, resource_id,
+                      for_socket: bool = False):
         """
         Constructs an API endpoint url from the given parameters
-        :param parent_type:
-        :param res_id:
-        :param res_type:
-        :param parent_res_id:
+        :param resource_type:
+        :param subresource_id:
+        :param subresource_type:
+        :param resource_id:
         :param for_socket: If true, will construct a WebSocket URL (ws:// or wss://) instead of HTTP/HTTPS.
         :return:
         """
         # TODO: Test for less common cases to ensure that the URL is being constructed correctly
         base_url = self.get_api_root_url(socket=for_socket)
 
-        resource_endpoint = resource_type_to_endpoint(res_type, parent_type)
+        resource_endpoint = resource_type_to_endpoint(subresource_type, resource_type)
         url = f'{base_url}/{resource_endpoint}'
 
-        if parent_type:
-            parent_endpoint = resource_type_to_endpoint(parent_type)
-            url = f'{base_url}/{parent_endpoint}/{parent_res_id}/{resource_endpoint}'
+        if resource_type:
+            parent_endpoint = resource_type_to_endpoint(resource_type)
+            url = f'{base_url}/{parent_endpoint}/{resource_id}/{resource_endpoint}'
 
-        if res_id:
-            url = f'{url}/{res_id}'
+        if subresource_id:
+            url = f'{url}/{subresource_id}'
 
         return url
 
@@ -244,12 +249,26 @@ class APIHelper(ABC):
         :param socket: If true, will return a WebSocket URL (ws:// or wss://) instead of HTTP/HTTPS.
         :return:
         """
-        return f'{self.get_base_url(socket=socket)}/{self.api_root}'
+        return f'{self.get_base_url(socket=socket)}/{self.server_root}/{self.api_root}'
 
     def set_protocol(self, protocol: str):
         if protocol not in ['http', 'https', 'ws', 'wss']:
             raise ValueError('Protocol must be either "http" or "https"')
         self.protocol = protocol
+
+    def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str,
+                       for_socket: bool = False):
+        """
+        Returns the MQTT topic for the resource type, if applicable.
+        :return:
+        """
+        resource_endpoint = f'/{resource_type_to_endpoint(subresource_type, resource_type)}'
+        parent_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
+        parent_id = "" if resource_id is None else f'/{resource_id}'
+        topic_locator = f'/{self.api_root}{parent_endpoint}{parent_id}{resource_endpoint}'
+        print(f'MQTT Topic: {topic_locator}')
+
+        return topic_locator
 
 
 @dataclass(kw_only=True)

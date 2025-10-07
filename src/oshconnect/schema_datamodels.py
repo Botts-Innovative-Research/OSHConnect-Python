@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Union, List
 
-from pydantic import BaseModel, Field, SerializeAsAny, field_validator, HttpUrl
+from pydantic import BaseModel, Field, SerializeAsAny, field_validator, HttpUrl, ConfigDict
 
 from .api_utils import Link, URI
 from .csapi4py.constants import ObservationFormat
@@ -27,6 +27,7 @@ class CommandJSON(BaseModel):
     """
     A class to represent a command in JSON format
     """
+    model_config = ConfigDict(populate_by_name=True)
     control_id: str = Field(None, serialization_alias="control@id")
     issue_time: Union[str, float] = Field(datetime.now().isoformat(), serialization_alias="issueTime")
     sender: str = Field(None)
@@ -37,6 +38,7 @@ class ControlStreamJSONSchema(BaseModel):
     """
     A class to represent the schema of a control stream
     """
+    model_config = ConfigDict(populate_by_name=True)
     id: str = Field(None)
     name: str = Field(...)
     description: str = Field(None)
@@ -54,12 +56,14 @@ class SWEControlChannelSchema(BaseModel):
     """
     A class to represent the schema of a control channel
     """
+    model_config = ConfigDict(populate_by_name=True)
     command_format: str = Field("application/swe+json", serialization_alias='commandFormat')
     encoding: SerializeAsAny[Encoding] = Field(...)
     record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='recordSchema')
 
 
 class JSONControlChannelSchema(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     command_format: str = Field("application/cmd+json", serialization_alias='commandFormat')
     params_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='paramsSchema')
 
@@ -68,10 +72,12 @@ class DatastreamRecordSchema(BaseModel):
     """
     A class to represent the schema of a datastream
     """
+    model_config = ConfigDict(populate_by_name=True)
     obs_format: str = Field(..., serialization_alias='obsFormat')
 
 
 class SWEDatastreamRecordSchema(DatastreamRecordSchema):
+    model_config = ConfigDict(populate_by_name=True)
     encoding: SerializeAsAny[Encoding] = Field(...)
     record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='recordSchema')
 
@@ -88,6 +94,7 @@ class ObservationOMJSONInline(BaseModel):
     """
     A class to represent an observation in OM-JSON format
     """
+    model_config = ConfigDict(populate_by_name=True)
     datastream_id: str = Field(None, serialization_alias="datastream@id")
     foi_id: str = Field(None, serialization_alias="foi@id")
     phenomenon_time: str = Field(None, serialization_alias="phenomenonTime")
@@ -101,6 +108,7 @@ class SystemEventOMJSON(BaseModel):
     """
     A class to represent the schema of a system event
     """
+    model_config = ConfigDict(populate_by_name=True)
     label: str = Field(...)
     description: str = Field(None)
     definition: HttpUrl = Field(...)
@@ -118,6 +126,7 @@ class SystemHistoryGeoJSON(BaseModel):
     """
     A class to represent the schema of a system history
     """
+    model_config = ConfigDict(populate_by_name=True)
     type: str = Field(...)
     id: str = Field(None)
     properties: SystemHistoryProperties = Field(...)
@@ -127,6 +136,7 @@ class SystemHistoryGeoJSON(BaseModel):
 
 
 class SystemHistoryProperties(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     feature_type: str = Field(...)
     uid: URI = Field(...)
     name: str = Field(...)

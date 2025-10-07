@@ -17,7 +17,7 @@ from .timemanagement import DateTimeSchema, TimePeriod
 
 
 class BoundingBox(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     lower_left_corner: Point = Field(..., description="The lower left corner of the bounding box.")
     upper_right_corner: Point = Field(..., description="The upper right corner of the bounding box.")
@@ -88,7 +88,7 @@ class ProcessMethod:
 
 
 class BaseResource(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     id: str = Field(..., alias="id")
     name: str = Field(...)
@@ -98,7 +98,7 @@ class BaseResource(BaseModel):
 
 
 class SystemResource(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     feature_type: str = Field(None, alias="type")
     system_id: str = Field(None, alias="id")
@@ -139,7 +139,7 @@ class DatastreamResource(BaseModel):
     that, depending on the format of the  request, the fields needed may differ. There may be derived models in a later
     release that will have different sets of required fields to ease the validation process for users.
     """
-    # model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True)
 
     ds_id: str = Field(..., alias="id")
     name: str = Field(...)
@@ -176,6 +176,7 @@ class DatastreamResource(BaseModel):
 
 
 class ObservationResource(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     sampling_feature_id: str = Field(None, alias="samplingFeature@Id")
     procedure_link: Link = Field(None, alias="procedure@link")
     phenomenon_time: DateTimeSchema = Field(None, alias="phenomenonTime")
@@ -186,6 +187,7 @@ class ObservationResource(BaseModel):
 
 
 class ControlStreamResource(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     name: str = Field(...)
     description: str = Field(None)
     valid_time: TimePeriod = Field(..., alias="validTime")
