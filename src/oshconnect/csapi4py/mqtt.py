@@ -2,7 +2,7 @@ import paho.mqtt.client as mqtt
 
 
 class MQTTCommClient:
-    def __init__(self, url, port=1883, username=None, password=None, path='mqtt', client_id="", transport='tcp'):
+    def __init__(self, url, port=1883, username=None, password=None, path='mqtt', client_id_suffix="", transport='tcp'):
         """
     Wraps a paho mqtt client to provide a simple interface for interacting with the mqtt server that is customized
     for this library.
@@ -17,10 +17,10 @@ class MQTTCommClient:
         self.__url = url
         self.__port = port
         self.__path = path
-        self.__client_id = client_id
+        self.__client_id = f'oscapy_mqtt-{client_id_suffix}'
         self.__transport = transport
 
-        self.__client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+        self.__client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.__client_id)
 
         if self.__transport == 'websockets':
             self.__client.ws_set_options(path=self.__path)
@@ -173,7 +173,7 @@ class MQTTCommClient:
 
     def stop(self):
         """
-        Stop the MQTT client.\
+        Stop the MQTT client.
 
         :return:
         """

@@ -18,4 +18,4 @@ jobs:
 
       - name: Lint
         run: |
-          uv run flake8 oshconnect
+          uv run flake8 src/oshconnect

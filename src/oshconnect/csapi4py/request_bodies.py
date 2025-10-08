@@ -2,10 +2,10 @@ from typing import Union
 
 from pydantic import BaseModel, HttpUrl, Field, model_serializer, RootModel, SerializeAsAny
 
-from oshconnect.csapi4py.constants import DatastreamResultTypes
+from .constants import DatastreamResultTypes
 from oshconnect.datamodels.datastreams import DatastreamSchema
 from oshconnect.datamodels.geometry import Geometry
-from oshconnect.csapi4py.sensor_ml.sml import TypeOf
+from .sensor_ml.sml import TypeOf
 
 
 # TODO: Consider some sort of Abstract Base Class for all valid request bodies to inherit from to reduce the complexity
@@ -70,7 +70,7 @@ class DatastreamBodyJSON(BaseModel):
     name: str = Field(...)
     description: str = Field(None)
     deployment: HttpUrl = Field(None, serialization_alias='deployment@link')
-    ultimate_feature_of_interest: HttpUrl = Field(None, serialization_alias='ultimateFeatureOfInterest@link')
+    ultimate_feature_of_interest: HttpUrl = Field(None, serialization_alias='featureOfInterest@link')
     sampling_feature: HttpUrl = Field(None, serialization_alias='samplingFeature@link')
     valid_time: list = Field(None, serialization_alias='validTime')
     output_name: str = Field(..., serialization_alias='outputName')

@@ -1,3 +1,10 @@
+#  =============================================================================
+#  Copyright (c) 2025 Botts Innovative Research Inc.
+#  Date: 2025/9/30
+#  Author: Ian Patterson
+#  Contact Email: ian@botts-inc.com
+#  =============================================================================
+
 from __future__ import annotations
 
 from numbers import Real
@@ -5,9 +12,9 @@ from typing import Union, Any
 
 from pydantic import BaseModel, Field, field_validator, SerializeAsAny
 
-from oshconnect.csapi4py.constants import GeometryTypes
-from oshconnect.datamodels.api_utils import UCUMCode, URI
-from oshconnect.datamodels.geometry import Geometry
+from .csapi4py.constants import GeometryTypes
+from .api_utils import UCUMCode, URI
+from .geometry import Geometry
 
 """
  NOTE: The following classes are used to represent the Record Schemas that are required for use with Datastreams
