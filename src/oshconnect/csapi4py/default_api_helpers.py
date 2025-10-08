@@ -137,6 +137,29 @@ class APIHelper(ABC):
                                                 headers=req_headers)
         return api_request.make_request()
 
+    def get_resource(self, resource_type: APIResourceTypes, resource_id: str = None,
+                     subresource_type: APIResourceTypes = None,
+                     req_headers: dict = None):
+
+        """
+        Helper to get resources by type, specifically by id, and optionally a sub-resource collection of a specified resource.
+        :param resource_type:
+        :param resource_id:
+        :param subresource_type:
+        :param req_headers:
+        :return:
+        """
+        if req_headers is None:
+            req_headers = {}
+        base_api_url = self.get_api_root_url()
+        resource_type_str = resource_type_to_endpoint(resource_type)
+        res_id_str = f'/{resource_id}' if resource_id else ""
+        sub_res_type_str = f'/{resource_type_to_endpoint(subresource_type)}' if subresource_type else ""
+        complete_url = f'{base_api_url}/{resource_type_str}{res_id_str}{sub_res_type_str}'
+        api_request = ConnectedSystemAPIRequest(url=complete_url, request_method='GET', auth=self.get_helper_auth(),
+                                                headers=req_headers)
+        return api_request.make_request()
+
     def update_resource(self, res_type: APIResourceTypes, res_id: str, json_data: any, parent_res_id: str = None,
                         from_collection: bool = False, url_endpoint: str = None, req_headers: dict = None):
         """

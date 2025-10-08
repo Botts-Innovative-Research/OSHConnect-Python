@@ -121,7 +121,9 @@ class OSHConnect:
             datastreams = list(
                 map(lambda ds: Datastream(parent_node=system.get_parent_node(), id=ds.ds_id, datastream_resource=ds),
                     res_datastreams))
-            datastreams = [ds.set_parent_resource_id(system.get_underlying_resource().system_id) for ds in datastreams]
+            for ds in datastreams:
+                ds.set_parent_resource_id(system.get_underlying_resource().system_id)
+            # datastreams = [ds.set_parent_resource_id(system.get_underlying_resource().system_id) for ds in datastreams]
             self._datastreams.extend(datastreams)
 
     def discover_systems(self, nodes: list[str] = None):

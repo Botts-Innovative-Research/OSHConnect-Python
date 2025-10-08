@@ -149,7 +149,9 @@ class Node:
         if kwargs.get('enable_mqtt'):
             if kwargs.get('mqtt_port') is not None:
                 self._mqtt_port = kwargs.get('mqtt_port')
-            self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port)
+            self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port, client_id_suffix=uuid.uuid4().hex,)
+            self._mqtt_client.connect()
+            self._mqtt_client.start()
             # self._mqtt_client = MQTTCommClient(url=self.address + self.server_root, port=self._mqtt_port,
             #                                    username=username, password=password, )
 
@@ -249,6 +251,7 @@ class Status(Enum):
     STOPPING = "stopping"
     STOPPED = "stopped"
 
+
 class StreamableModes(Enum):
     PUSH = "push"
     PULL = "pull"
@@ -340,7 +343,12 @@ class StreamableResource(Generic[T], ABC):
             logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return
 
-        self.get_mqtt_topic()
+        self._mqtt_client.set_on_subscribe(self._default_on_subscribe)
+
+        # self.get_mqtt_topic()
+
+    def _default_on_subscribe(self, client, userdata, mid, granted_qos, properties):
+        print("OSH Subscribed: "+str(mid)+" "+str(granted_qos))
 
     def get_mqtt_topic(self, subresource: APIResourceTypes | None = None):
         """
@@ -468,7 +476,7 @@ class StreamableResource(Generic[T], ABC):
         if self._mqtt_client is None:
             logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return
-        self._mqtt_client.subscribe(topic, qos=qos, msg_callback=self._message_handler)
+        self._mqtt_client.subscribe(topic, qos=qos, msg_callback=self._mqtt_sub_callback)
 
     def _publish_mqtt(self, topic, payload):
         if self._mqtt_client is None:
@@ -500,6 +508,11 @@ class StreamableResource(Generic[T], ABC):
         Publishes data to the MQTT topic associated with this streamable resource.
         """
         pass
+
+
+    def _mqtt_sub_callback(self, client, userdata, msg):
+        print(f"Received MQTT message on topic {msg.topic}: {msg.payload}")
+        self._msg_reader_queue.put_nowait(msg.payload)
 
 
 class System(StreamableResource[SystemResource]):
@@ -534,8 +547,10 @@ class System(StreamableResource[SystemResource]):
         # self.underlying_resource = self._sys_resource
 
     def discover_datastreams(self) -> list[DatastreamResource]:
-        res = self._parent_node.get_api_helper().retrieve_resource(
-            APIResourceTypes.DATASTREAM, req_headers={})
+        # res = self._parent_node.get_api_helper().retrieve_resource(
+        #     APIResourceTypes.DATASTREAM, req_headers={})
+        res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
+                                                              APIResourceTypes.DATASTREAM)
         datastream_json = res.json()['items']
         ds_resources = []
 
@@ -702,19 +717,20 @@ class Datastream(StreamableResource[DatastreamResource]):
     def start(self):
         super().start()
         if self._mqtt_client is not None:
-            self._mqtt_client.connect()
-            self._mqtt_client.start()
-            self.subscribe_mqtt(self._topic)
+            # self._mqtt_client.connect()
+
             if self._connection_mode is StreamableModes.PULL or self._connection_mode is StreamableModes.BIDIRECTIONAL:
                 self._mqtt_client.subscribe(self._topic, msg_callback=self._mqtt_sub_callback)
+            else:
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(self._write_to_mqtt())
+                except Exception as e:
+                    # TODO: Use logging instead of print
+                    print(traceback.format_exc())
+                    print(f"Error starting MQTT write task: {e}")
 
-        try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(self._write_to_mqtt())
-        except Exception as e:
-            # TODO: Use logging instead of print
-            print(traceback.format_exc())
-            print(f"Error starting MQTT write task: {e}")
+            # self._mqtt_client.start()
 
     def init_mqtt(self):
         super().init_mqtt()
@@ -731,9 +747,9 @@ class Datastream(StreamableResource[DatastreamResource]):
     def _queue_pop(self):
         return self._msg_reader_queue.get_nowait()
 
-    def _mqtt_sub_callback(self, client, userdata, msg):
-        print(f"MQTT Message received on topic {msg.topic}: {msg.payload}")
-        self._queue_push(msg.payload)
+    # def _mqtt_sub_callback(self, client, userdata, msg):
+    #     print(f"MQTT Message received on topic {msg.topic}: {msg.payload}")
+    #     self._queue_push(msg.payload)
 
     def insert(self, data: dict):
         # self._queue_push(data)
