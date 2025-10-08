@@ -149,7 +149,8 @@ class Node:
         if kwargs.get('enable_mqtt'):
             if kwargs.get('mqtt_port') is not None:
                 self._mqtt_port = kwargs.get('mqtt_port')
-            self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port, client_id_suffix=uuid.uuid4().hex,)
+            self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port,
+                                               client_id_suffix=uuid.uuid4().hex, )
             self._mqtt_client.connect()
             self._mqtt_client.start()
             # self._mqtt_client = MQTTCommClient(url=self.address + self.server_root, port=self._mqtt_port,
@@ -348,7 +349,7 @@ class StreamableResource(Generic[T], ABC):
         # self.get_mqtt_topic()
 
     def _default_on_subscribe(self, client, userdata, mid, granted_qos, properties):
-        print("OSH Subscribed: "+str(mid)+" "+str(granted_qos))
+        print("OSH Subscribed: " + str(mid) + " " + str(granted_qos))
 
     def get_mqtt_topic(self, subresource: APIResourceTypes | None = None):
         """
@@ -358,7 +359,7 @@ class StreamableResource(Generic[T], ABC):
         """
         resource_type = None
         parent_res_type = None
-        res_id = None
+        # res_id = None
         parent_id = None
 
         if isinstance(self._underlying_resource, ControlStreamResource):
@@ -508,7 +509,6 @@ class StreamableResource(Generic[T], ABC):
         Publishes data to the MQTT topic associated with this streamable resource.
         """
         pass
-
 
     def _mqtt_sub_callback(self, client, userdata, msg):
         print(f"Received MQTT message on topic {msg.topic}: {msg.payload}")
