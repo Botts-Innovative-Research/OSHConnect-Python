@@ -5,15 +5,18 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 
+import sys
+import os
 import websockets
 
-from oshconnect.core_datamodels import TimePeriod
-from oshconnect.osh_connect_datamodels import Node
-from oshconnect.oshconnectapi import OSHConnect
-from oshconnect.timemanagement import TimeInstant
+from src.oshconnect import OSHConnect, Node
+from timemanagement import TimePeriod, TimeInstant
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 
 class TestOSHConnect:
+    TEST_PORT = 8282
 
     def test_time_period(self):
         tp = TimePeriod(start="2024-06-18T15:46:32Z", end="2024-06-18T20:00:00Z")
@@ -44,7 +47,8 @@ class TestOSHConnect:
 
     def test_oshconnect_add_node(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="http://localhost", port=8585)
+        node = Node(address="http://localhost", port=self.TEST_PORT, protocol="http", username="admin",
+                    password="admin")
         # node.add_basicauth("admin", "admin")
         app.add_node(node)
         assert len(app._nodes) == 1
@@ -52,7 +56,7 @@ class TestOSHConnect:
 
     def test_find_systems(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="localhost", port=8585, username="admin", password="admin", protocol="http")
+        node = Node(address="localhost", port=self.TEST_PORT, username="admin", password="admin", protocol="http")
         # node.add_basicauth("admin", "admin")
         app.add_node(node)
         app.discover_systems()
@@ -62,16 +66,17 @@ class TestOSHConnect:
 
     def test_oshconnect_find_datastreams(self):
         app = OSHConnect(name="Test OSH Connect")
-        node = Node(address="localhost", port=8585, username="admin", password="admin", protocol="http")
+        node = Node(address="localhost", port=self.TEST_PORT, username="admin", password="admin", protocol="http")
         app.add_node(node)
         app.discover_systems()
 
         app.discover_datastreams()
-        assert len(app._datafeeds) > 0
+        assert len(app._datastreams) > 0
 
     async def test_obs_ws_stream(self):
-        ds_url = ("ws://localhost:8585/sensorhub/api/datastreams/e07n5sbjqvalm/observations?f=application%2Fjson"
-                  "&resultTime=latest/2025-06-18T15:46:32Z")
+        ds_url = (
+            "ws://localhost:8282/sensorhub/api/datastreams/038q16egp1t0/observations?resultTime=latest"
+            "/2026-01-01T12:00:00Z&f=application%2Fjson")
 
         # stream = requests.get(ds_url, stream=True, auth=('admin', 'admin'))
         async with websockets.connect(ds_url, extra_headers={'Authorization': 'Basic YWRtaW46YWRtaW4='}) as stream:

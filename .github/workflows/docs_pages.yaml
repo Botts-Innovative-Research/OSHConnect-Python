@@ -1,5 +1,5 @@
 name: Docs2Pages
-on: [push, pull_request, workflow_dispatch]
+on: [ push, pull_request, workflow_dispatch ]
 permissions:
   contents: write
 
@@ -7,28 +7,27 @@ jobs:
   build-docs:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
+      - name: Checkout
+        uses: actions/checkout@v5
 
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
 
-    - name: Install dependencies
-      run: |
-        poetry install --with dev
+      - name: Install Python 3.13
+        run: uv python install 3.13
 
-    - name: Sphinx build
-      run: |
-        poetry run sphinx-build -b html docs/source docs/build/html
+      - name: Install dependencies
+        run: uv sync --all-extras
 
-    - name: Deploy documentation
-      uses: peaceiris/actions-gh-pages@v4
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      with:
-        publish_branch: gh-pages
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./docs/build/html
-        force_orphan: true
+      - name: Sphinx build
+        run: |
+          uv run sphinx-build -b html docs/source docs/build/html
+
+      - name: Deploy documentation
+        uses: peaceiris/actions-gh-pages@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          publish_branch: gh-pages
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/build/html
+          force_orphan: true
