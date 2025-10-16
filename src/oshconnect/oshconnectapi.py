@@ -9,7 +9,6 @@ import shelve
 from uuid import UUID
 
 from .csapi4py.default_api_helpers import APIHelper
-from .datasource import MessageWrapper
 from .datastore import DataStore
 from .resource_datamodels import DatastreamResource
 from .streamableresource import Node, System, SessionManager, Datastream
@@ -165,12 +164,12 @@ class OSHConnect:
         tp = TimePeriod(start=start_time, end=end_time)
         self.timestream = TimeManagement(time_range=tp)
 
-    def get_message_list(self) -> list[MessageWrapper]:
-        """
-        Get the list of messages that have been received by the OSHConnect instance.
-        :return: list of MessageWrapper objects
-        """
-        return self._datasource_handler.get_messages()
+    # def get_message_list(self) -> list[MessageWrapper]:
+    #     """
+    #     Get the list of messages that have been received by the OSHConnect instance.
+    #     :return: list of MessageWrapper objects
+    #     """
+    #     return self._datasource_handler.get_messages()
 
     def _insert_system(self, system: System, target_node: Node):
         """

@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.3.0a4"
+version = "0.3.0a5"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations."
 readme = "README.md"
 authors = [

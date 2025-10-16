@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 from .con_sys_api import ConnectedSystemAPIRequest
-from .constants import APIResourceTypes, EncodingSchema, APITerms
+from .constants import APIResourceTypes, ContentTypes, APITerms
 
 
 # TODO: rework to make the first resource in the endpoint the primary key for URL construction, currently, the implementation is a bit on the confusing side with what is being generated and why.
@@ -77,6 +77,10 @@ def resource_type_to_endpoint(res_type: APIResourceTypes, parent_type: APIResour
             return APITerms.HISTORY.value
         case APIResourceTypes.DEPLOYMENT:
             return APITerms.DEPLOYMENTS.value
+        case APIResourceTypes.STATUS:
+            return APITerms.STATUS.value
+        case APIResourceTypes.SCHEMA:
+            return APITerms.SCHEMA.value
         case _:
             raise ValueError('Invalid resource type')
 
@@ -279,16 +283,24 @@ class APIHelper(ABC):
             raise ValueError('Protocol must be either "http" or "https"')
         self.protocol = protocol
 
-    def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str,
-                       for_socket: bool = False):
+    # TODO: add validity checking for resource type combinations
+    def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None):
         """
-        Returns the MQTT topic for the resource type, if applicable.
+        Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
+        :param resource_type : The API resource type of the resource that comes first in the URL, cannot be None
+        :param subresource_type: The API resource type of the sub-resource that comes second in the URL, optional if there
+        is no sub-resource.
+        :param resource_id: The ID of the primary resource, can be none if the request is being made for all resources of
+        the given type.
+        :param subresource_id: The ID of the sub-resource, can be none if the request is being made for all sub-resources of
+        the given type.
         :return:
         """
-        resource_endpoint = f'/{resource_type_to_endpoint(subresource_type, resource_type)}'
-        parent_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
-        parent_id = "" if resource_id is None else f'/{resource_id}'
-        topic_locator = f'/{self.api_root}{parent_endpoint}{parent_id}{resource_endpoint}'
+        subresource_endpoint = f'/{resource_type_to_endpoint(subresource_type)}'
+        resource_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
+        resource_ident = "" if resource_id is None else f'/{resource_id}'
+        subresource_ident = "" if subresource_id is None else f'/{subresource_id}'
+        topic_locator = f'/{self.api_root}{resource_endpoint}{resource_ident}{subresource_endpoint}{subresource_ident}'
         print(f'MQTT Topic: {topic_locator}')
 
         return topic_locator
@@ -305,17 +317,17 @@ class DefaultObjectRepresentations(BaseModel):
     Should work in tandem with planned Serializer/Deserializer classes.
     """
     # Part 1
-    collections: str = Field(EncodingSchema.JSON.value)
-    deployments: str = Field(EncodingSchema.GEO_JSON.value)
-    procedures: str = Field(EncodingSchema.GEO_JSON.value)
-    properties: str = Field(EncodingSchema.SML_JSON.value)
-    sampling_features: str = Field(EncodingSchema.GEO_JSON.value)
-    systems: str = Field(EncodingSchema.GEO_JSON.value)
+    collections: str = Field(ContentTypes.JSON.value)
+    deployments: str = Field(ContentTypes.GEO_JSON.value)
+    procedures: str = Field(ContentTypes.GEO_JSON.value)
+    properties: str = Field(ContentTypes.SML_JSON.value)
+    sampling_features: str = Field(ContentTypes.GEO_JSON.value)
+    systems: str = Field(ContentTypes.GEO_JSON.value)
     # Part 2
-    datastreams: str = Field(EncodingSchema.JSON.value)
-    observations: str = Field(EncodingSchema.JSON.value)
-    control_channels: str = Field(EncodingSchema.JSON.value)
-    commands: str = Field(EncodingSchema.JSON.value)
-    system_events: str = Field(EncodingSchema.OM_JSON.value)
-    system_history: str = Field(EncodingSchema.GEO_JSON.value)
+    datastreams: str = Field(ContentTypes.JSON.value)
+    observations: str = Field(ContentTypes.JSON.value)
+    control_channels: str = Field(ContentTypes.JSON.value)
+    commands: str = Field(ContentTypes.JSON.value)
+    system_events: str = Field(ContentTypes.OM_JSON.value)
+    system_history: str = Field(ContentTypes.GEO_JSON.value)
     # TODO: validate schemas for each resource to amke sure they are allowed per the spec

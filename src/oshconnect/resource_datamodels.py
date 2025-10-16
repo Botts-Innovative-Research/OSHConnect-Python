@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 from typing import List
+
 from .geometry import Geometry
 from .api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
 from shapely import Point
 
-from .schema_datamodels import DatastreamRecordSchema
+from .schema_datamodels import DatastreamRecordSchema, CommandSchema
 from .timemanagement import DateTimeSchema, TimePeriod
 
 
@@ -177,6 +178,7 @@ class DatastreamResource(BaseModel):
 
 class ObservationResource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+
     sampling_feature_id: str = Field(None, alias="samplingFeature@Id")
     procedure_link: Link = Field(None, alias="procedure@link")
     phenomenon_time: DateTimeSchema = Field(None, alias="phenomenonTime")
@@ -188,6 +190,8 @@ class ObservationResource(BaseModel):
 
 class ControlStreamResource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+
+    cs_id: str = Field(None, alias="id")
     name: str = Field(...)
     description: str = Field(None)
     valid_time: TimePeriod = Field(..., alias="validTime")
@@ -199,6 +203,6 @@ class ControlStreamResource(BaseModel):
     issue_time: DateTimeSchema = Field(None, alias="issueTime")
     execution_time: DateTimeSchema = Field(None, alias="executionTime")
     live: bool = Field(None)
-    asynchronous: bool = Field(..., alias="asynchronous")
-    record_schema: SerializeAsAny[DatastreamRecordSchema] = Field(None, alias="schema")
+    asynchronous: bool = Field(True, alias="async")
+    command_schema: SerializeAsAny[CommandSchema] = Field(None, alias="schema")
     links: List[Link] = Field(None)

@@ -436,7 +436,7 @@ wheels = [
 
 [[package]]
 name = "oshconnect"
-version = "0.3.0a4"
+version = "0.3.0a5"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
