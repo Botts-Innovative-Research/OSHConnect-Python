@@ -802,7 +802,6 @@ class ControlStream(StreamableResource[ControlStreamResource]):
     _inbound_status_deque: deque
     _outbound_status_deque: deque
 
-
     def __init__(self, node: Node = None, controlstream_resource: ControlStreamResource = None):
         super().__init__(node=node)
         self._underlying_resource = controlstream_resource
