@@ -574,6 +574,18 @@ class System(StreamableResource[SystemResource]):
 
         return ds_resources
 
+    def discover_controlstreams(self) -> list[ControlStreamResource]:
+        res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
+                                                              APIResourceTypes.CONTROL_CHANNEL)
+        controlstream_json = res.json()['items']
+        cs_resources = []
+
+        for cs in controlstream_json:
+            controlstream_objs = ControlStreamResource.model_validate(cs)
+            cs_resources.append(controlstream_objs)
+
+        return cs_resources
+
     @staticmethod
     def from_system_resource(system_resource: SystemResource, parent_node: Node) -> System:
         other_props = system_resource.model_dump()
@@ -802,7 +814,6 @@ class ControlStream(StreamableResource[ControlStreamResource]):
     _inbound_status_deque: deque
     _outbound_status_deque: deque
 
-
     def __init__(self, node: Node = None, controlstream_resource: ControlStreamResource = None):
         super().__init__(node=node)
         self._underlying_resource = controlstream_resource
@@ -818,14 +829,6 @@ class ControlStream(StreamableResource[ControlStreamResource]):
     def init_mqtt(self):
         super().init_mqtt()
         self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
-
-    # def subscribe_to_status(self, topic: str):
-    #     # TODO: This should probably be a flag to subscribe to status updates as the commands come in, trying to manage this manually would
-    #     # prove tedious
-    #     pass
-    #
-    # def publish_status(self, payload):
-    #     pass
 
     def get_mqtt_status_topic(self):
         return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS)
