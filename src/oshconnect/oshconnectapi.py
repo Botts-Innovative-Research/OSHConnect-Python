@@ -9,10 +9,9 @@ import shelve
 from uuid import UUID
 
 from .csapi4py.default_api_helpers import APIHelper
-from .datasource import MessageWrapper
 from .datastore import DataStore
 from .resource_datamodels import DatastreamResource
-from .streamableresource import Node, System, SessionManager, Datastream
+from .streamableresource import Node, System, SessionManager, Datastream, ControlStream
 from .styling import Styling
 from .timemanagement import TemporalModes, TimeManagement, TimePeriod
 
@@ -121,6 +120,7 @@ class OSHConnect:
             datastreams = list(
                 map(lambda ds: Datastream(parent_node=system.get_parent_node(), id=ds.ds_id, datastream_resource=ds),
                     res_datastreams))
+
             for ds in datastreams:
                 ds.set_parent_resource_id(system.get_underlying_resource().system_id)
             # datastreams = [ds.set_parent_resource_id(system.get_underlying_resource().system_id) for ds in datastreams]
@@ -143,7 +143,14 @@ class OSHConnect:
             self._systems.extend(res_systems)
 
     def discover_controlstreams(self, streams: list):
-        pass
+        for system in self._systems:
+            res_controlstreams = system.discover_controlstreams()
+            controlstreams = list(
+                map(lambda cs: ControlStream(parent_node=system.get_parent_node(), id=cs.cs_id,
+                                             controlstream_resource=cs), res_controlstreams))
+            for cs in controlstreams:
+                cs.set_parent_resource_id(system.get_underlying_resource().system_id)
+            self._datataskers.extend(controlstreams)
 
     def authenticate_user(self, user: dict):
         pass
@@ -165,12 +172,12 @@ class OSHConnect:
         tp = TimePeriod(start=start_time, end=end_time)
         self.timestream = TimeManagement(time_range=tp)
 
-    def get_message_list(self) -> list[MessageWrapper]:
-        """
-        Get the list of messages that have been received by the OSHConnect instance.
-        :return: list of MessageWrapper objects
-        """
-        return self._datasource_handler.get_messages()
+    # def get_message_list(self) -> list[MessageWrapper]:
+    #     """
+    #     Get the list of messages that have been received by the OSHConnect instance.
+    #     :return: list of MessageWrapper objects
+    #     """
+    #     return self._datasource_handler.get_messages()
 
     def _insert_system(self, system: System, target_node: Node):
         """

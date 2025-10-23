@@ -91,9 +91,11 @@ class APIResourceTypes(Enum):
     SYSTEM = "System"
     SYSTEM_EVENT = "SystemEvent"
     SYSTEM_HISTORY = "SystemHistory"
+    STATUS = "Status"
+    SCHEMA = "Schema"
 
 
-class EncodingSchema(Enum):
+class ContentTypes(Enum):
     """
     Defines the encoding formats
     """

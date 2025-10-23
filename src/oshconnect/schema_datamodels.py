@@ -34,38 +34,36 @@ class CommandJSON(BaseModel):
     params: Union[dict, list, int, float, str] = Field(None)
 
 
-class ControlStreamJSONSchema(BaseModel):
+class CommandSchema(BaseModel):
     """
-    A class to represent the schema of a control stream
-    """
-    model_config = ConfigDict(populate_by_name=True)
-    id: str = Field(None)
-    name: str = Field(...)
-    description: str = Field(None)
-    deployment_link: str = Field(None, serialization_alias='deployment@link')
-    feature_of_interest_link: str = Field(None, serialization_alias='featureOfInterest@link')
-    sampling_feature_link: str = Field(None, alias='samplingFeature@link')
-    valid_time: list = Field(None, serialization_alias='validTime')
-    input_name: str = Field(None, serialization_alias='inputName')
-    links: list = Field(None)
-    control_stream_schema: SerializeAsAny[Union[SWEControlChannelSchema, JSONControlChannelSchema]] = Field(...,
-                                                                                                            serialization_alias='schema')
-
-
-class SWEControlChannelSchema(BaseModel):
-    """
-    A class to represent the schema of a control channel
+    Base class representation for control streams' command schemas
     """
     model_config = ConfigDict(populate_by_name=True)
-    command_format: str = Field("application/swe+json", serialization_alias='commandFormat')
+
+    command_format: str = Field(..., alias='commandFormat')
+
+
+class SWEJSONCommandSchema(CommandSchema):
+    """
+    SWE+JSON command schema
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    command_format: str = Field("application/swe+json", alias='commandFormat')
     encoding: SerializeAsAny[Encoding] = Field(...)
     record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='recordSchema')
 
 
-class JSONControlChannelSchema(BaseModel):
+class JSONCommandSchema(CommandSchema):
+    """
+    JSON command schema
+    """
     model_config = ConfigDict(populate_by_name=True)
-    command_format: str = Field("application/cmd+json", serialization_alias='commandFormat')
-    params_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='paramsSchema')
+
+    command_format: str = Field("application/json", alias='commandFormat')
+    params_schema: SerializeAsAny[AnyComponentSchema] = Field(..., alias='parametersSchema')
+    result_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='resultSchema')
+    feasibility_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='feasibilityResultSchema')
 
 
 class DatastreamRecordSchema(BaseModel):
@@ -73,7 +71,8 @@ class DatastreamRecordSchema(BaseModel):
     A class to represent the schema of a datastream
     """
     model_config = ConfigDict(populate_by_name=True)
-    obs_format: str = Field(..., serialization_alias='obsFormat')
+
+    obs_format: str = Field(..., alias='obsFormat')
 
 
 class SWEDatastreamRecordSchema(DatastreamRecordSchema):

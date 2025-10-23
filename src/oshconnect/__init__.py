@@ -6,4 +6,4 @@
 #   ==============================================================================
 
 from .oshconnectapi import OSHConnect
-from .streamableresource import System, Node, Datastream, Observation, ControlChannel
+from .streamableresource import System, Node, Datastream, ControlStream

@@ -11,9 +11,9 @@ import re
 import time
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Self
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 
 class TemporalModes(Enum):
@@ -200,24 +200,25 @@ class TimeInstant:
         return f'{self.get_iso_time()}'
 
 
-class DateTimeSchema(BaseModel):
-    is_instant: bool = Field(True, description="Whether the date time is an instant or a period.")
-    iso_date: str = Field(None, description="The ISO formatted date time.")
-    time_period: tuple = Field(None, description="The time period of the date time.")
-
-    @model_validator(mode='before')
-    def valid_datetime_type(self) -> Self:
-        if self.is_instant:
-            if self.iso_date is None:
-                raise ValueError("Instant date time must have a valid ISO8601 date.")
-        return self
-
-    @field_validator('iso_date')
-    @classmethod
-    def check_iso_date(cls, v) -> str:
-        if not v:
-            raise ValueError("Instant date time must have a valid ISO8601 date.")
-        return v
+# class DateTimeSchema(BaseModel):
+#     is_instant: bool = Field(True, description="Whether the date time is an instant or a period.")
+#     iso_date: str = Field(None, description="The ISO formatted date time.")
+#     time_period: tuple = Field(None, description="The time period of the date time.")
+#
+#     @model_validator(mode='before')
+#     def valid_datetime_type(self) -> Self:
+#         print("DEBUGGING DateTimeSchema valid_datetime_type")
+#         if self.is_instant:
+#             if self.iso_date is None:
+#                 raise ValueError("Instant date time must have a valid ISO8601 date.")
+#         return self
+#
+#     @field_validator('iso_date')
+#     @classmethod
+#     def check_iso_date(cls, v) -> str:
+#         if not v:
+#             raise ValueError("Instant date time must have a valid ISO8601 date.")
+#         return v
 
 
 class IndeterminateTime(Enum):
@@ -245,7 +246,7 @@ class TimePeriod(BaseModel):
             data_dict['end'] = cls.check_mbr_type(data['end'])
 
         if not cls.compare_start_lt_end(data_dict['start'], data_dict['end']):
-            raise ValueError("Start time must be less than end time")
+            raise ValueError("Start time must be less than or equal to end time")
 
         return data_dict
 
@@ -263,11 +264,12 @@ class TimePeriod(BaseModel):
                 return tp
         elif isinstance(value, TimeInstant):
             return value
+        return None
 
     @classmethod
     def compare_start_lt_end(cls, start: TimeInstant | str, end: TimeInstant | str) -> bool:
         if isinstance(start, TimeInstant) and isinstance(end, TimeInstant):
-            return start < end
+            return start <= end
         elif isinstance(start, str) and isinstance(end, str):
             if start == "now" and end == "now":
                 raise ValueError("Start and end cannot both be 'now'")

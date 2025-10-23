@@ -7,13 +7,15 @@
 from __future__ import annotations
 
 from typing import List
+
+from timemanagement import TimeInstant
 from .geometry import Geometry
 from .api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
 from shapely import Point
 
-from .schema_datamodels import DatastreamRecordSchema
-from .timemanagement import DateTimeSchema, TimePeriod
+from .schema_datamodels import DatastreamRecordSchema, CommandSchema
+from .timemanagement import TimePeriod
 
 
 class BoundingBox(BaseModel):
@@ -113,7 +115,7 @@ class SystemResource(BaseModel):
     keywords: List[str] = Field(None)
     identifiers: List[str] = Field(None)
     classifiers: List[str] = Field(None)
-    valid_time: DateTimeSchema = Field(None, alias="validTime")
+    valid_time: TimePeriod = Field(None, alias="validTime")
     security_constraints: List[SecurityConstraints] = Field(None, alias="securityConstraints")
     legal_constraints: List[LegalConstraints] = Field(None, alias="legalConstraints")
     characteristics: List[Characteristics] = Field(None)
@@ -176,29 +178,32 @@ class DatastreamResource(BaseModel):
 
 
 class ObservationResource(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
     sampling_feature_id: str = Field(None, alias="samplingFeature@Id")
     procedure_link: Link = Field(None, alias="procedure@link")
-    phenomenon_time: DateTimeSchema = Field(None, alias="phenomenonTime")
-    result_time: DateTimeSchema = Field(..., alias="resultTime")
+    phenomenon_time: TimeInstant = Field(None, alias="phenomenonTime")
+    result_time: TimeInstant = Field(..., alias="resultTime")
     parameters: dict = Field(None)
     result: dict = Field(...)
     result_link: Link = Field(None, alias="result@link")
 
 
 class ControlStreamResource(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    cs_id: str = Field(None, alias="id")
     name: str = Field(...)
     description: str = Field(None)
-    valid_time: TimePeriod = Field(..., alias="validTime")
+    valid_time: TimePeriod = Field(None, alias="validTime")
     input_name: str = Field(None, alias="inputName")
     procedure_link: Link = Field(None, alias="procedureLink@link")
     deployment_link: Link = Field(None, alias="deploymentLink@link")
     feature_of_interest_link: Link = Field(None, alias="featureOfInterest@link")
     sampling_feature_link: Link = Field(None, alias="samplingFeature@link")
-    issue_time: DateTimeSchema = Field(None, alias="issueTime")
-    execution_time: DateTimeSchema = Field(None, alias="executionTime")
+    issue_time: TimePeriod = Field(None, alias="issueTime")
+    execution_time: TimePeriod = Field(None, alias="executionTime")
     live: bool = Field(None)
-    asynchronous: bool = Field(..., alias="asynchronous")
-    record_schema: SerializeAsAny[DatastreamRecordSchema] = Field(None, alias="schema")
+    asynchronous: bool = Field(True, alias="async")
+    command_schema: SerializeAsAny[CommandSchema] = Field(None, alias="schema")
     links: List[Link] = Field(None)
