@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from typing import List
 
-from timemanagement import TimeInstant
-from .geometry import Geometry
-from .api_utils import Link
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
 from shapely import Point
 
+from .api_utils import Link
+from .geometry import Geometry
 from .schema_datamodels import DatastreamRecordSchema, CommandSchema
-from .timemanagement import TimePeriod
+from .timemanagement import TimeInstant, TimePeriod
 
 
 class BoundingBox(BaseModel):

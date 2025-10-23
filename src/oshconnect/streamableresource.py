@@ -24,6 +24,8 @@ from typing import TypeVar, Generic, Union
 from uuid import UUID, uuid4
 from collections import deque
 
+from pydantic.v1.utils import to_lower_camel
+
 from .csapi4py.constants import ContentTypes
 from .schema_datamodels import JSONCommandSchema
 from .csapi4py.mqtt import MQTTCommClient
@@ -193,7 +195,10 @@ class Node:
             for system_json in system_objs:
                 print(system_json)
                 system = SystemResource.model_validate(system_json)
-                sys_obj = System.from_system_resource(system, self)
+                sys_obj = System(label=system.properties['name'],
+                                 name=to_lower_camel(system.properties['name'].replace(" ", "_")),
+                                 urn=system.properties['uid'], parent_node=self)
+
                 self._systems.append(sys_obj)
                 new_systems.append(sys_obj)
             return new_systems
