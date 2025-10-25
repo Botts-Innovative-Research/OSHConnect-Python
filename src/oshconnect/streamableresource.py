@@ -194,10 +194,10 @@ class Node:
             print(system_objs)
             for system_json in system_objs:
                 print(system_json)
-                system = SystemResource.model_validate(system_json)
+                system = SystemResource.model_validate(system_json, by_alias=True)
                 sys_obj = System(label=system.properties['name'],
                                  name=to_lower_camel(system.properties['name'].replace(" ", "_")),
-                                 urn=system.properties['uid'], parent_node=self)
+                                 urn=system.properties['uid'], parent_node=self, resource_id=system.system_id)
 
                 self._systems.append(sys_obj)
                 new_systems.append(sys_obj)
@@ -247,6 +247,64 @@ class Node:
     def get_session(self) -> OSHClientSession:
         return self._client_session
 
+    def serialize(self) -> dict:
+        data = {
+            "_id": self._id,
+            "protocol": self.protocol,
+            "address": self.address,
+            "port": self.port,
+            "server_root": self.server_root,
+            "is_secure": self.is_secure,
+            "username": getattr(self._api_helper, "username", None),
+            "password": getattr(self._api_helper, "password", None),
+            "_systems": [system.serialize() for system in self._systems] if self._systems is not None else None,
+        }
+        data["name"] = getattr(self, "name", None)
+        data["label"] = getattr(self, "label", None)
+        data["urn"] = getattr(self, "urn", None)
+        data["description"] = getattr(self, "description", None)
+        datastreams = getattr(self, "datastreams", None)
+        if datastreams is not None:
+            data["datastreams"] = [ds.serialize() for ds in datastreams]
+        else:
+            data["datastreams"] = None
+        control_channels = getattr(self, "control_channels", None)
+        if control_channels is not None:
+            data["control_channels"] = [cc.serialize() for cc in control_channels]
+        else:
+            data["control_channels"] = None
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+        # Remove any 'resource' key if present
+        data.pop("resource", None)
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, session_manager: 'SessionManager' = None) -> 'Node':
+        node = cls(
+            protocol=data["protocol"],
+            address=data["address"],
+            port=data["port"],
+            username=data.get("username"),
+            password=data.get("password"),
+            server_root=data.get("server_root", "sensorhub"),
+            session_manager=session_manager
+        )
+        node._id = data["_id"]
+        node.is_secure = data.get("is_secure", False)
+        node._systems = [System.deserialize(sys, node) for sys in data.get("_systems", [])] if data.get(
+            "_systems") is not None else []
+        return node
+
 
 class Status(Enum):
     INITIALIZING = "initializing"
@@ -269,7 +327,7 @@ T = TypeVar('T', SystemResource, DatastreamResource, ControlStreamResource)
 class StreamableResource(Generic[T], ABC):
     _id: UUID
     _resource_id: str
-    _canonical_link: str
+    # _canonical_link: str
     _topic: str
     _status: str = Status.STOPPED.value
     ws_url: str
@@ -536,6 +594,39 @@ class StreamableResource(Generic[T], ABC):
     def get_outbound_deque(self):
         return self._outbound_deque
 
+    def serialize(self) -> dict:
+        """Serializes common attributes of StreamableResource, safely handling missing/None attributes."""
+        topic = getattr(self, "_topic", None)
+        status = getattr(self, "_status", None)
+        parent_resource_id = getattr(self, "_parent_resource_id", None)
+        connection_mode = getattr(self, "_connection_mode", None)
+        resource_id = getattr(self, "_resource_id", None)
+        if isinstance(connection_mode, Enum):
+            connection_mode = connection_mode.value
+
+        return {
+            "id": str(getattr(self, "_id", None)),
+            "resource_id": resource_id,
+            # "canonical_link": getattr(self, "_canonical_link", None),
+            "topic": topic,
+            "status": status,
+            "parent_resource_id": parent_resource_id,
+            "connection_mode": connection_mode,
+        }
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'StreamableResource':
+        """Deserializes common attributes. Subclasses should override and call super()."""
+        obj = cls(node=node)
+        obj._id = uuid.UUID(data["id"])
+        obj._resource_id = data.get("resource_id")
+        # obj._canonical_link = data.get("canonical_link")
+        obj._topic = data.get("topic")
+        obj._status = data.get("status")
+        obj._parent_resource_id = data.get("parent_resource_id")
+        obj._connection_mode = StreamableModes(data.get("connection_mode", StreamableModes.PUSH.value)),
+        return obj
+
 
 class System(StreamableResource[SystemResource]):
     name: str
@@ -567,29 +658,37 @@ class System(StreamableResource[SystemResource]):
 
         self._underlying_resource = self.to_system_resource()
 
-    def discover_datastreams(self) -> list[DatastreamResource]:
+    def discover_datastreams(self) -> list[Datastream]:
         res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                                               APIResourceTypes.DATASTREAM)
         datastream_json = res.json()['items']
-        ds_resources = []
+        datastreams = []
 
         for ds in datastream_json:
-            datastream_objs = DatastreamResource.model_validate(ds)
-            ds_resources.append(datastream_objs)
+            datastream_objs = DatastreamResource.model_validate(ds, by_alias=True)
+            new_ds = Datastream(self._parent_node, datastream_objs)
+            datastreams.append(new_ds)
 
-        return ds_resources
+            if not [ds.get_underlying_resource() != datastream_objs for ds in self.datastreams]:
+                self.datastreams.append(new_ds)
 
-    def discover_controlstreams(self) -> list[ControlStreamResource]:
+        return datastreams
+
+    def discover_controlstreams(self) -> list[ControlStream]:
         res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                                               APIResourceTypes.CONTROL_CHANNEL)
         controlstream_json = res.json()['items']
-        cs_resources = []
+        controlstreams = []
 
-        for cs in controlstream_json:
-            controlstream_objs = ControlStreamResource.model_validate(cs)
-            cs_resources.append(controlstream_objs)
+        for cs_json in controlstream_json:
+            controlstream_objs = ControlStreamResource.model_validate(cs_json)
+            new_cs = ControlStream(self._parent_node, controlstream_objs)
+            controlstreams.append(new_cs)
 
-        return cs_resources
+            if not [cs.get_underlying_resource() != controlstream_objs for cs in self.control_channels]:
+                self.control_channels.append(new_cs)
+
+        return controlstreams
 
     @staticmethod
     def from_system_resource(system_resource: SystemResource, parent_node: Node) -> System:
@@ -737,6 +836,53 @@ class System(StreamableResource[SystemResource]):
             self._underlying_resource = system_resource
             return None
 
+    def serialize(self) -> dict:
+        data = super().serialize()
+        data["name"] = getattr(self, "name", None)
+        data["label"] = getattr(self, "label", None)
+        data["urn"] = getattr(self, "urn", None)
+        data["description"] = getattr(self, "description", None)
+        datastreams = getattr(self, "datastreams", None)
+        if datastreams is not None:
+            data["datastreams"] = [ds.serialize() for ds in datastreams]
+        else:
+            data["datastreams"] = None
+        control_channels = getattr(self, "control_channels", None)
+        if control_channels is not None:
+            data["control_channels"] = [cc.serialize() for cc in control_channels]
+        else:
+            data["control_channels"] = None
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+        # Remove any 'resource' key if present
+        data.pop("resource", None)
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'System':
+        obj = cls(
+            name=data["name"],
+            label=data["label"],
+            urn=data["urn"],
+            parent_node=node,
+            description=data.get("description"),
+            resource_id=data.get("resource_id")
+        )
+        obj._id = uuid.UUID(data["id"])
+        obj.datastreams = [Datastream.deserialize(ds, node) for ds in data.get("datastreams", [])]
+        obj.control_channels = [ControlStream.deserialize(cc, node) for cc in data.get("control_channels", [])]
+        obj._underlying_resource = SystemResource.model_validate(data.get("_underlying_resource"))
+        return obj
+
 
 class Datastream(StreamableResource[DatastreamResource]):
     should_poll: bool
@@ -812,6 +958,32 @@ class Datastream(StreamableResource[DatastreamResource]):
         # self._queue_push(data)
         encoded = json.dumps(data).encode('utf-8')
         self._publish_mqtt(self._topic, encoded)
+
+    def serialize(self) -> dict:
+        data = super().serialize()
+        data["should_poll"] = getattr(self, "should_poll", None)
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'Datastream':
+        ds_resource = DatastreamResource.model_validate(data["resource"]) if data.get("resource") else None
+        obj = cls(parent_node=node, datastream_resource=ds_resource)
+        obj._id = uuid.UUID(data["id"])
+        obj.should_poll = data.get("should_poll", False)
+        obj._underlying_resource = DatastreamResource.model_validate(data["_underlying_resource"])
+        return obj
 
 
 class ControlStream(StreamableResource[ControlStreamResource]):
@@ -905,3 +1077,29 @@ class ControlStream(StreamableResource[ControlStreamResource]):
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=self._mqtt_sub_callback)
         else:
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=callback)
+
+    def serialize(self) -> dict:
+        data = super().serialize()
+        data["status_topic"] = getattr(self, "_status_topic", None)
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'ControlStream':
+        cs_resource = ControlStreamResource.model_validate(data["resource"]) if data.get("resource") else None
+        obj = cls(node=node, controlstream_resource=cs_resource)
+        obj._id = uuid.UUID(data["id"])
+        obj._status_topic = data.get("status_topic")
+        obj._underlying_resource = ControlStreamResource.model_validate(data["underlying_resource"])
+        return obj

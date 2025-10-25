@@ -5,7 +5,7 @@
 #  Contact email:  ian@botts-inc.com
 #   ==============================================================================
 import logging
-import shelve
+import json
 from uuid import UUID
 
 from .csapi4py.default_api_helpers import APIHelper
@@ -26,7 +26,7 @@ class OSHConnect:
     _cs_api_builder: APIHelper = None
     # _datasource_handler: DataStreamHandler = None
     _datastreams: list[Datastream] = []
-    _datataskers: list[DataStore] = []
+    _controlstreams: list[ControlStream] = []
     _datagroups: list = []
     _tasks: list = []
     _playback_mode: TemporalModes = TemporalModes.REAL_TIME
@@ -68,18 +68,27 @@ class OSHConnect:
         self._nodes = [node for node in self._nodes if
                        node.get_id() != node_id]
 
-    def save_config(self, config: dict):
+    def save_config(self):
         logging.info(f"Saving configuration for {self._name}")
-        with shelve.open(f"{self._name}_config") as db:
-            db['app_config'] = self
-            db.close()
+
+        data = {}
+        for node in self._nodes:
+            node_dict = node.serialize()
+            data.update({node.get_id(): node_dict})
+
+        # write to JSON file
+        file_path = f"{self._name}_config.json"
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump({"app_config": data}, f, ensure_ascii=False, indent=2)
 
     @classmethod
     def load_config(cls, file_name: str) -> 'OSHConnect':
-        with shelve.open(file_name, 'r') as db:
-            app = db['app_config']
-            db.close()
-            return app
+        """Load configuration data from a JSON file and return the stored config dict.
+        Note: Despite the return type hint, this returns the configuration dictionary.
+        """
+        with open(file_name, 'r', encoding='utf-8') as f:
+            obj = json.load(f)
+            return obj.get('app_config', obj)
 
     def share_config(self, config: dict):
         pass
@@ -114,18 +123,6 @@ class OSHConnect:
     def get_visualization_recommendations(self, streams: list):
         pass
 
-    def discover_datastreams(self):
-        for system in self._systems:
-            res_datastreams = system.discover_datastreams()
-            datastreams = list(
-                map(lambda ds: Datastream(parent_node=system.get_parent_node(), id=ds.ds_id, datastream_resource=ds),
-                    res_datastreams))
-
-            for ds in datastreams:
-                ds.set_parent_resource_id(system.get_underlying_resource().system_id)
-            # datastreams = [ds.set_parent_resource_id(system.get_underlying_resource().system_id) for ds in datastreams]
-            self._datastreams.extend(datastreams)
-
     def discover_systems(self, nodes: list[str] = None):
         """
         Discover systems from the nodes that have been added to the OSHConnect instance. They are associated with the
@@ -142,15 +139,16 @@ class OSHConnect:
             res_systems = node.discover_systems()
             self._systems.extend(res_systems)
 
+    def discover_datastreams(self):
+        for system in self._systems:
+            datastreams = system.discover_datastreams()
+            self._datastreams.extend(datastreams)
+
     def discover_controlstreams(self, streams: list):
         for system in self._systems:
-            res_controlstreams = system.discover_controlstreams()
-            controlstreams = list(
-                map(lambda cs: ControlStream(parent_node=system.get_parent_node(), id=cs.cs_id,
-                                             controlstream_resource=cs), res_controlstreams))
-            for cs in controlstreams:
-                cs.set_parent_resource_id(system.get_underlying_resource().system_id)
-            self._datataskers.extend(controlstreams)
+            controlstreams = system.discover_controlstreams()
+
+            self._controlstreams.extend(controlstreams)
 
     def authenticate_user(self, user: dict):
         pass
