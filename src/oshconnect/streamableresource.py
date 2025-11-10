@@ -214,7 +214,7 @@ class Node:
 
     # System Management
 
-    def add_system(self, system: System, target_node: Node, insert_resource: bool = False):
+    def add_system(self, system: System, insert_resource: bool = False):
         """
         Add a system to the target node.
         :param system: System object
@@ -224,7 +224,7 @@ class Node:
         """
         if insert_resource:
             system.insert_self()
-        target_node.add_new_system(system)
+        self.add_new_system(system)
         self._systems.append(system)
         return system
 

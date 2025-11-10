@@ -60,7 +60,7 @@ class DataArraySchema(AnyComponentSchema):
     type: str = "DataArray"
     name: str = Field(...)
     element_count: dict | str | CountSchema = Field(..., serialization_alias='elementCount')  # Should type of Count
-    element_type: SerializeAsAny[list[AnyComponentSchema]] = Field(..., serialization_alias='elementType')
+    element_type: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='elementType')
     encoding: str = Field(...)  # TODO: implement an encodings class
     values: list = Field(None)
 
@@ -113,7 +113,7 @@ class AnySimpleComponentSchema(AnyComponentSchema):
     definition: str = Field(...)
     reference_frame: str = Field(None, serialization_alias='referenceFrame')
     axis_id: str = Field(None, serialization_alias='axisID')
-    quality: Union[list[QuantitySchema], list[QuantityRangeSchema], list[CategorySchema], list[TextSchema]] = Field(
+    quality: list[Union[QuantitySchema, QuantityRangeSchema, CategorySchema, TextSchema]] = Field(
         None)  # TODO: Union[Quantity, QuantityRange, Category, Text]
     nil_values: list = Field(None, serialization_alias='nilValues')
     constraint: Any = Field(None)
