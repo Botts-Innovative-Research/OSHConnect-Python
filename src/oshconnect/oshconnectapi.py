@@ -8,7 +8,6 @@ import logging
 import json
 from uuid import UUID
 
-from eventbus import EventHandler
 from .csapi4py.default_api_helpers import APIHelper
 from .datastore import DataStore
 from .resource_datamodels import DatastreamResource
@@ -32,7 +31,6 @@ class OSHConnect:
     _tasks: list = []
     _playback_mode: TemporalModes = TemporalModes.REAL_TIME
     _session_manager: SessionManager = None
-    _event_bus: EventHandler = None
 
     def __init__(self, name: str, **kwargs):
         """
@@ -42,7 +40,6 @@ class OSHConnect:
         self._name = name
         logging.info(f"OSHConnect instance {name} created")
         self._session_manager = SessionManager()
-        self._event_bus = EventHandler()
 
     def get_name(self):
         """
@@ -217,7 +214,7 @@ class OSHConnect:
         :return: the found system or None if not found
         """
         for system in self._systems:
-            if system.uid == system_id:
+            if system.urn == system_id:
                 return system
         return None
 

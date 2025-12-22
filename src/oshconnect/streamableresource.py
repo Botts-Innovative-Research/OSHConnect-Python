@@ -539,7 +539,7 @@ class StreamableResource(Generic[T], ABC):
         if self._mqtt_client is None:
             logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return
-        print(f'Publishing to MQTT topic {topic}: {payload}')
+        # print(f'Publishing to MQTT topic {topic}: {payload}')
         self._mqtt_client.publish(topic, payload, qos=0)
 
     async def _write_to_mqtt(self):
@@ -940,7 +940,7 @@ class Datastream(StreamableResource[DatastreamResource]):
                     print(traceback.format_exc())
                     print(f"Error starting MQTT write task: {e}")
 
-            # self._mqtt_client.start()
+            # self._mqtt_client.start()i
 
     def init_mqtt(self):
         super().init_mqtt()
@@ -958,6 +958,10 @@ class Datastream(StreamableResource[DatastreamResource]):
         # self._queue_push(data)
         encoded = json.dumps(data).encode('utf-8')
         self._publish_mqtt(self._topic, encoded)
+
+    def insert_bytes(self, data: dict):
+        print("*** Insert bytes")
+        self._publish_mqtt(self._topic, data)
 
     def serialize(self) -> dict:
         data = super().serialize()
