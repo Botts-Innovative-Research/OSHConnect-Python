@@ -284,7 +284,8 @@ class APIHelper(ABC):
         self.protocol = protocol
 
     # TODO: add validity checking for resource type combinations
-    def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None):
+    def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None,
+                       data_topic: bool = True):
         """
         Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
         :param resource_type : The API resource type of the resource that comes first in the URL, cannot be None
@@ -294,13 +295,16 @@ class APIHelper(ABC):
         the given type.
         :param subresource_id: The ID of the sub-resource, can be none if the request is being made for all sub-resources of
         the given type.
+        :param data_topic: If True (default), appends ':data' to the subresource collection endpoint per CS API Part 3
+        spec for Resource Data Topics. Set to False for Resource Event Topics (no suffix).
         :return:
         """
+        data_suffix = ':data' if data_topic else ''
         subresource_endpoint = f'/{resource_type_to_endpoint(subresource_type)}'
         resource_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
         resource_ident = "" if resource_id is None else f'/{resource_id}'
         subresource_ident = "" if subresource_id is None else f'/{subresource_id}'
-        topic_locator = f'/{self.api_root}{resource_endpoint}{resource_ident}{subresource_endpoint}{subresource_ident}'
+        topic_locator = f'/{self.api_root}{resource_endpoint}{resource_ident}{subresource_endpoint}{data_suffix}{subresource_ident}'
         print(f'MQTT Topic: {topic_locator}')
 
         return topic_locator

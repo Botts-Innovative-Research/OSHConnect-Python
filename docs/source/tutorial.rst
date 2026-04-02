@@ -1,179 +1,211 @@
-OSH Connect Tutorial
-====================
-OSH Connect for Python is a straightforward library for interacting with OpenSensorHub using OGC API Connected Systems.
-This tutorial will help guide you through a few simple examples to get you started with OSH Connect.
+OSHConnect-Python Tutorial
+==========================
+OSHConnect-Python is a library for interacting with OpenSensorHub using OGC API Connected Systems.
+This tutorial walks through the most common workflows.
 
-OSH Connect Installation
---------------------------
-OSH Connect can be installed using `pip`. To install the latest version of OSH Connect, run the following command:
+Installation
+------------
+Install using ``uv`` (recommended):
+
+.. code-block:: bash
+
+   uv add git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git
+
+Or with ``pip``:
 
 .. code-block:: bash
 
    pip install git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git
 
-Or, if you prefer `poetry`:
-
-.. code-block:: bash
-
-   poetry add git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git
-
-Creating an instance of OSHConnect
----------------------------------------
-The intended method of interacting with OpenSensorHub is through the `OSHConnect` class.
-To this you must first create an instance of `OSHConnect`:
+All public classes and utilities can be imported directly from ``oshconnect``:
 
 .. code-block:: python
 
-   from oshconnect.oshconnectapi import OSHConnect, TemporalModes
+   from oshconnect import OSHConnect, Node, System, Datastream, ControlStream
+   from oshconnect import TimePeriod, TimeInstant, TemporalModes
+   from oshconnect import DataRecordSchema, QuantitySchema, TimeSchema, TextSchema
+   from oshconnect import ObservationFormat, DefaultEventTypes
 
-   connect_app = OSHConnect(name='OSHConnect', playback_mode=TemporalModes.REAL_TIME)
 
-.. tip::
-
-    The `name` parameter is optional, but can be useful for debugging purposes.
-    The playback mode determines how the data is retrieved from OpenSensorHub.
-
-The next step is to add a `Node` to the `OSHConnect` instance. A `Node` is a representation of a server that you want to connect to.
-The  OSHConnect instance can support multiple Nodes at once.
-
-Adding a Node to an OSHConnect instance
------------------------------------------
-.. code-block:: python
-
-    from oshconnect.oshconnectapi import OSHConnect, TemporalModes
-    from oshconnect.osh_connect_datamodels import Node
-
-    connect_app = OSHConnect(name='OSHConnect', playback_mode=TemporalModes.REAL_TIME)
-    node = Node(protocol='http', address="localhost", port=8585, username="test", password="test")
-    connect_app.add_node(node)
-
-System Discovery
------------------------------------------
-Once you have added a Node to the OSHConnect instance, you can discover the systems that are available on that Node.
-This is done by calling the `discover_systems()` method on the OSHConnect instance.
+Creating an OSHConnect Instance
+--------------------------------
+The main entry point is the ``OSHConnect`` class:
 
 .. code-block:: python
 
-    connect_app.discover_systems()
+   from oshconnect import OSHConnect, TemporalModes
 
-Datastream Discovery
------------------------------------------
-Once you have discovered the systems that are available on a Node, you can discover the datastreams that are available to those
-systems. This is done by calling the `discover_datastreams` method on the OSHConnect instance.
+   app = OSHConnect(name='MyApp')
 
-.. code-block:: python
 
-    connect_app.discover_datastreams()
-
-Playing back data
------------------------------------------
-Once you have discovered the datastreams that are available on a Node, you can play back the data from those datastreams.
-This is done by calling the `playback_streams` method on the OSHConnect instance.
+Adding a Node
+-------------
+A ``Node`` represents a connection to a single OSH server.
+The ``OSHConnect`` instance can manage multiple nodes simultaneously.
 
 .. code-block:: python
 
-    connect_app.playback_streams()
+   from oshconnect import OSHConnect, Node
 
-Accessing data
------------------------------------------
-To access the data retrieved from the datastreams, you need to access the messages available to the OSHConnect instance.
-Calling the `get_messages` method on the OSHConnect instance will return a list of `MessageWrapper` objects that contain individual
-observations.
+   app = OSHConnect(name='MyApp')
+   node = Node(protocol='http', address='localhost', port=8585,
+               username='test', password='test')
+   app.add_node(node)
+
+To connect a node with MQTT support for streaming:
 
 .. code-block:: python
 
-    messages = connect_app.get_messages()
-
-    for message in messages:
-        print(message)
-
-    # or, to access the individual observations
-    for message in messages:
-        for observation in message.observations:
-            do_something_with(observation)
+   node = Node(protocol='http', address='localhost', port=8585,
+               username='test', password='test',
+               enable_mqtt=True, mqtt_port=1883)
+   app.add_node(node)
 
 
-Resource Insertion
-=========================================
-Other use cases of the OSH Connect library may involve inserting new resources into OpenSensorHub or another Connected Systems API server.
+Discovery
+---------
 
-Adding and Inserting a New System
------------------------------------------
-The first major step in a common workflow is to add a new system to the OSH Connect instance.
-There are a couple of ways to do this, but the recommended method is as follows:
+Discover all systems available on all registered nodes:
+
+.. code-block:: python
+
+   app.discover_systems()
+
+Discover all datastreams across all discovered systems:
+
+.. code-block:: python
+
+   app.discover_datastreams()
+
+
+Streaming Observations (MQTT)
+------------------------------
+Once a node is configured with MQTT and datastreams are discovered, start receiving
+observations by initializing and starting each datastream:
+
+.. code-block:: python
+
+   from oshconnect import StreamableModes
+
+   for ds in app.get_datastreams():
+       ds.set_connection_mode(StreamableModes.PULL)
+       ds.initialize()
+       ds.start()
+
+Incoming messages are appended to each datastream's inbound deque:
+
+.. code-block:: python
+
+   import time
+
+   time.sleep(2)  # allow messages to arrive
+   for ds in app.get_datastreams():
+       while ds.get_inbound_deque():
+           msg = ds.get_inbound_deque().popleft()
+           print(msg)
+
+Resource Event Subscriptions
+-----------------------------
+Subscribe to resource lifecycle events (create/update/delete) using
+``subscribe_events()``. These arrive as CloudEvents v1.0 JSON payloads:
+
+.. code-block:: python
+
+   def on_event(client, userdata, msg):
+       print(f"Event on {msg.topic}: {msg.payload}")
+
+   for ds in app.get_datastreams():
+       topic = ds.subscribe_events(callback=on_event)
+       print(f"Subscribed to event topic: {topic}")
+
+
+Inserting a New System
+-----------------------
+
+.. code-block:: python
+
+   from oshconnect import OSHConnect, Node
+
+   app = OSHConnect(name='MyApp')
+   node = Node(protocol='http', address='localhost', port=8585,
+               username='admin', password='admin')
+   app.add_node(node)
+
+   new_system = app.create_and_insert_system(
+       system_opts={
+           'name': 'Test System',
+           'description': 'A test system',
+           'uid': 'urn:system:test:001',
+       },
+       target_node=node
+   )
+
+
+Inserting a New Datastream
+--------------------------
+Build a schema using SWE Common component classes, then attach it to a system:
+
+.. code-block:: python
+
+   from oshconnect import DataRecordSchema, TimeSchema, QuantitySchema, TextSchema
+   from oshconnect.api_utils import URI, UCUMCode
+
+   datarecord = DataRecordSchema(
+       label='Example Record',
+       description='Example datastream record',
+       definition='http://example.org/records/example',
+       fields=[]
+   )
+
+   # TimeSchema must be the first field for OSH
+   datarecord.fields.append(
+       TimeSchema(label='Timestamp', definition='http://www.opengis.net/def/property/OGC/0/SamplingTime',
+                  name='timestamp', uom=URI(href='http://www.opengis.net/def/uom/ISO-8601/0/Gregorian'))
+   )
+   datarecord.fields.append(
+       QuantitySchema(name='distance', label='Distance', definition='http://example.org/Distance',
+                      uom=UCUMCode(code='m', label='meters'))
+   )
+   datarecord.fields.append(
+       TextSchema(name='label', label='Label', definition='http://example.org/Label')
+   )
+
+   datastream = new_system.add_insert_datastream(datarecord)
 
 .. note::
 
-    The `insert_system` method requires a `Node` object to be passed in as the second argument.
-    Creating one is covered in an earlier section.
+   A ``TimeSchema`` must be the first field in the ``DataRecordSchema`` when targeting OpenSensorHub.
+
+
+Inserting an Observation
+------------------------
+Once a datastream is registered, send observation data using ``insert_observation_dict()``:
 
 .. code-block:: python
 
-    from oshconnect.osh_connect_datamodels import System
+   from oshconnect import TimeInstant
 
-    new_system = app.insert_system(
-        System(name="Test System", description="Test System Description", label="Test System",
-               urn="urn:system:test"), node)
-
-Adding and Inserting a New Datastream
------------------------------------------
-Once you have a `System` object, you can add a new datastream to it. This is one of the more complex operations
-in the library as the schema is very flexible by design. Luckily, the schemas are validated by the underlying data
-models, so you can be sure that your datastream is valid before inserting it.
-
-.. caution::
-
-    Some implementations of the Connected Systems API may require additional fields to be filled in.
-    OSH Connect is primarily focused on the OpenSensorHub implementation, but does not some of the fields that
-    are required by and OpenSensorHub node.
-
-In this example, we will add a new datastream to the `new_system` object that we created in the previous example.
-You'll note the creation of a `DataRecordSchema` object, in OSH's implementation, a DataRecord is the root of all
-datastream schemas.
-
-.. code-block:: python
-
-    from oshconnect.osh_connect_datamodels import Datastream
-
-    datarecord_schema = DataRecordSchema(label='Example Data Record', description='Example Data Record Description',
-                                         definition='www.test.org/records/example-datarecord', fields=[])
-    time_schema = TimeSchema(label="Timestamp", definition="http://test.com/Time", name="timestamp",
-                             uom=URI(href="http://test.com/TimeUOM"))
-    continuous_value_field = QuantitySchema(name='continuous-value-distance', label='Continuous Value Distance',
-                                            description='Continuous Value Description',
-                                            definition='www.test.org/fields/continuous-value',
-                                            uom=UCUMCode(code='m', label='meters'))
-    example_text_field = TextSchema(name='example-text-field', label='Example Text Field', definition='www.test.org/fields/example-text-field')
-    # add the fields to the datarecord schema, these can also be added added to the datarecord when it is created
-    datarecord_schema.fields.append(time_schema)   # TimeSchema is required to be the first field in the datarecord for OSH
-    datarecord_schema.fields.append(continuous_value_field)
-    datarecord_schema.fields.append(example_text_field)
-    # Add the datastream to the system
-    datastream = new_system.add_insert_datastream(datarecord_schema)
+   datastream.insert_observation_dict({
+       'resultTime': TimeInstant.now_as_time_instant().get_iso_time(),
+       'phenomenonTime': TimeInstant.now_as_time_instant().get_iso_time(),
+       'result': {
+           'timestamp': TimeInstant.now_as_time_instant().epoch_time,
+           'distance': 1.0,
+           'label': 'example observation',
+       }
+   })
 
 .. note::
 
-    A TimeSchema is required to be the first field in the DataRecordSchema for OSH.
+   The keys in ``result`` correspond to the ``name`` fields of each schema component.
+   ``resultTime`` and ``phenomenonTime`` are required by OpenSensorHub.
 
-Inserting an Observation into and OpenSensorHub Node
------------------------------------------------------
-Upon successfully adding a new datastream to a system, it is now possible to send observation data to the node.
+
+Saving and Loading Configuration
+---------------------------------
+The OSHConnect state (nodes, systems, datastreams) can be persisted to a JSON file:
 
 .. code-block:: python
 
-    datastream.insert_observation_dict({
-        "resultTime": TimeInstant.now_as_time_instant().get_iso_time(),     # resultTime is required for OSH
-        "phenomenonTime": TimeInstant.now_as_time_instant().get_iso_time(), # phenomenonTime is required for OSH
-        "result": {
-            "timestamp": TimeInstant.now_as_time_instant().epoch_time,
-            "continuous-value-distance": 1.0,
-            "example-text-field": "Here is some text"
-        }
-    })
-
-.. note::
-
-        The `resultTime` and `phenomenonTime` fields are required for OSH.
-        The `result` field is representative of the schemas included in the DataRecordSchema's fields.
-        You'll notice that they are referred to by their `name` field in the schema as it is the "machine" name
-        of the output.
+   app.save_config()          # saves to a default file
+   app = OSHConnect.load_config('my_config.json')

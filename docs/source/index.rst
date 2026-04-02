@@ -3,17 +3,28 @@ Welcome to OSHConnect-Python's documentation!
 
 OSHConnect-Python
 =================
-OSHConnect-Python is the Python version of the OSHConnect family of application libraries inteded to provide a simple
-and straightforward way to interact with OpenSensorHub (or another CSAPI server) by way of OGC API - Connected Systems.
-It supports or will support at the time of a 1.0 release Part 1 and Part 2 of the Connected Systems api, as well as
-certain streaming features made possible by OpenSensorHub.
+OSHConnect-Python is the Python version of the OSHConnect family of application libraries intended to provide a
+simple and straightforward way to interact with OpenSensorHub (or another CS API server) by way of
+OGC API - Connected Systems.
+
+It supports Parts 1, 2, and 3 (Pub/Sub) of the OGC Connected Systems API, including:
+
+- System, Datastream, and ControlStream discovery and management
+- Real-time MQTT streaming with CS API Part 3 ``:data`` topic conventions
+- Resource event topic subscriptions (CloudEvents lifecycle notifications)
+- Batch retrieval and archival stream playback
+- Configuration persistence (JSON save/load)
+- SWE Common schema builders for defining datastream and command schemas
+
+All major classes and utilities are importable directly from ``oshconnect``.
+Lower-level CS API utilities are available from ``oshconnect.csapi4py``.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents
 
-   api
    tutorial
+   api
 
 
 
@@ -23,5 +34,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
-

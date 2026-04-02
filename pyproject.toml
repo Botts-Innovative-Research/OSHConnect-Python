@@ -1,7 +1,7 @@
 [project]
 name = "oshconnect"
-version = "0.3.0a7"
-description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations."
+version = "0.4.0a0"
+description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations. Implements OGC CS API Part 3 (Pub/Sub) MQTT topic conventions including :data topics and resource event topics."
 readme = "README.md"
 authors = [
     { name = "Ian Patterson", email = "ian@botts-inc.com" },

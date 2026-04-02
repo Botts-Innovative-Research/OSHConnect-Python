@@ -412,11 +412,13 @@ class StreamableResource(Generic[T], ABC):
     def _default_on_subscribe(self, client, userdata, mid, granted_qos, properties):
         print("OSH Subscribed: " + str(mid) + " " + str(granted_qos))
 
-    def get_mqtt_topic(self, subresource: APIResourceTypes | None = None):
+    def get_mqtt_topic(self, subresource: APIResourceTypes | None = None, data_topic: bool = True):
         """
-        Retrieves the MQTT topic for this streamable resource based on its underlying resource type. By default, the topic
-        is actually for listening to subresources of a default type
-        :param subresource : Optional subresource type to get the topic for, defaults to None
+        Retrieves the MQTT topic for this streamable resource based on its underlying resource type. By default,
+        returns a Resource Data Topic (`:data` suffix per CS API Part 3).
+        :param subresource: Optional subresource type to get the topic for, defaults to None
+        :param data_topic: If True (default), produces a Resource Data Topic with ':data' suffix. Set False for
+        Resource Event Topics.
         """
         resource_type = None
         parent_res_type = None
@@ -456,8 +458,51 @@ class StreamableResource(Generic[T], ABC):
 
         topic = self._parent_node.get_api_helper().get_mqtt_topic(subresource_type=resource_type,
                                                                   resource_id=parent_id,
-                                                                  resource_type=parent_res_type)
+                                                                  resource_type=parent_res_type,
+                                                                  data_topic=data_topic)
         return topic
+
+    def get_event_topic(self) -> str:
+        """
+        Returns the Resource Event Topic for this streamable resource per CS API Part 3. Event topics point to the
+        resource itself (no ':data' suffix) and are used to receive CloudEvents lifecycle notifications
+        (create/update/delete) published by the server.
+
+        For Datastream/ControlStream, includes the parent system path when a parent resource ID is available.
+        """
+        api_root = self._parent_node.get_api_helper().api_root
+
+        if isinstance(self._underlying_resource, DatastreamResource):
+            if self._parent_resource_id:
+                return f'/{api_root}/systems/{self._parent_resource_id}/datastreams/{self._resource_id}'
+            return f'/{api_root}/datastreams/{self._resource_id}'
+
+        elif isinstance(self._underlying_resource, ControlStreamResource):
+            if self._parent_resource_id:
+                return f'/{api_root}/systems/{self._parent_resource_id}/controlstreams/{self._resource_id}'
+            return f'/{api_root}/controlstreams/{self._resource_id}'
+
+        elif isinstance(self._underlying_resource, SystemResource):
+            return f'/{api_root}/systems/{self._resource_id}'
+
+        raise ValueError(f"Cannot determine event topic for resource type {type(self._underlying_resource)}")
+
+    def subscribe_events(self, callback=None, qos: int = 0) -> str:
+        """
+        Subscribes to the Resource Event Topic for this streamable resource. Event messages are CloudEvents v1.0
+        JSON payloads published by the server when the resource is created, updated, or deleted.
+
+        :param callback: Optional message callback. If None, uses the default handler (appends to inbound deque).
+        :param qos: MQTT Quality of Service level, default 0.
+        :return: The event topic string that was subscribed to.
+        """
+        if self._mqtt_client is None:
+            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            return ""
+        event_topic = self.get_event_topic()
+        cb = callback if callback is not None else self._mqtt_sub_callback
+        self._mqtt_client.subscribe(event_topic, qos=qos, msg_callback=cb)
+        return event_topic
 
     async def _read_from_ws(self, ws):
         async for msg in ws:
@@ -944,7 +989,7 @@ class Datastream(StreamableResource[DatastreamResource]):
 
     def init_mqtt(self):
         super().init_mqtt()
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
 
     def _queue_push(self, msg):
         print(f'Pushing message to reader queue: {msg}')
@@ -985,6 +1030,21 @@ class Datastream(StreamableResource[DatastreamResource]):
         obj._underlying_resource = DatastreamResource.model_validate(data["_underlying_resource"])
         return obj
 
+    def subscribe(self, topic=None, callback=None, qos=0):
+        t = None
+
+        if topic is None or topic == APIResourceTypes.OBSERVATION.value:
+            t = self._topic
+        # elif topic == APIResourceTypes.STATUS.value:
+        #     t = self._status_topic
+        else:
+            raise ArgumentError(f"Invalid topic provided {topic}, must be None or 'observation'.")
+
+        if callback is None:
+            self._mqtt_client.subscribe(t, qos=qos, msg_callback=self._mqtt_sub_callback)
+        else:
+            self._mqtt_client.subscribe(t, qos=qos, msg_callback=callback)
+
 
 class ControlStream(StreamableResource[ControlStreamResource]):
     _status_topic: str
@@ -1005,10 +1065,10 @@ class ControlStream(StreamableResource[ControlStreamResource]):
 
     def init_mqtt(self):
         super().init_mqtt()
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND, data_topic=True)
 
     def get_mqtt_status_topic(self):
-        return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS)
+        return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS, data_topic=True)
 
     def start(self):
         super().start()

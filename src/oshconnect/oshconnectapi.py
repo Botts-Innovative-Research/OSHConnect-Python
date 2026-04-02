@@ -8,7 +8,7 @@ import logging
 import json
 from uuid import UUID
 
-from eventbus import EventHandler
+from .eventbus import EventHandler
 from .csapi4py.default_api_helpers import APIHelper
 from .datastore import DataStore
 from .resource_datamodels import DatastreamResource
