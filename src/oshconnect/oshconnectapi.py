@@ -18,28 +18,39 @@ from .timemanagement import TemporalModes, TimeManagement, TimePeriod
 
 
 class OSHConnect:
-    _name: str = None
-    datastore: DataStore = None
-    styling: Styling = None
-    timestream: TimeManagement = None
-    _nodes: list[Node] = []
-    _systems: list[System] = []
-    _cs_api_builder: APIHelper = None
-    # _datasource_handler: DataStreamHandler = None
-    _datastreams: list[Datastream] = []
-    _controlstreams: list[ControlStream] = []
-    _datagroups: list = []
-    _tasks: list = []
-    _playback_mode: TemporalModes = TemporalModes.REAL_TIME
-    _session_manager: SessionManager = None
-    _event_bus: EventHandler = None
+    _name: str
+    datastore: DataStore
+    styling: Styling
+    timestream: TimeManagement
+    _nodes: list[Node]
+    _systems: list[System]
+    _cs_api_builder: APIHelper
+    _datastreams: list[Datastream]
+    _controlstreams: list[ControlStream]
+    _datagroups: list
+    _tasks: list
+    _playback_mode: TemporalModes
+    _session_manager: SessionManager
+    _event_bus: EventHandler
 
-    def __init__(self, name: str, **kwargs):
+    def __init__(self, name: str, datastore: DataStore = None, **kwargs):
         """
-        :param name: name of the OSHConnect instance, in the event that
+        :param name: name of the OSHConnect instance
+        :param datastore: optional DataStore backend for persisting the resource graph
         :param kwargs:
         """
         self._name = name
+        self.datastore = datastore
+        self.styling = None
+        self.timestream = None
+        self._nodes = []
+        self._systems = []
+        self._cs_api_builder = None
+        self._datastreams = []
+        self._controlstreams = []
+        self._datagroups = []
+        self._tasks = []
+        self._playback_mode = TemporalModes.REAL_TIME
         logging.info(f"OSHConnect instance {name} created")
         self._session_manager = SessionManager()
         self._event_bus = EventHandler()
@@ -92,6 +103,35 @@ class OSHConnect:
         with open(file_name, 'r', encoding='utf-8') as f:
             obj = json.load(f)
             return obj.get('app_config', obj)
+
+    def save_to_store(self) -> None:
+        """Persist the full node graph to the configured datastore.
+
+        :raises RuntimeError: if no datastore has been configured.
+        """
+        if self.datastore is None:
+            raise RuntimeError(
+                "No datastore configured. Pass a DataStore instance to OSHConnect()."
+            )
+        self.datastore.save_all(self._nodes)
+
+    def load_from_store(self) -> None:
+        """Restore the node graph from the configured datastore into this instance.
+
+        Reconstructed Nodes are registered with this instance's SessionManager so
+        their child resources (Systems, Datastreams, ControlStreams) can initialise
+        correctly. Calling this method appends to any already-loaded nodes.
+
+        :raises RuntimeError: if no datastore has been configured.
+        """
+        if self.datastore is None:
+            raise RuntimeError(
+                "No datastore configured. Pass a DataStore instance to OSHConnect()."
+            )
+        nodes = self.datastore.load_all(session_manager=self._session_manager)
+        for node in nodes:
+            self._nodes.append(node)
+            self._systems.extend(node.systems())
 
     def share_config(self, config: dict):
         pass

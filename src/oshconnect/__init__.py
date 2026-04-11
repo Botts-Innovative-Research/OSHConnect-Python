@@ -38,6 +38,10 @@ from .schema_datamodels import SWEDatastreamRecordSchema, JSONCommandSchema
 # Event system
 from .eventbus import EventHandler, IEventListener, DefaultEventTypes, AtomicEventTypes, Event, EventBuilder
 
+# DataStore
+from .datastore import DataStore
+from .datastores import SQLiteDataStore
+
 # CS API constants
 from .csapi4py.constants import ObservationFormat, APIResourceTypes, ContentTypes
 
@@ -84,4 +88,7 @@ __all__ = [
     "ObservationFormat",
     "APIResourceTypes",
     "ContentTypes",
+    # DataStore
+    "DataStore",
+    "SQLiteDataStore",
 ]
