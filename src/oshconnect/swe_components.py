@@ -50,8 +50,8 @@ class VectorSchema(AnyComponentSchema):
     name: str = Field(...)
     type: str = "Vector"
     definition: str = Field(...)
-    reference_frame: str = Field(...)
-    local_frame: str = Field(None)
+    reference_frame: str = Field(..., serialization_alias='referenceFrame')
+    local_frame: str = Field(None, serialization_alias='localFrame')
     # TODO: VERIFY might need to be moved further down when these are defined
     coordinates: SerializeAsAny[Union[list[CountSchema], list[QuantitySchema], list[TimeSchema]]] = Field(...)
 
