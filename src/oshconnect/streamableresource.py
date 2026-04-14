@@ -281,7 +281,7 @@ class Node:
         if underlying is not None:
             dump = getattr(underlying, 'model_dump', None)
             if callable(dump):
-                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
             elif hasattr(underlying, 'to_dict'):
                 data["underlying_resource"] = underlying.to_dict()
             else:
@@ -910,7 +910,7 @@ class System(StreamableResource[SystemResource]):
         if underlying is not None:
             dump = getattr(underlying, 'model_dump', None)
             if callable(dump):
-                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
             elif hasattr(underlying, 'to_dict'):
                 data["underlying_resource"] = underlying.to_dict()
             else:
@@ -1019,7 +1019,7 @@ class Datastream(StreamableResource[DatastreamResource]):
         if underlying is not None:
             dump = getattr(underlying, 'model_dump', None)
             if callable(dump):
-                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
             elif hasattr(underlying, 'to_dict'):
                 data["underlying_resource"] = underlying.to_dict()
             else:
@@ -1155,7 +1155,7 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         if underlying is not None:
             dump = getattr(underlying, 'model_dump', None)
             if callable(dump):
-                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True)
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
             elif hasattr(underlying, 'to_dict'):
                 data["underlying_resource"] = underlying.to_dict()
             else:
