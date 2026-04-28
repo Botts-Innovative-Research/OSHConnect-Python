@@ -26,6 +26,8 @@ from collections import deque
 from pydantic.v1.utils import to_lower_camel
 
 from .csapi4py.constants import ContentTypes
+from .events import EventHandler, DefaultEventTypes
+from .events.builder import EventBuilder
 from .schema_datamodels import JSONCommandSchema
 from .csapi4py.mqtt import MQTTCommClient
 from .csapi4py.constants import APIResourceTypes, ObservationFormat
@@ -641,6 +643,11 @@ class StreamableResource(Generic[T], ABC):
         logging.debug("Received MQTT message on topic %s (%s bytes)", msg.topic, len(msg.payload))
         # Appends to right of deque
         self._inbound_deque.append(msg.payload)
+        self._emit_inbound_event(msg)
+
+    def _emit_inbound_event(self, msg):
+        """Hook for subclasses to publish EventHandler events on incoming MQTT messages."""
+        pass
 
     def get_inbound_deque(self):
         return self._inbound_deque
@@ -999,6 +1006,14 @@ class Datastream(StreamableResource[DatastreamResource]):
         super().init_mqtt()
         self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
 
+    def _emit_inbound_event(self, msg):
+        evt = (EventBuilder().with_type(DefaultEventTypes.NEW_OBSERVATION)
+               .with_topic(msg.topic)
+               .with_data(msg.payload)
+               .with_producer(self)
+               .build())
+        EventHandler().publish(evt)
+
     def _queue_push(self, msg):
         print(f'Pushing message to reader queue: {msg}')
         self._msg_writer_queue.put_nowait(msg)
@@ -1076,6 +1091,17 @@ class ControlStream(StreamableResource[ControlStreamResource]):
 
     def get_mqtt_status_topic(self):
         return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS, data_topic=True)
+
+    def _emit_inbound_event(self, msg):
+        evt_type = (DefaultEventTypes.NEW_COMMAND
+                    if msg.topic == self._topic
+                    else DefaultEventTypes.NEW_COMMAND_STATUS)
+        evt = (EventBuilder().with_type(evt_type)
+               .with_topic(msg.topic)
+               .with_data(msg.payload)
+               .with_producer(self)
+               .build())
+        EventHandler().publish(evt)
 
     def start(self):
         super().start()

@@ -36,7 +36,7 @@ from .swe_components import (
 from .schema_datamodels import SWEDatastreamRecordSchema, JSONCommandSchema
 
 # Event system
-from .eventbus import EventHandler, IEventListener, DefaultEventTypes, AtomicEventTypes, Event, EventBuilder
+from .events import EventHandler, IEventListener, CallbackListener, DefaultEventTypes, AtomicEventTypes, Event, EventBuilder
 
 # DataStore
 from .datastore import DataStore
@@ -80,6 +80,7 @@ __all__ = [
     # Event system
     "EventHandler",
     "IEventListener",
+    "CallbackListener",
     "DefaultEventTypes",
     "AtomicEventTypes",
     "Event",
