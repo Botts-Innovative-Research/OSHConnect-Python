@@ -4,7 +4,7 @@
 #  Author: Ian Patterson
 #  Contact Email: ian@botts-inc.com
 #  =============================================================================
-from src.oshconnect.resource_datamodels import ControlStreamResource
+from oshconnect import ControlStreamResource
 
 
 def test_control_stream_resource():

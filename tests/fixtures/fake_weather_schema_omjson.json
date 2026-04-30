@@ -1,0 +1,49 @@
+{
+  "obsFormat": "application/om+json",
+  "resultSchema": {
+    "type": "DataRecord",
+    "name": "weather",
+    "definition": "urn:osh:data:weather",
+    "description": "Weather measurements",
+    "fields": [
+      {
+        "type": "Quantity",
+        "name": "temperature",
+        "definition": "http://mmisw.org/ont/cf/parameter/air_temperature",
+        "label": "Air Temperature",
+        "uom": {
+          "code": "Cel"
+        }
+      },
+      {
+        "type": "Quantity",
+        "name": "pressure",
+        "definition": "http://mmisw.org/ont/cf/parameter/air_pressure",
+        "label": "Atmospheric Pressure",
+        "uom": {
+          "code": "hPa"
+        }
+      },
+      {
+        "type": "Quantity",
+        "name": "windSpeed",
+        "definition": "http://mmisw.org/ont/cf/parameter/wind_speed",
+        "label": "Wind Speed",
+        "uom": {
+          "code": "m/s"
+        }
+      },
+      {
+        "type": "Quantity",
+        "name": "windDirection",
+        "definition": "http://mmisw.org/ont/cf/parameter/wind_from_direction",
+        "label": "Wind Direction",
+        "referenceFrame": "http://www.opengis.net/def/cs/OGC/0/NED",
+        "axisID": "z",
+        "uom": {
+          "code": "deg"
+        }
+      }
+    ]
+  }
+}

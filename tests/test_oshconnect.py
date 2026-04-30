@@ -9,8 +9,8 @@ import sys
 import os
 import websockets
 
+from oshconnect import TimePeriod, TimeInstant
 from src.oshconnect import OSHConnect, Node
-from timemanagement import TimePeriod, TimeInstant
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
@@ -28,10 +28,10 @@ class TestOSHConnect:
         assert tps.epoch_time == TimeInstant.from_string("2024-06-18T15:46:32Z").epoch_time
         assert tpe.epoch_time == TimeInstant.from_string("2024-06-18T20:00:00Z").epoch_time
 
-        tp = TimePeriod(start="now", end="2025-06-18T20:00:00Z")
+        tp = TimePeriod(start="now", end="2099-06-18T20:00:00Z")
         assert tp is not None
         assert tp.start == "now"
-        assert tp.end.epoch_time == TimeInstant.from_string("2025-06-18T20:00:00Z").epoch_time
+        assert tp.end.epoch_time == TimeInstant.from_string("2099-06-18T20:00:00Z").epoch_time
 
         tp = TimePeriod(start="2024-06-18T20:00:00Z", end="now")
         assert tp is not None

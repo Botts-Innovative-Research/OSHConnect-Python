@@ -41,7 +41,11 @@ class EventBuilder(ABC):
         return self
 
     def build(self) -> Event:
-        built = self._event.model_copy(deep=True)
+        # Shallow copy: we want a fresh Event so reset() can't mutate it, but
+        # `data` and `producer` are references the consumer cares about (often
+        # not pickleable, e.g. holding a sqlite3.Connection), so we don't clone
+        # them.
+        built = self._event.model_copy(deep=False)
         self.reset()
         return built
 
