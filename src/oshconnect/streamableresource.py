@@ -23,7 +23,7 @@ from typing import TypeVar, Generic, Union
 from uuid import UUID, uuid4
 from collections import deque
 
-from pydantic.v1.utils import to_lower_camel
+from pydantic.alias_generators import to_camel
 
 from .csapi4py.constants import ContentTypes
 from .events import EventHandler, DefaultEventTypes
@@ -200,7 +200,7 @@ class Node:
                 print(system_json)
                 system = SystemResource.model_validate(system_json, by_alias=True)
                 sys_obj = System(label=system.properties['name'],
-                                 name=to_lower_camel(system.properties['name'].replace(" ", "_")),
+                                 name=to_camel(system.properties['name'].replace(" ", "_")),
                                  urn=system.properties['uid'], parent_node=self, resource_id=system.system_id)
 
                 self._systems.append(sys_obj)
