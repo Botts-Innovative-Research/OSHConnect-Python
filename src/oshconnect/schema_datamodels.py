@@ -15,7 +15,7 @@ from .api_utils import Link, URI
 from .csapi4py.constants import ObservationFormat
 from .encoding import Encoding
 from .geometry import Geometry
-from .swe_components import AnyComponentSchema
+from .swe_components import AnyComponent
 
 """
 In many of the top level resource models there is a "schema" field of some description. These models are meant to ease
@@ -51,7 +51,7 @@ class SWEJSONCommandSchema(CommandSchema):
 
     command_format: str = Field("application/swe+json", alias='commandFormat')
     encoding: SerializeAsAny[Encoding] = Field(...)
-    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., alias='recordSchema')
+    record_schema: AnyComponent = Field(..., alias='recordSchema')
 
 
 class JSONCommandSchema(CommandSchema):
@@ -61,9 +61,9 @@ class JSONCommandSchema(CommandSchema):
     model_config = ConfigDict(populate_by_name=True)
 
     command_format: str = Field("application/json", alias='commandFormat')
-    params_schema: SerializeAsAny[AnyComponentSchema] = Field(..., alias='parametersSchema')
-    result_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='resultSchema')
-    feasibility_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='feasibilityResultSchema')
+    params_schema: AnyComponent = Field(..., alias='parametersSchema')
+    result_schema: AnyComponent = Field(None, alias='resultSchema')
+    feasibility_schema: AnyComponent = Field(None, alias='feasibilityResultSchema')
 
 
 class DatastreamRecordSchema(BaseModel):
@@ -75,10 +75,14 @@ class DatastreamRecordSchema(BaseModel):
     obs_format: str = Field(..., alias='obsFormat')
 
 
+# `encoding` is required per CS API Part 2 §16.2.3 Requirement 109.B, but the
+# OSH server omits it from /datastreams/{id}/schema responses. We accept it as
+# optional to be able to parse what the server returns. See
+# docs/osh_spec_deviations.md (swe-json-missing-encoding).
 class SWEDatastreamRecordSchema(DatastreamRecordSchema):
     model_config = ConfigDict(populate_by_name=True)
-    encoding: SerializeAsAny[Encoding] = Field(...)
-    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., alias='recordSchema')
+    encoding: SerializeAsAny[Encoding] = Field(None)
+    record_schema: AnyComponent = Field(..., alias='recordSchema')
 
     @field_validator('obs_format')
     @classmethod
@@ -100,8 +104,8 @@ class JSONDatastreamRecordSchema(DatastreamRecordSchema):
     model_config = ConfigDict(populate_by_name=True)
 
     obs_format: str = Field(ObservationFormat.JSON.value, alias='obsFormat')
-    result_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='resultSchema')
-    parameters_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='parametersSchema')
+    result_schema: AnyComponent = Field(None, alias='resultSchema')
+    parameters_schema: AnyComponent = Field(None, alias='parametersSchema')
     result_link: dict = Field(None, alias='resultLink')
 
     @field_validator('obs_format')
