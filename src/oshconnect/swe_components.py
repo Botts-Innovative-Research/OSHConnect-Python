@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Union, Any
+from typing import Union, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, SerializeAsAny
 
@@ -41,14 +41,14 @@ class AnyComponentSchema(BaseModel):
 
 
 class DataRecordSchema(AnyComponentSchema):
-    type: str = "DataRecord"
+    type: Literal["DataRecord"] = "DataRecord"
     fields: SerializeAsAny[list[AnyComponentSchema]] = Field(...)
 
 
 class VectorSchema(AnyComponentSchema):
     label: str = Field(...)
     name: str = Field(...)
-    type: str = "Vector"
+    type: Literal["Vector"] = "Vector"
     definition: str = Field(...)
     reference_frame: str = Field(..., serialization_alias='referenceFrame')
     local_frame: str = Field(None, serialization_alias='localFrame')
@@ -57,7 +57,7 @@ class VectorSchema(AnyComponentSchema):
 
 
 class DataArraySchema(AnyComponentSchema):
-    type: str = "DataArray"
+    type: Literal["DataArray"] = "DataArray"
     name: str = Field(...)
     element_count: dict | str | CountSchema = Field(..., serialization_alias='elementCount')  # Should type of Count
     element_type: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='elementType')
@@ -66,7 +66,7 @@ class DataArraySchema(AnyComponentSchema):
 
 
 class MatrixSchema(AnyComponentSchema):
-    type: str = "Matrix"
+    type: Literal["Matrix"] = "Matrix"
     element_count: dict | str | CountSchema = Field(..., serialization_alias='elementCount')  # Should be type of Count
     element_type: SerializeAsAny[list[AnyComponentSchema]] = Field(..., serialization_alias='elementType')
     encoding: str = Field(...)  # TODO: implement an encodings class
@@ -76,7 +76,7 @@ class MatrixSchema(AnyComponentSchema):
 
 
 class DataChoiceSchema(AnyComponentSchema):
-    type: str = "DataChoice"
+    type: Literal["DataChoice"] = "DataChoice"
     updatable: bool = Field(False)
     optional: bool = Field(False)
     choice_value: CategorySchema = Field(..., serialization_alias='choiceValue')  # TODO: Might be called "choiceValues"
@@ -85,7 +85,7 @@ class DataChoiceSchema(AnyComponentSchema):
 
 class GeometrySchema(AnyComponentSchema):
     label: str = Field(...)
-    type: str = "Geometry"
+    type: Literal["Geometry"] = "Geometry"
     updatable: bool = Field(False)
     optional: bool = Field(False)
     definition: str = Field(...)
@@ -129,17 +129,17 @@ class AnyScalarComponentSchema(AnySimpleComponentSchema):
 
 
 class BooleanSchema(AnyScalarComponentSchema):
-    type: str = "Boolean"
+    type: Literal["Boolean"] = "Boolean"
     value: bool = Field(None)
 
 
 class CountSchema(AnyScalarComponentSchema):
-    type: str = "Count"
+    type: Literal["Count"] = "Count"
     value: int = Field(None)
 
 
 class QuantitySchema(AnyScalarComponentSchema):
-    type: str = "Quantity"
+    type: Literal["Quantity"] = "Quantity"
     value: Union[float, str] = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
@@ -163,7 +163,7 @@ class QuantitySchema(AnyScalarComponentSchema):
 
 
 class TimeSchema(AnyScalarComponentSchema):
-    type: str = "Time"
+    type: Literal["Time"] = "Time"
     value: str = Field(None)
     reference_time: str = Field(None, serialization_alias='referenceTime')
     local_frame: str = Field(None)
@@ -171,30 +171,30 @@ class TimeSchema(AnyScalarComponentSchema):
 
 
 class CategorySchema(AnyScalarComponentSchema):
-    type: str = "Category"
+    type: Literal["Category"] = "Category"
     value: str = Field(None)
     code_space: str = Field(None, serialization_alias='codeSpace')
 
 
 class TextSchema(AnyScalarComponentSchema):
-    type: str = "Text"
+    type: Literal["Text"] = "Text"
     value: str = Field(None)
 
 
 class CountRangeSchema(AnySimpleComponentSchema):
-    type: str = "CountRange"
+    type: Literal["CountRange"] = "CountRange"
     value: list[int] = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
 
 class QuantityRangeSchema(AnySimpleComponentSchema):
-    type: str = "QuantityRange"
+    type: Literal["QuantityRange"] = "QuantityRange"
     value: list[Union[float, str]] = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
 
 class TimeRangeSchema(AnySimpleComponentSchema):
-    type: str = "TimeRange"
+    type: Literal["TimeRange"] = "TimeRange"
     value: list[str] = Field(None)
     reference_time: str = Field(None, serialization_alias='referenceTime')
     local_frame: str = Field(None)
@@ -202,6 +202,6 @@ class TimeRangeSchema(AnySimpleComponentSchema):
 
 
 class CategoryRangeSchema(AnySimpleComponentSchema):
-    type: str = "CategoryRange"
+    type: Literal["CategoryRange"] = "CategoryRange"
     value: list[str] = Field(None)
     code_space: str = Field(None, serialization_alias='codeSpace')

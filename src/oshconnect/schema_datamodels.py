@@ -51,7 +51,7 @@ class SWEJSONCommandSchema(CommandSchema):
 
     command_format: str = Field("application/swe+json", alias='commandFormat')
     encoding: SerializeAsAny[Encoding] = Field(...)
-    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='recordSchema')
+    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., alias='recordSchema')
 
 
 class JSONCommandSchema(CommandSchema):
@@ -78,7 +78,7 @@ class DatastreamRecordSchema(BaseModel):
 class SWEDatastreamRecordSchema(DatastreamRecordSchema):
     model_config = ConfigDict(populate_by_name=True)
     encoding: SerializeAsAny[Encoding] = Field(...)
-    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='recordSchema')
+    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., alias='recordSchema')
 
     @field_validator('obs_format')
     @classmethod
@@ -86,6 +86,31 @@ class SWEDatastreamRecordSchema(DatastreamRecordSchema):
         if v not in [ObservationFormat.SWE_JSON.value, ObservationFormat.SWE_CSV.value,
                      ObservationFormat.SWE_TEXT.value, ObservationFormat.SWE_BINARY.value]:
             raise ValueError('obsFormat must be on of the SWE formats')
+        return v
+
+
+class JSONDatastreamRecordSchema(DatastreamRecordSchema):
+    """Datastream observation schema for the JSON media types
+    (`application/json`, `application/om+json`).
+
+    Per CS API Part 2 §16.1.4, this form does not carry a SWE `encoding`
+    block; structure is fully described by `resultSchema` (inline result)
+    or `resultLink` (out-of-band). `parametersSchema` is optional.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    obs_format: str = Field(ObservationFormat.JSON.value, alias='obsFormat')
+    result_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='resultSchema')
+    parameters_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='parametersSchema')
+    result_link: dict = Field(None, alias='resultLink')
+
+    @field_validator('obs_format')
+    @classmethod
+    def _check_obs_format(cls, v):
+        if v not in (ObservationFormat.JSON.value, "application/json"):
+            raise ValueError(
+                f"obsFormat must be 'application/json' or '{ObservationFormat.JSON.value}'"
+            )
         return v
 
 
