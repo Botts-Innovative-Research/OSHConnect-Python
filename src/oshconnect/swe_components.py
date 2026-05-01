@@ -67,7 +67,8 @@ class AnyComponentSchema(BaseModel):
 
 class DataRecordSchema(AnyComponentSchema):
     type: Literal["DataRecord"] = "DataRecord"
-    fields: list["AnyComponent"] = Field(...)
+    # DataRecord.json: fields.minItems = 1
+    fields: list["AnyComponent"] = Field(..., min_length=1)
 
     @model_validator(mode="after")
     def _fields_require_name(self):
