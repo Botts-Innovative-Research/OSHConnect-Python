@@ -7,14 +7,33 @@
 
 from __future__ import annotations
 
+import re
 from numbers import Real
 from typing import Union, Any, Literal, Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, SerializeAsAny
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, SerializeAsAny
 
 from .csapi4py.constants import GeometryTypes
 from .api_utils import UCUMCode, URI
 from .geometry import Geometry
+
+# SWE Common 3 NameToken: basicTypes.json#/$defs/NameToken
+_NAME_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]*$")
+
+
+def check_named(component, location: str) -> None:
+    """Validate that a component bound via SoftNamedProperty carries a NameToken `name`."""
+    name = getattr(component, "name", None)
+    if not name:
+        raise ValueError(
+            f"{location}: a component bound here must carry `name` (SWE Common 3 SoftNamedProperty)."
+        )
+    if not _NAME_TOKEN_RE.match(name):
+        raise ValueError(
+            f"{location}: `name` {name!r} does not match NameToken pattern "
+            f"^[A-Za-z][A-Za-z0-9_\\-]*$."
+        )
+
 
 """
  NOTE: The following classes are used to represent the Record Schemas that are required for use with Datastreams
@@ -34,6 +53,11 @@ class AnyComponentSchema(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     type: str = Field(...)
     id: str = Field(None)
+    # Wire-format flat carrier for SoftNamedProperty.name. Optional on the component
+    # itself (per AbstractDataComponent.json); enforced as required by parent
+    # binding-context validators (DataRecord/DataChoice/Vector/DataArray/Matrix and
+    # the datastream/controlstream schema wrappers in schema_datamodels.py).
+    name: str = Field(None)
     label: str = Field(None)
     description: str = Field(None)
     updatable: bool = Field(False)
@@ -43,18 +67,17 @@ class AnyComponentSchema(BaseModel):
 
 class DataRecordSchema(AnyComponentSchema):
     type: Literal["DataRecord"] = "DataRecord"
-    # `name` is not part of AbstractDataComponent in SWE Common 3 — it belongs to
-    # the SoftNamedProperty wrapper that binds a component as a record field. We
-    # accept it here only because the OSH server emits `name` at the root-level
-    # DataRecord of a datastream's recordSchema/resultSchema. See
-    # docs/osh_spec_deviations.md (root-component-name).
-    name: str = Field(None)
     fields: list["AnyComponent"] = Field(...)
+
+    @model_validator(mode="after")
+    def _fields_require_name(self):
+        for i, f in enumerate(self.fields):
+            check_named(f, f"DataRecord.fields[{i}]")
+        return self
 
 
 class VectorSchema(AnyComponentSchema):
     label: str = Field(...)
-    name: str = Field(...)
     type: Literal["Vector"] = "Vector"
     definition: str = Field(...)
     reference_frame: str = Field(..., alias='referenceFrame')
@@ -62,24 +85,42 @@ class VectorSchema(AnyComponentSchema):
     # TODO: VERIFY might need to be moved further down when these are defined
     coordinates: SerializeAsAny[Union[list[CountSchema], list[QuantitySchema], list[TimeSchema]]] = Field(...)
 
+    @model_validator(mode="after")
+    def _coordinates_require_name(self):
+        for i, c in enumerate(self.coordinates):
+            check_named(c, f"Vector.coordinates[{i}]")
+        return self
+
 
 class DataArraySchema(AnyComponentSchema):
     type: Literal["DataArray"] = "DataArray"
-    name: str = Field(...)
     element_count: dict | str | CountSchema = Field(..., alias='elementCount')  # Should type of Count
     element_type: "AnyComponent" = Field(..., alias='elementType')
     encoding: str = Field(...)  # TODO: implement an encodings class
     values: list = Field(None)
 
+    @model_validator(mode="after")
+    def _element_type_requires_name(self):
+        check_named(self.element_type, "DataArray.elementType")
+        return self
+
 
 class MatrixSchema(AnyComponentSchema):
     type: Literal["Matrix"] = "Matrix"
     element_count: dict | str | CountSchema = Field(..., alias='elementCount')  # Should be type of Count
+    # TODO: spec defines Matrix.elementType as a single component (allOf SoftNamedProperty + AnyComponent),
+    # not a list. Cardinality fix is out of scope for the name-validator change.
     element_type: list["AnyComponent"] = Field(..., alias='elementType')
     encoding: str = Field(...)  # TODO: implement an encodings class
     values: list = Field(None)
     reference_frame: str = Field(None)
     local_frame: str = Field(None)
+
+    @model_validator(mode="after")
+    def _element_type_requires_name(self):
+        for i, et in enumerate(self.element_type):
+            check_named(et, f"Matrix.elementType[{i}]")
+        return self
 
 
 class DataChoiceSchema(AnyComponentSchema):
@@ -88,6 +129,12 @@ class DataChoiceSchema(AnyComponentSchema):
     optional: bool = Field(False)
     choice_value: CategorySchema = Field(..., alias='choiceValue')  # TODO: Might be called "choiceValues"
     items: list["AnyComponent"] = Field(...)
+
+    @model_validator(mode="after")
+    def _items_require_name(self):
+        for i, item in enumerate(self.items):
+            check_named(item, f"DataChoice.items[{i}]")
+        return self
 
 
 class GeometrySchema(AnyComponentSchema):
@@ -127,7 +174,6 @@ class AnySimpleComponentSchema(AnyComponentSchema):
     nil_values: list = Field(None, alias='nilValues')
     constraint: Any = Field(None)
     value: Any = Field(None)
-    name: str = Field(...)
 
 
 class AnyScalarComponentSchema(AnySimpleComponentSchema):

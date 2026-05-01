@@ -789,7 +789,9 @@ class System(StreamableResource[SystemResource]):
     def add_insert_datastream(self, datarecord_schema: DataRecordSchema):
         """
         Adds a datastream to the system while also inserting it into the system's parent node via HTTP POST.
-        :param datarecord_schema: DataRecordSchema to be used to define the datastream
+        :param datarecord_schema: DataRecordSchema to be used to define the datastream. Must carry a `name`
+            matching NameToken (^[A-Za-z][A-Za-z0-9_\\-]*$); SWE Common 3 wraps DataStream.elementType in
+            SoftNamedProperty, so the root component requires a name.
         :return:
         """
         print(f'Adding datastream: {datarecord_schema.model_dump_json(exclude_none=True, by_alias=True)}')
@@ -831,7 +833,9 @@ class System(StreamableResource[SystemResource]):
         """
         Accepts a DataRecordSchema and creates a JSON encoded schema structure ControlStreamResource, which is inserted
         into the parent system via the host node.
-        :param control_stream_record_schema: DataRecordSchema to be used for the control stream
+        :param control_stream_record_schema: DataRecordSchema to be used for the control stream. Must carry a `name`
+            matching NameToken (^[A-Za-z][A-Za-z0-9_\\-]*$); JSONCommandSchema.parametersSchema is wrapped in
+            SoftNamedProperty so the root component requires a name.
         :param input_name: Name of the input, if None the label of the schema is converted to lower and stripped of whitespace
         :return: ControlStream object added to the system
         """

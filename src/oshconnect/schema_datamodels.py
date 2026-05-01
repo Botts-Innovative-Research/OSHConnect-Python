@@ -9,13 +9,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Union, List
 
-from pydantic import BaseModel, Field, SerializeAsAny, field_validator, HttpUrl, ConfigDict
+from pydantic import BaseModel, Field, SerializeAsAny, field_validator, model_validator, HttpUrl, ConfigDict
 
 from .api_utils import Link, URI
 from .csapi4py.constants import ObservationFormat
 from .encoding import Encoding
 from .geometry import Geometry
-from .swe_components import AnyComponent
+from .swe_components import AnyComponent, check_named
 
 """
 In many of the top level resource models there is a "schema" field of some description. These models are meant to ease
@@ -53,6 +53,11 @@ class SWEJSONCommandSchema(CommandSchema):
     encoding: SerializeAsAny[Encoding] = Field(...)
     record_schema: AnyComponent = Field(..., alias='recordSchema')
 
+    @model_validator(mode="after")
+    def _root_record_schema_requires_name(self):
+        check_named(self.record_schema, "SWEJSONCommandSchema.recordSchema")
+        return self
+
 
 class JSONCommandSchema(CommandSchema):
     """
@@ -64,6 +69,15 @@ class JSONCommandSchema(CommandSchema):
     params_schema: AnyComponent = Field(..., alias='parametersSchema')
     result_schema: AnyComponent = Field(None, alias='resultSchema')
     feasibility_schema: AnyComponent = Field(None, alias='feasibilityResultSchema')
+
+    @model_validator(mode="after")
+    def _root_schemas_require_name(self):
+        check_named(self.params_schema, "JSONCommandSchema.parametersSchema")
+        if self.result_schema is not None:
+            check_named(self.result_schema, "JSONCommandSchema.resultSchema")
+        if self.feasibility_schema is not None:
+            check_named(self.feasibility_schema, "JSONCommandSchema.feasibilityResultSchema")
+        return self
 
 
 class DatastreamRecordSchema(BaseModel):
@@ -92,6 +106,11 @@ class SWEDatastreamRecordSchema(DatastreamRecordSchema):
             raise ValueError('obsFormat must be on of the SWE formats')
         return v
 
+    @model_validator(mode="after")
+    def _root_record_schema_requires_name(self):
+        check_named(self.record_schema, "SWEDatastreamRecordSchema.recordSchema")
+        return self
+
 
 class JSONDatastreamRecordSchema(DatastreamRecordSchema):
     """Datastream observation schema for the JSON media types
@@ -116,6 +135,14 @@ class JSONDatastreamRecordSchema(DatastreamRecordSchema):
                 f"obsFormat must be 'application/json' or '{ObservationFormat.JSON.value}'"
             )
         return v
+
+    @model_validator(mode="after")
+    def _root_schemas_require_name(self):
+        if self.result_schema is not None:
+            check_named(self.result_schema, "JSONDatastreamRecordSchema.resultSchema")
+        if self.parameters_schema is not None:
+            check_named(self.parameters_schema, "JSONDatastreamRecordSchema.parametersSchema")
+        return self
 
 
 class ObservationOMJSONInline(BaseModel):
