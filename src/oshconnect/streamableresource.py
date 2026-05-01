@@ -158,6 +158,7 @@ class Node:
             if kwargs.get('mqtt_port') is not None:
                 self._mqtt_port = kwargs.get('mqtt_port')
             self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port,
+                                               username=username, password=password,
                                                client_id_suffix=uuid.uuid4().hex, )
             self._mqtt_client.connect()
             self._mqtt_client.start()
@@ -222,7 +223,6 @@ class Node:
         """
         Add a system to the target node.
         :param system: System object
-        :param target_node: Node object
         :param insert_resource: Whether to insert the system into the target node's server, default is False
         :return:
         """

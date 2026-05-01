@@ -297,7 +297,7 @@ class APIHelper(ABC):
                        data_topic: bool = True):
         """
         Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
-        :param resource_type : The API resource type of the resource that comes first in the URL, cannot be None
+        :param resource_type: The API resource type of the resource that comes first in the URL, cannot be None
         :param subresource_type: The API resource type of the sub-resource that comes second in the URL, optional if there
         is no sub-resource.
         :param resource_id: The ID of the primary resource, can be none if the request is being made for all resources of
