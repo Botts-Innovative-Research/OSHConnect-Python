@@ -145,7 +145,7 @@ def main() -> int:
     print(f"  Browse:    {PYPI_URL}/simple/")
     print(f"  Install:   pip install --index-url {PYPI_URL}/simple/ oshconnect")
     print(f"  uv:        uv pip install --index-url {PYPI_URL}/simple/ oshconnect")
-    print(f"  uv sync:   uv sync  (if pyproject.toml has [[tool.uv.index]] configured)")
+    print("  uv sync:   uv sync  (if pyproject.toml has [[tool.uv.index]] configured)")
     return 0
 
 
