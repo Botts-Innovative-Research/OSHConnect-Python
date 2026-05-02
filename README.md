@@ -100,48 +100,41 @@ version.
 
 ## Generating the Docs
 
-The documentation is built with [MkDocs](https://www.mkdocs.org/) using the
-Material theme, [mkdocstrings](https://mkdocstrings.github.io/) for
-auto-generated API reference from the source, and
-[mermaid](https://mermaid.js.org/) for architecture diagrams. Markdown sources
-live under `docs/markdown/`.
+The documentation is built with [Sphinx](https://www.sphinx-doc.org/) using
+the [Furo](https://pradyunsg.me/furo/) theme,
+[autodoc](https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html)
+for auto-generated API reference from docstrings,
+[MyST](https://myst-parser.readthedocs.io/) so that Markdown source files
+work alongside reST, and [sphinxcontrib-mermaid](https://github.com/mgaitan/sphinxcontrib-mermaid)
+for the architecture diagrams. Sources live under `docs/source/`.
 
-Install dev dependencies (including MkDocs and plugins):
+Install dev dependencies (including Sphinx, Furo, and the plugins):
 
 ```bash
-uv sync
+uv sync --all-extras
 ```
 
 Build the HTML docs:
 
 ```bash
-uv run mkdocs build
+uv run sphinx-build -b html docs/source docs/build/sphinx
 ```
 
-The output will be in `docs/build/html/`. Open `docs/build/html/index.html` in
-a browser to view locally.
+Open `docs/build/sphinx/index.html` in a browser to view locally.
 
-For a live-reloading preview while editing:
+For a live-reloading preview while editing, use
+[sphinx-autobuild](https://github.com/sphinx-doc/sphinx-autobuild):
 
 ```bash
-uv run mkdocs serve
+uv run --with sphinx-autobuild sphinx-autobuild docs/source docs/build/sphinx
 ```
 
-Then visit http://127.0.0.1:8000.
-
-To match what CI publishes (warnings become errors — useful when you've
-touched docstrings):
+To match what CI publishes (warnings become errors — useful after touching
+docstrings or signatures):
 
 ```bash
-uv run mkdocs build --strict
+uv run sphinx-build -W --keep-going -b html docs/source docs/build/sphinx
 ```
 
 CI builds the site on every push and deploys `main` to GitHub Pages via
 `.github/workflows/docs_pages.yaml`.
-
-The legacy Sphinx setup under `docs/source/` is kept temporarily for
-reference and builds to a separate output directory:
-
-```bash
-uv run sphinx-build -b html docs/source docs/build/sphinx
-```

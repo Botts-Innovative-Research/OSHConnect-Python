@@ -64,10 +64,15 @@ Event System
 ------------
 Pub/sub event bus for in-process notifications. Implement ``IEventListener`` to receive events.
 
+The names below are re-exported from ``oshconnect.events.core``,
+``oshconnect.events.handler``, etc.; ``:no-index:`` keeps Sphinx from
+reporting them as duplicate object descriptions.
+
 .. automodule:: oshconnect.eventbus
     :members:
     :undoc-members:
     :show-inheritance:
+    :no-index:
 
 ---
 

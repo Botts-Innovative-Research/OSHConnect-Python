@@ -24,14 +24,15 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Build MkDocs site
-        run: uv run mkdocs build --strict
+      - name: Build Sphinx + Furo site
+        # `-W` promotes warnings to errors so docstring/signature drift fails CI.
+        run: uv run sphinx-build -W --keep-going -b html docs/source docs/build/sphinx
 
       - name: Upload Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs/build/html
+          path: ./docs/build/sphinx
 
   deploy:
     needs: build
