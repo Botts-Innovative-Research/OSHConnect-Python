@@ -9,6 +9,22 @@ Links:
  * [Architecture Doc](https://docs.google.com/document/d/1pIaeQw0ocU6ApNgqTVRZuSwjJAbhCcmweMq6RiVYEic/edit?usp=sharing)
  * [UML Diagram](https://drive.google.com/file/d/1FVrnYiuAR8ykqfOUa1NuoMyZ1abXzMPw/view?usp=drive_link)
 
+## Pre-releases
+
+Every push to the `dev` branch publishes a `.devN` pre-release wheel to
+[TestPyPI](https://test.pypi.org/project/oshconnect/) once the test suite
+passes. To install the latest:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ \
+            --extra-index-url https://pypi.org/simple/ \
+            oshconnect --pre
+```
+
+The `--extra-index-url` is needed so transitive deps (pydantic, paho-mqtt,
+…) still resolve from real PyPI. Tagged releases (`v*`) continue to publish
+to real PyPI via `.github/workflows/publish.yml`.
+
 ## Running Tests
 
 ```bash

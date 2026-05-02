@@ -1,0 +1,8 @@
+{
+  "type": "PhysicalSystem",
+  "id": "fake-weather-001",
+  "uniqueId": "urn:osh:sensor:fakeweather:001",
+  "label": "Fake Weather Station",
+  "description": "A simulated weather station emitting temperature, pressure, wind speed, and wind direction.",
+  "definition": "http://www.w3.org/ns/sosa/Sensor"
+}
