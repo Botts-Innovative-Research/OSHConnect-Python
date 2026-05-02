@@ -30,14 +30,14 @@ class SQLiteDataStore(DataStore):
     Schema notes
     ------------
     Each resource type is stored as a single JSON blob (the output of its
-    ``serialize()`` method) alongside a primary-key string ID and any foreign-key
-    columns needed for filtered lookups. Using blobs means new Pydantic fields
-    do not require schema migrations.
+    ``to_storage_dict()`` method) alongside a primary-key string ID and any
+    foreign-key columns needed for filtered lookups. Using blobs means new
+    Pydantic fields do not require schema migrations.
 
     *Bulk operations* (``save_all`` / ``load_all``) work at the Node level:
     ``save_all`` persists every resource separately for individual lookups;
     ``load_all`` reconstructs the full hierarchy from the *nodes* table only
-    (``Node.deserialize`` handles the embedded systems/streams), avoiding
+    (``Node.from_storage_dict`` handles the embedded systems/streams), avoiding
     duplication.
     """
 
@@ -87,7 +87,7 @@ class SQLiteDataStore(DataStore):
     # ------------------------------------------------------------------
 
     def save_node(self, node: Node) -> None:
-        data = json.dumps(node.serialize())
+        data = json.dumps(node.to_storage_dict())
         self._execute(
             "INSERT OR REPLACE INTO nodes (id, data) VALUES (?, ?)",
             (node.get_id(), data),
@@ -102,14 +102,14 @@ class SQLiteDataStore(DataStore):
         ).fetchone()
         if row is None:
             return None
-        return Node.deserialize(json.loads(row["data"]), session_manager=session_manager)
+        return Node.from_storage_dict(json.loads(row["data"]), session_manager=session_manager)
 
     def load_all_nodes(
         self, session_manager: Optional[SessionManager] = None
     ) -> list[Node]:
         rows = self._execute("SELECT data FROM nodes").fetchall()
         return [
-            Node.deserialize(json.loads(r["data"]), session_manager=session_manager)
+            Node.from_storage_dict(json.loads(r["data"]), session_manager=session_manager)
             for r in rows
         ]
 
@@ -123,7 +123,7 @@ class SQLiteDataStore(DataStore):
 
     def save_system(self, system: System, node: Node) -> None:
         system_id = str(system.get_internal_id())
-        data = json.dumps(system.serialize())
+        data = json.dumps(system.to_storage_dict())
         self._execute(
             "INSERT OR REPLACE INTO systems (id, node_id, data) VALUES (?, ?, ?)",
             (system_id, node.get_id(), data),
@@ -136,13 +136,13 @@ class SQLiteDataStore(DataStore):
         ).fetchone()
         if row is None:
             return None
-        return System.deserialize(json.loads(row["data"]), node)
+        return System.from_storage_dict(json.loads(row["data"]), node)
 
     def load_systems_for_node(self, node_id: str, node: Node) -> list[System]:
         rows = self._execute(
             "SELECT data FROM systems WHERE node_id = ?", (node_id,)
         ).fetchall()
-        return [System.deserialize(json.loads(r["data"]), node) for r in rows]
+        return [System.from_storage_dict(json.loads(r["data"]), node) for r in rows]
 
     def delete_system(self, system_id: str) -> None:
         self._execute("DELETE FROM systems WHERE id = ?", (system_id,))
@@ -155,7 +155,7 @@ class SQLiteDataStore(DataStore):
     def save_datastream(self, datastream: Datastream, node: Node) -> None:
         ds_id = str(datastream.get_internal_id())
         system_id = datastream.get_parent_resource_id()
-        data = json.dumps(datastream.serialize())
+        data = json.dumps(datastream.to_storage_dict())
         self._execute(
             "INSERT OR REPLACE INTO datastreams (id, system_id, node_id, data) VALUES (?, ?, ?, ?)",
             (ds_id, system_id, node.get_id(), data),
@@ -168,13 +168,13 @@ class SQLiteDataStore(DataStore):
         ).fetchone()
         if row is None:
             return None
-        return Datastream.deserialize(json.loads(row["data"]), node)
+        return Datastream.from_storage_dict(json.loads(row["data"]), node)
 
     def load_datastreams_for_system(self, system_id: str, node: Node) -> list[Datastream]:
         rows = self._execute(
             "SELECT data FROM datastreams WHERE system_id = ?", (system_id,)
         ).fetchall()
-        return [Datastream.deserialize(json.loads(r["data"]), node) for r in rows]
+        return [Datastream.from_storage_dict(json.loads(r["data"]), node) for r in rows]
 
     def delete_datastream(self, datastream_id: str) -> None:
         self._execute("DELETE FROM datastreams WHERE id = ?", (datastream_id,))
@@ -187,7 +187,7 @@ class SQLiteDataStore(DataStore):
     def save_controlstream(self, controlstream: ControlStream, node: Node) -> None:
         cs_id = str(controlstream.get_internal_id())
         system_id = controlstream.get_parent_resource_id()
-        data = json.dumps(controlstream.serialize())
+        data = json.dumps(controlstream.to_storage_dict())
         self._execute(
             "INSERT OR REPLACE INTO controlstreams (id, system_id, node_id, data) VALUES (?, ?, ?, ?)",
             (cs_id, system_id, node.get_id(), data),
@@ -200,13 +200,13 @@ class SQLiteDataStore(DataStore):
         ).fetchone()
         if row is None:
             return None
-        return ControlStream.deserialize(json.loads(row["data"]), node)
+        return ControlStream.from_storage_dict(json.loads(row["data"]), node)
 
     def load_controlstreams_for_system(self, system_id: str, node: Node) -> list[ControlStream]:
         rows = self._execute(
             "SELECT data FROM controlstreams WHERE system_id = ?", (system_id,)
         ).fetchall()
-        return [ControlStream.deserialize(json.loads(r["data"]), node) for r in rows]
+        return [ControlStream.from_storage_dict(json.loads(r["data"]), node) for r in rows]
 
     def delete_controlstream(self, controlstream_id: str) -> None:
         self._execute("DELETE FROM controlstreams WHERE id = ?", (controlstream_id,))
@@ -232,7 +232,7 @@ class SQLiteDataStore(DataStore):
     ) -> list[Node]:
         """Reconstruct the full resource graph from the nodes table.
 
-        ``Node.deserialize`` handles the embedded systems/datastreams/
+        ``Node.from_storage_dict`` handles the embedded systems/datastreams/
         controlstreams hierarchy, so only the *nodes* table is used here.
         The individual resource tables (systems, datastreams, controlstreams)
         exist for targeted single-resource lookups and are not consulted here

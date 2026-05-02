@@ -99,7 +99,7 @@ class OSHConnect:
 
         data = {}
         for node in self._nodes:
-            node_dict = node.serialize()
+            node_dict = node.to_storage_dict()
             data.update({node.get_id(): node_dict})
 
         # write to JSON file
