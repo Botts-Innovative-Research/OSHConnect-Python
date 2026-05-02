@@ -1,6 +1,10 @@
 name: Tests
 on:
   push:
+    # Tag pushes (v*) are handled by publish.yml, which runs the same matrix
+    # before publishing — skip here to avoid running the suite twice.
+    tags-ignore:
+      - '**'
     paths-ignore:
       - 'docs/**'
       - 'README.md'
@@ -62,3 +66,65 @@ jobs:
           path: coverage.xml
           if-no-files-found: warn
           retention-days: 7
+
+  # Publish a `.devN` pre-release wheel to TestPyPI on every push to dev,
+  # gated on the full pytest matrix passing. Lives in this workflow (rather
+  # than a separate `workflow_run`-triggered file) so that the gate is a
+  # plain `needs:` dependency — `workflow_run` only fires from workflows
+  # that exist on the default branch, which is a maintenance footgun.
+  #
+  # One-time setup required at https://test.pypi.org/manage/account/publishing/
+  #   Owner: Botts-Innovative-Research
+  #   Repo:  OSHConnect-Python
+  #   Workflow: tests.yaml
+  #   Environment: publish-test
+  # And in this repo's Settings -> Environments, create env `publish-test`.
+  publish-test:
+    needs: pytest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    environment:
+      name: publish-test
+      url: https://test.pypi.org/project/oshconnect/
+    permissions:
+      id-token: write   # OIDC trusted publishing
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      # Append `.dev<run_number>` to the version in pyproject.toml so each
+      # dev push gets a fresh PEP 440-compliant pre-release (e.g.
+      # 0.5.1a0 -> 0.5.1a0.dev42). The change lives only on the runner.
+      - name: Auto-bump version with .devN suffix
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+          run = os.environ['GITHUB_RUN_NUMBER']
+          p = pathlib.Path('pyproject.toml')
+          src = p.read_text()
+          new = re.sub(
+              r'^(version\s*=\s*")([^"]+)(")',
+              lambda m: f'{m.group(1)}{m.group(2)}.dev{run}{m.group(3)}',
+              src, count=1, flags=re.M,
+          )
+          if new == src:
+              raise SystemExit('No `version = "..."` line found in pyproject.toml')
+          p.write_text(new)
+          for line in new.splitlines():
+              if line.startswith('version'):
+                  print(f'Bumped {line}')
+                  break
+          PY
+
+      - name: Build
+        run: uv build
+
+      - name: Publish to TestPyPI
+        run: uv publish --publish-url https://test.pypi.org/legacy/
