@@ -5,6 +5,40 @@
 #  Contact Email: ian@botts-inc.com
 #  =============================================================================
 
+"""
+Streamable resource hierarchy: the user-facing primitives for talking to an
+OpenSensorHub server.
+
+Object model
+------------
+
+::
+
+    Node                # connection to one OSH server
+    ├── APIHelper       # builds and executes HTTP requests
+    └── System[]        # discovered or user-created sensor systems
+        ├── Datastream[]      # output channels (observations)
+        └── ControlStream[]   # input channels (commands + status)
+
+`Node`, `System`, `Datastream`, and `ControlStream` are the types most user
+code touches. `StreamableResource` is the abstract base that powers MQTT
+streaming, WebSocket connections, and inbound/outbound message queues for
+all three concrete subclasses.
+
+Conventions
+-----------
+
+- Construction → `initialize()` (sets up MQTT subscriptions and the WS URL)
+  → `start()` (opens the streaming loop). `stop()` tears down.
+- Inbound MQTT messages land in `_inbound_deque`; outbound payloads queued
+  via `publish()` / `insert_data()` flow through `_outbound_deque`.
+- Resource creation (`add_insert_datastream`, `add_and_insert_control_stream`,
+  `insert_self`) goes through the parent `Node`'s `APIHelper` and a
+  `Location` header on the response is parsed to capture the new server-side
+  ID.
+- `StreamableModes`: `PUSH` = we publish, `PULL` = we subscribe,
+  `BIDIRECTIONAL` = both. Defaults to `PUSH` on construction.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -43,19 +77,32 @@ from .timemanagement import TimeInstant, TimePeriod, TimeUtils
 
 @dataclass(kw_only=True)
 class Endpoints:
+    """Default URL path segments for an OSH server's REST APIs."""
     root: str = "sensorhub"
     sos: str = f"{root}/sos"
     connected_systems: str = f"{root}/api"
 
 
 class Utilities:
+    """Module-level helper namespace; intentionally just static methods."""
 
     @staticmethod
     def convert_auth_to_base64(username: str, password: str) -> str:
+        """Return ``username:password`` Base64-encoded for HTTP Basic Auth."""
         return base64.b64encode(f"{username}:{password}".encode()).decode()
 
 
 class OSHClientSession:
+    """One client session against a Node, owning its registered streamables.
+
+    Created by `SessionManager.register_session` and used by `Node` to manage
+    the lifecycle (start/stop) of every `StreamableResource` attached to that
+    node. Holds the streamables in a dict keyed by streamable ID.
+
+    :param base_url: Base URL of the OSH server (passed by Node, not used
+        directly by this class today).
+    :param verify_ssl: Whether to verify TLS certificates. Default True.
+    """
     verify_ssl = True
     _streamables: dict[str, 'StreamableResource'] = None
 
@@ -65,20 +112,34 @@ class OSHClientSession:
         self._streamables = {}
 
     def connect_streamables(self):
+        """Call ``start()`` on every registered streamable."""
         for streamable in self._streamables.values():
             streamable.start()
 
     def close_streamables(self):
+        """Call ``stop()`` on every registered streamable."""
         for streamable in self._streamables.values():
             streamable.stop()
 
     def register_streamable(self, streamable: StreamableResource):
+        """Track a streamable so its lifecycle is driven by this session."""
         if self._streamables is None:
             self._streamables = {}
         self._streamables[streamable.get_streamable_id_str()] = streamable
 
 
 class SessionManager:
+    """Top-level registry for `OSHClientSession` instances, one per Node.
+
+    The application owns one `SessionManager`; passing it to ``Node(...)``
+    causes the node to call `register_session` and bind itself to a fresh
+    `OSHClientSession`. `start_session_streams` / `start_all_streams` are
+    convenience entry points for booting streams on a single node or all
+    nodes at once.
+
+    :param session_tokens: Optional dict of session tokens keyed by ID
+        (reserved for future auth schemes; currently unused).
+    """
     _session_tokens = None
     sessions: dict[str, OSHClientSession] = None
 
@@ -87,29 +148,61 @@ class SessionManager:
         self.sessions = {}
 
     def register_session(self, session_id, session: OSHClientSession) -> OSHClientSession:
+        """Store ``session`` under ``session_id`` and return it."""
         self.sessions[session_id] = session
         return session
 
     def unregister_session(self, session_id):
+        """Remove the session and call ``close()`` on it."""
         session = self.sessions.pop(session_id)
         session.close()
 
-    def get_session(self, session_id):
+    def get_session(self, session_id) -> OSHClientSession | None:
+        """Return the session for ``session_id`` or ``None`` if unknown."""
         return self.sessions.get(session_id, None)
 
     def start_session_streams(self, session_id):
+        """Start every streamable on the session identified by ``session_id``.
+
+        :raises ValueError: if no session is registered for that ID.
+        """
         session = self.get_session(session_id)
         if session is None:
             raise ValueError(f"No session found for ID {session_id}")
         session.connect_streamables()
 
     def start_all_streams(self):
+        """Start every streamable across every registered session."""
         for session in self.sessions.values():
             session.connect_streamables()
 
 
 @dataclass(kw_only=True)
 class Node:
+    """One connection to a single OSH server.
+
+    A `Node` is the unit of "where to talk to". It owns the `APIHelper` that
+    builds and executes HTTP requests, an optional `MQTTCommClient` for
+    Pub/Sub, and the list of `System` objects discovered from or inserted
+    into that server. Most user code creates a `Node` and then either calls
+    `discover_systems()` or attaches user-built systems via `add_system()`.
+
+    :param protocol: ``"http"`` or ``"https"``.
+    :param address: Hostname or IP (no scheme).
+    :param port: HTTP port the server is listening on.
+    :param username: Optional Basic-Auth username.
+    :param password: Optional Basic-Auth password.
+    :param server_root: First path segment of the server URL (default
+        ``"sensorhub"``).
+    :param api_root: Second path segment under ``server_root``
+        (default ``"api"``).
+    :param mqtt_topic_root: Override for the MQTT topic root if it diverges
+        from the HTTP api root (CS API Part 3 § A.1).
+    :param session_manager: Optional `SessionManager`; if given the node
+        registers itself and gets a fresh `OSHClientSession`.
+    :param enable_mqtt: If True, connects an MQTT client to ``address``.
+    :param mqtt_port: MQTT broker port. Default 1883.
+    """
     _id: str
     protocol: str
     address: str
@@ -128,7 +221,7 @@ class Node:
                  username: str = None, password: str = None, server_root: str = 'sensorhub',
                  api_root: str = 'api', mqtt_topic_root: str = None,
                  session_manager: SessionManager = None,
-                 **kwargs):
+                 enable_mqtt: bool = False, mqtt_port: int = 1883):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
@@ -154,43 +247,58 @@ class Node:
             session_task = self.register_with_session_manager(session_manager)
             asyncio.gather(session_task)
 
-        if kwargs.get('enable_mqtt'):
-            if kwargs.get('mqtt_port') is not None:
-                self._mqtt_port = kwargs.get('mqtt_port')
+        if enable_mqtt:
+            self._mqtt_port = mqtt_port
             self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port,
                                                username=username, password=password,
                                                client_id_suffix=uuid.uuid4().hex, )
             self._mqtt_client.connect()
             self._mqtt_client.start()
 
-    def get_id(self):
+    def get_id(self) -> str:
+        """Return the locally-generated node ID (``node-<uuid4>``)."""
         return self._id
 
-    def get_address(self):
+    def get_address(self) -> str:
+        """Return the configured server hostname/IP."""
         return self.address
 
-    def get_port(self):
+    def get_port(self) -> int:
+        """Return the configured server port."""
         return self.port
 
-    def get_api_endpoint(self):
+    def get_api_endpoint(self) -> str:
+        """Return the fully-qualified CS API root URL for this node."""
         return self._api_helper.get_api_root_url()
 
     def add_basicauth(self, username: str, password: str):
+        """Attach Basic-Auth credentials and mark the node as secure."""
         if not self.is_secure:
             self.is_secure = True
         self._basic_auth = base64.b64encode(
             f"{username}:{password}".encode('utf-8'))
 
-    def get_decoded_auth(self):
+    def get_decoded_auth(self) -> str:
+        """Return the Base64 Basic-Auth header value as a UTF-8 string."""
         return self._basic_auth.decode('utf-8')
 
     # def get_basicauth(self):
     #     return BasicAuth(self._api_helper.username, self._api_helper.password)
 
     def get_mqtt_client(self) -> MQTTCommClient:
+        """Return the connected `MQTTCommClient` or ``None`` if MQTT was
+        not enabled at construction (``enable_mqtt=True``)."""
         return getattr(self, '_mqtt_client', None)
 
-    def discover_systems(self):
+    def discover_systems(self) -> list[System] | None:
+        """GET ``/systems`` and create a `System` for each entry.
+
+        The new systems are appended to this node's internal list and also
+        returned for convenience.
+
+        :return: List of newly-created `System` objects, or ``None`` if
+            the HTTP request failed.
+        """
         result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM,
                                                     req_headers={})
         if result.ok:
@@ -211,10 +319,16 @@ class Node:
             return None
 
     def add_new_system(self, system: System):
+        """Attach a system to this node without inserting it server-side.
+
+        Use `add_system(system, insert_resource=True)` if you also want to
+        POST it to the server.
+        """
         system.set_parent_node(self)
         self._systems.append(system)
 
     def get_api_helper(self) -> APIHelper:
+        """Return the `APIHelper` this node uses for HTTP calls."""
         return self._api_helper
 
     # System Management
@@ -233,6 +347,7 @@ class Node:
         return system
 
     def systems(self) -> list[System]:
+        """Return the list of `System` objects currently attached to this node."""
         return self._systems
 
     def register_with_session_manager(self, session_manager: SessionManager):
@@ -244,14 +359,30 @@ class Node:
             base_url=self._api_helper.get_base_url()))
 
     def register_streamable(self, streamable: StreamableResource):
+        """Register a streamable with this node's session so its lifecycle
+        is driven by `OSHClientSession.connect_streamables` /
+        `close_streamables`.
+
+        :raises ValueError: if the node was created without a SessionManager.
+        """
         if self._client_session is None:
             raise ValueError("Node is not registered with a SessionManager.")
         self._client_session.register_streamable(streamable)
 
     def get_session(self) -> OSHClientSession:
+        """Return the `OSHClientSession` bound to this node."""
         return self._client_session
 
-    def serialize(self) -> dict:
+    def to_storage_dict(self) -> dict:
+        """Return a JSON-safe dict snapshot of this node — connection
+        params, attached systems / streamables, and any locally-tracked
+        state — for OSHConnect's persistence layer (see
+        `OSHConnect.save_config`, `oshconnect.datastores.sqlite_store`).
+
+        Not a CS API server-shaped payload; the dict format is OSHConnect's
+        own. For a CS API-shaped representation, use the underlying
+        pydantic resource model's ``model_dump(by_alias=True)``.
+        """
         data = {
             "_id": self._id,
             "protocol": self.protocol,
@@ -263,7 +394,7 @@ class Node:
             "is_secure": self.is_secure,
             "username": getattr(self._api_helper, "username", None),
             "password": getattr(self._api_helper, "password", None),
-            "_systems": [system.serialize() for system in self._systems] if self._systems is not None else None,
+            "_systems": [system.to_storage_dict() for system in self._systems] if self._systems is not None else None,
         }
         data["name"] = getattr(self, "name", None)
         data["label"] = getattr(self, "label", None)
@@ -271,12 +402,12 @@ class Node:
         data["description"] = getattr(self, "description", None)
         datastreams = getattr(self, "datastreams", None)
         if datastreams is not None:
-            data["datastreams"] = [ds.serialize() for ds in datastreams]
+            data["datastreams"] = [ds.to_storage_dict() for ds in datastreams]
         else:
             data["datastreams"] = None
         control_channels = getattr(self, "control_channels", None)
         if control_channels is not None:
-            data["control_channels"] = [cc.serialize() for cc in control_channels]
+            data["control_channels"] = [cc.to_storage_dict() for cc in control_channels]
         else:
             data["control_channels"] = None
         underlying = getattr(self, "_underlying_resource", None)
@@ -295,7 +426,20 @@ class Node:
         return data
 
     @classmethod
-    def deserialize(cls, data: dict, session_manager: 'SessionManager' = None) -> 'Node':
+    def from_storage_dict(cls, data: dict, session_manager: 'SessionManager' = None) -> 'Node':
+        """Build a `Node` from a dict produced by `to_storage_dict`
+        (i.e., from OSHConnect's persistence layer, not from a CS API
+        server response).
+
+        Expects connection params (``protocol``, ``address``, ``port``,
+        optional ``username``/``password``/``server_root``/``api_root``/
+        ``mqtt_topic_root``), an ``_id``, and a ``_systems`` list.
+
+        :param data: Source dict.
+        :param session_manager: Optional `SessionManager` to register the
+            rebuilt node with — required if any child `StreamableResource`
+            in ``_systems`` was originally registered.
+        """
         node = cls(
             protocol=data["protocol"],
             address=data["address"],
@@ -308,16 +452,18 @@ class Node:
         )
         node._id = data["_id"]
         node.is_secure = data.get("is_secure", False)
-        # Register with the session manager before deserializing child resources,
+        # Register with the session manager before rehydrating child resources,
         # because StreamableResource.__init__ calls node.register_streamable().
         if session_manager is not None:
             node.register_with_session_manager(session_manager)
-        node._systems = [System.deserialize(sys, node) for sys in data.get("_systems", [])] if data.get(
+        node._systems = [System.from_storage_dict(sys, node) for sys in data.get("_systems", [])] if data.get(
             "_systems") is not None else []
         return node
 
 
 class Status(Enum):
+    """Lifecycle states a `StreamableResource` transitions through:
+    ``STOPPED → INITIALIZING → INITIALIZED → STARTING → STARTED → STOPPING → STOPPED``."""
     INITIALIZING = "initializing"
     INITIALIZED = "initialized"
     STARTING = "starting"
@@ -327,6 +473,12 @@ class Status(Enum):
 
 
 class StreamableModes(Enum):
+    """Direction(s) in which a streamable resource exchanges messages.
+
+    - ``PUSH``: this client publishes outbound messages only.
+    - ``PULL``: this client subscribes to inbound messages only.
+    - ``BIDIRECTIONAL``: both publish and subscribe.
+    """
     PUSH = "push"
     PULL = "pull"
     BIDIRECTIONAL = "bidirectional"
@@ -336,6 +488,18 @@ T = TypeVar('T', SystemResource, DatastreamResource, ControlStreamResource)
 
 
 class StreamableResource(Generic[T], ABC):
+    """Abstract base for `System`, `Datastream`, and `ControlStream`.
+
+    Encapsulates the streaming machinery shared by all three: MQTT subscribe/
+    publish, optional WebSocket I/O, inbound and outbound message deques,
+    and lifecycle (`initialize` → `start` → `stop`). Subclasses set
+    ``_underlying_resource`` (a `SystemResource` / `DatastreamResource` /
+    `ControlStreamResource` pydantic model) and override `init_mqtt` to
+    derive the appropriate topic.
+
+    :param node: The parent `Node` this resource lives under.
+    :param connection_mode: One of `StreamableModes`. Default ``PUSH``.
+    """
     _id: UUID
     _resource_id: str
     # _canonical_link: str
@@ -365,12 +529,23 @@ class StreamableResource(Generic[T], ABC):
         self._parent_resource_id = None
 
     def get_streamable_id(self) -> UUID:
+        """Return the local UUID assigned at construction (not the server-side ID)."""
         return self._id
 
     def get_streamable_id_str(self) -> str:
+        """Return the local UUID as a hex string."""
         return self._id.hex
 
     def initialize(self):
+        """Build the WebSocket URL, allocate I/O queues, and configure MQTT.
+
+        Must be called before `start`. Inspects ``_underlying_resource`` to
+        determine the right resource type and constructs the WS URL via
+        the parent node's `APIHelper`.
+
+        :raises ValueError: if ``_underlying_resource`` is not set or is
+            not one of System / Datastream / ControlStream.
+        """
         resource_type = None
         if isinstance(self._underlying_resource, SystemResource):
             resource_type = APIResourceTypes.SYSTEM
@@ -393,6 +568,9 @@ class StreamableResource(Generic[T], ABC):
         self._status = Status.INITIALIZED.value
 
     def start(self):
+        """Subclasses override to also kick off MQTT subscribe / async write
+        tasks. Logs and returns silently if `initialize` hasn't been called.
+        """
         if self._status != Status.INITIALIZED.value:
             logging.warning(f"Streamable resource {self._id} not initialized. Call initialize() first.")
             return
@@ -400,6 +578,12 @@ class StreamableResource(Generic[T], ABC):
         self._status = Status.STARTED.value
 
     async def stream(self):
+        """Open a WebSocket to ``ws_url`` and run read/write loops in parallel.
+
+        Used as an alternative to MQTT for resources that prefer WS streaming.
+        Reads incoming frames into the message handler and drains
+        ``_msg_writer_queue`` to the socket.
+        """
         session = self._parent_node.get_session()
 
         try:
@@ -413,6 +597,12 @@ class StreamableResource(Generic[T], ABC):
             logging.error(traceback.format_exc())
 
     def init_mqtt(self):
+        """Wire the MQTT subscribe-acknowledged callback if a client exists.
+
+        Subclasses override to additionally derive their resource-specific
+        topic into ``self._topic`` (see `Datastream.init_mqtt` /
+        `ControlStream.init_mqtt`).
+        """
         if self._mqtt_client is None:
             logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return
@@ -529,6 +719,11 @@ class StreamableResource(Generic[T], ABC):
                 await asyncio.sleep(0.05)
 
     def stop(self):
+        """Tear down the streaming process and mark the resource ``STOPPED``.
+
+        Note: currently calls ``Process.terminate()``; cleaner shutdown
+        (graceful drain, auth state preservation) is a known follow-up.
+        """
         # It would be nicer to join() here once we have cleaner shutdown logic in place to avoid corrupting processes
         # that are writing to streams or that need to manage authentication state
         self._status = "stopping"
@@ -536,24 +731,32 @@ class StreamableResource(Generic[T], ABC):
         self._status = "stopped"
 
     def set_parent_node(self, node: Node):
+        """Attach this resource to the given `Node`."""
         self._parent_node = node
 
     def get_parent_node(self) -> Node:
+        """Return the `Node` this resource is attached to."""
         return self._parent_node
 
     def set_parent_resource_id(self, res_id: str):
+        """Set the server-side ID of the parent resource (e.g. the parent
+        System for a Datastream / ControlStream)."""
         self._parent_resource_id = res_id
 
     def get_parent_resource_id(self) -> str:
+        """Return the server-side ID of the parent resource, if set."""
         return self._parent_resource_id
 
     def set_connection_mode(self, connection_mode: StreamableModes):
+        """Switch direction (PUSH / PULL / BIDIRECTIONAL)."""
         self._connection_mode = connection_mode
 
     def poll(self):
+        """Poll for new data. Hook for subclass implementations; no-op here."""
         pass
 
     def fetch(self, time_period: TimePeriod):
+        """Fetch data over a `TimePeriod`. Hook for subclass implementations; no-op here."""
         pass
 
     def get_msg_reader_queue(self) -> Queue:
@@ -572,9 +775,12 @@ class StreamableResource(Generic[T], ABC):
         return self._msg_writer_queue
 
     def get_underlying_resource(self) -> T:
+        """Return the pydantic resource model (System/Datastream/ControlStream)
+        that backs this streamable."""
         return self._underlying_resource
 
     def get_internal_id(self) -> UUID:
+        """Return the local UUID. Alias for `get_streamable_id`."""
         return self._id
 
     def insert_data(self, data: dict):
@@ -587,6 +793,13 @@ class StreamableResource(Generic[T], ABC):
         self._msg_writer_queue.put_nowait(data_bytes)
 
     def subscribe_mqtt(self, topic: str, qos: int = 0):
+        """Subscribe to an arbitrary MQTT ``topic`` using the default callback
+        (appends incoming payloads to ``_inbound_deque``).
+
+        :param topic: MQTT topic string. The caller is responsible for any
+            topic-prefix conventions (CS API Part 3 ``:data`` etc.).
+        :param qos: MQTT QoS level. Default 0.
+        """
         if self._mqtt_client is None:
             logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return
@@ -649,14 +862,22 @@ class StreamableResource(Generic[T], ABC):
         """Hook for subclasses to publish EventHandler events on incoming MQTT messages."""
         pass
 
-    def get_inbound_deque(self):
+    def get_inbound_deque(self) -> deque:
+        """Return the deque that receives inbound MQTT message payloads."""
         return self._inbound_deque
 
-    def get_outbound_deque(self):
+    def get_outbound_deque(self) -> deque:
+        """Return the deque feeding outbound MQTT publishes."""
         return self._outbound_deque
 
-    def serialize(self) -> dict:
-        """Serializes common attributes of StreamableResource, safely handling missing/None attributes."""
+    def to_storage_dict(self) -> dict:
+        """Return a JSON-safe snapshot of the streamable's identity and
+        connection state, for OSHConnect's persistence layer. Subclasses
+        extend this with their own fields and the dumped underlying
+        resource. Safely handles missing / None attributes.
+
+        Not a CS API server-shaped payload.
+        """
         topic = getattr(self, "_topic", None)
         status = getattr(self, "_status", None)
         parent_resource_id = getattr(self, "_parent_resource_id", None)
@@ -676,8 +897,11 @@ class StreamableResource(Generic[T], ABC):
         }
 
     @classmethod
-    def deserialize(cls, data: dict, node: 'Node') -> 'StreamableResource':
-        """Deserializes common attributes. Subclasses should override and call super()."""
+    def from_storage_dict(cls, data: dict, node: 'Node') -> 'StreamableResource':
+        """Rebuild common attributes from a `to_storage_dict` payload.
+        Subclasses override and call ``super()`` to wire in their own
+        fields and the underlying resource.
+        """
         obj = cls(node=node)
         obj._id = uuid.UUID(data["id"])
         obj._resource_id = data.get("resource_id")
@@ -690,6 +914,15 @@ class StreamableResource(Generic[T], ABC):
 
 
 class System(StreamableResource[SystemResource]):
+    """A sensor system on an OSH server: a logical grouping of one or more
+    `Datastream` outputs and `ControlStream` inputs sharing a single URN.
+
+    Construct directly to define a new system, or build one from a parsed
+    `SystemResource` via `from_system_resource`. Use `discover_datastreams` /
+    `discover_controlstreams` to populate child resources from the server,
+    or `add_insert_datastream` / `add_and_insert_control_stream` to create
+    new ones server-side.
+    """
     name: str
     label: str
     datastreams: list[Datastream]
@@ -720,6 +953,10 @@ class System(StreamableResource[SystemResource]):
         self._underlying_resource = self.to_system_resource()
 
     def discover_datastreams(self) -> list[Datastream]:
+        """GET ``/systems/{id}/datastreams`` and instantiate `Datastream`
+        objects for every entry. New datastreams are appended to
+        ``self.datastreams`` and also returned.
+        """
         res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                                               APIResourceTypes.DATASTREAM)
         datastream_json = res.json()['items']
@@ -736,6 +973,10 @@ class System(StreamableResource[SystemResource]):
         return datastreams
 
     def discover_controlstreams(self) -> list[ControlStream]:
+        """GET ``/systems/{id}/controlstreams`` and instantiate `ControlStream`
+        objects for every entry. New control streams are appended to
+        ``self.control_channels`` and also returned.
+        """
         res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                                               APIResourceTypes.CONTROL_CHANNEL)
         controlstream_json = res.json()['items']
@@ -753,6 +994,12 @@ class System(StreamableResource[SystemResource]):
 
     @staticmethod
     def from_system_resource(system_resource: SystemResource, parent_node: Node) -> System:
+        """Build a `System` from an already-parsed `SystemResource`.
+
+        Handles both shapes the OSH server emits: the GeoJSON form (with a
+        ``properties`` block carrying ``name``/``uid``) and the flat form
+        (``name``/``label``/``urn`` directly on the resource).
+        """
         other_props = system_resource.model_dump()
         print(f'Props of SystemResource: {other_props}')
 
@@ -771,6 +1018,10 @@ class System(StreamableResource[SystemResource]):
         return new_system
 
     def to_system_resource(self) -> SystemResource:
+        """Render this `System` as a `SystemResource` pydantic model
+        suitable for POSTing to the server. Includes any attached
+        datastreams as ``outputs``.
+        """
         resource = SystemResource(uid=self.urn, label=self.name, feature_type='PhysicalSystem')
 
         if len(self.datastreams) > 0:
@@ -781,9 +1032,11 @@ class System(StreamableResource[SystemResource]):
         return resource
 
     def set_system_resource(self, sys_resource: SystemResource):
+        """Replace the underlying `SystemResource` model."""
         self._underlying_resource = sys_resource
 
     def get_system_resource(self) -> SystemResource:
+        """Return the underlying `SystemResource` model."""
         return self._underlying_resource
 
     def add_insert_datastream(self, datarecord_schema: DataRecordSchema):
@@ -876,6 +1129,10 @@ class System(StreamableResource[SystemResource]):
         return new_cs
 
     def insert_self(self):
+        """POST this system to the server (Content-Type
+        ``application/sml+json``) and capture the new resource ID from
+        the ``Location`` response header.
+        """
         res = self._parent_node.get_api_helper().create_resource(
             APIResourceTypes.SYSTEM, self.to_system_resource().model_dump_json(by_alias=True, exclude_none=True),
             req_headers={
@@ -889,6 +1146,9 @@ class System(StreamableResource[SystemResource]):
             print(f'Created system: {self._resource_id}')
 
     def retrieve_resource(self):
+        """GET ``/systems/{id}`` and refresh the underlying `SystemResource`.
+        Returns ``None`` either way (kept for API symmetry).
+        """
         if self._resource_id is None:
             return None
         res = self._parent_node.get_api_helper().retrieve_resource(res_type=APIResourceTypes.SYSTEM,
@@ -901,20 +1161,27 @@ class System(StreamableResource[SystemResource]):
             self._underlying_resource = system_resource
             return None
 
-    def serialize(self) -> dict:
-        data = super().serialize()
+    def to_storage_dict(self) -> dict:
+        """Return a JSON-safe snapshot of this system, its child datastreams /
+        control streams, and the dumped underlying `SystemResource`, for
+        OSHConnect's persistence layer.
+
+        Not a CS API server-shaped payload — the ``underlying_resource``
+        block is the only piece that matches the CS API system shape.
+        """
+        data = super().to_storage_dict()
         data["name"] = getattr(self, "name", None)
         data["label"] = getattr(self, "label", None)
         data["urn"] = getattr(self, "urn", None)
         data["description"] = getattr(self, "description", None)
         datastreams = getattr(self, "datastreams", None)
         if datastreams is not None:
-            data["datastreams"] = [ds.serialize() for ds in datastreams]
+            data["datastreams"] = [ds.to_storage_dict() for ds in datastreams]
         else:
             data["datastreams"] = None
         control_channels = getattr(self, "control_channels", None)
         if control_channels is not None:
-            data["control_channels"] = [cc.serialize() for cc in control_channels]
+            data["control_channels"] = [cc.to_storage_dict() for cc in control_channels]
         else:
             data["control_channels"] = None
         underlying = getattr(self, "_underlying_resource", None)
@@ -933,7 +1200,18 @@ class System(StreamableResource[SystemResource]):
         return data
 
     @classmethod
-    def deserialize(cls, data: dict, node: 'Node') -> 'System':
+    def from_storage_dict(cls, data: dict, node: 'Node') -> 'System':
+        """Build a `System` from a dict produced by `to_storage_dict`.
+
+        Expects ``name``, ``label``, ``urn``, optional ``description`` /
+        ``resource_id``, and optional ``datastreams`` / ``control_channels``
+        / ``underlying_resource`` blocks. The embedded
+        ``underlying_resource`` is parsed via `SystemResource.model_validate`,
+        so that nested block can also be a CS API server response body.
+
+        :param data: Source dict.
+        :param node: Parent `Node` the rebuilt system attaches to.
+        """
         obj = cls(
             name=data["name"],
             label=data["label"],
@@ -943,14 +1221,24 @@ class System(StreamableResource[SystemResource]):
             resource_id=data.get("resource_id")
         )
         obj._id = uuid.UUID(data["id"])
-        obj.datastreams = [Datastream.deserialize(ds, node) for ds in data.get("datastreams", [])]
-        obj.control_channels = [ControlStream.deserialize(cc, node) for cc in data.get("control_channels", [])]
+        obj.datastreams = [Datastream.from_storage_dict(ds, node) for ds in data.get("datastreams", [])]
+        obj.control_channels = [ControlStream.from_storage_dict(cc, node) for cc in data.get("control_channels", [])]
         underlying = data.get("underlying_resource")
         obj._underlying_resource = SystemResource.model_validate(underlying) if underlying else None
         return obj
 
 
 class Datastream(StreamableResource[DatastreamResource]):
+    """An output channel of a `System`: produces observations.
+
+    Created from a parsed `DatastreamResource` (typically returned by
+    `System.discover_datastreams`) or built locally and inserted via
+    `System.add_insert_datastream`. Subscribes to its observation MQTT
+    topic when started.
+
+    :param parent_node: The `Node` this datastream lives under.
+    :param datastream_resource: The pydantic `DatastreamResource` model.
+    """
     should_poll: bool
 
     def __init__(self, parent_node: Node = None, datastream_resource: DatastreamResource = None):
@@ -958,21 +1246,31 @@ class Datastream(StreamableResource[DatastreamResource]):
         self._underlying_resource = datastream_resource
         self._resource_id = datastream_resource.ds_id
 
-    def get_id(self):
+    def get_id(self) -> str:
+        """Return the server-side datastream ID."""
         return self._underlying_resource.ds_id
 
     @staticmethod
-    def from_resource(ds_resource: DatastreamResource, parent_node: Node):
+    def from_resource(ds_resource: DatastreamResource, parent_node: Node) -> 'Datastream':
+        """Build a `Datastream` from an already-parsed `DatastreamResource`."""
         new_ds = Datastream(parent_node=parent_node, datastream_resource=ds_resource)
         return new_ds
 
     def set_resource(self, resource: DatastreamResource):
+        """Replace the underlying `DatastreamResource` model."""
         self._underlying_resource = resource
 
     def get_resource(self) -> DatastreamResource:
+        """Return the underlying `DatastreamResource` model."""
         return self._underlying_resource
 
-    def create_observation(self, obs_data: dict):
+    def create_observation(self, obs_data: dict) -> ObservationResource:
+        """Build an `ObservationResource` from a result dict, validating
+        against this datastream's record schema if one is set.
+
+        Does NOT insert the observation server-side — pair with
+        `insert_observation_dict` if you want to POST it.
+        """
         obs = ObservationResource(result=obs_data, result_time=TimeInstant.now_as_time_instant())
         # Validate against the schema
         if self._underlying_resource.record_schema is not None:
@@ -980,6 +1278,10 @@ class Datastream(StreamableResource[DatastreamResource]):
         return obs
 
     def insert_observation_dict(self, obs_data: dict):
+        """POST an observation dict to ``/datastreams/{id}/observations``.
+
+        :raises Exception: if the server returns a non-OK response.
+        """
         res = self._parent_node.get_api_helper().create_resource(APIResourceTypes.OBSERVATION, obs_data,
                                                                  parent_res_id=self._resource_id,
                                                                  req_headers={'Content-Type': 'application/json'})
@@ -991,6 +1293,10 @@ class Datastream(StreamableResource[DatastreamResource]):
             raise Exception(f'Failed to insert observation: {res.text}')
 
     def start(self):
+        """Start the datastream. PULL/BIDIRECTIONAL subscribes to the
+        observation topic; PUSH spawns the async MQTT write loop. Requires
+        an active asyncio event loop for PUSH mode.
+        """
         super().start()
         if self._mqtt_client is not None:
             if self._connection_mode is StreamableModes.PULL or self._connection_mode is StreamableModes.BIDIRECTIONAL:
@@ -1007,6 +1313,8 @@ class Datastream(StreamableResource[DatastreamResource]):
                                   self._id, e, traceback.format_exc())
 
     def init_mqtt(self):
+        """Set ``self._topic`` to the datastream's observation data topic
+        (CS API Part 3 ``:data`` suffix)."""
         super().init_mqtt()
         self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
 
@@ -1027,12 +1335,21 @@ class Datastream(StreamableResource[DatastreamResource]):
         return self._msg_reader_queue.get_nowait()
 
     def insert(self, data: dict):
+        """Encode ``data`` as JSON and publish it to this datastream's
+        observation MQTT topic. Bypasses the outbound deque."""
         # self._queue_push(data)
         encoded = json.dumps(data).encode('utf-8')
         self._publish_mqtt(self._topic, encoded)
 
-    def serialize(self) -> dict:
-        data = super().serialize()
+    def to_storage_dict(self) -> dict:
+        """Return a JSON-safe snapshot of this datastream — local identity,
+        connection state, polling flag, and the dumped underlying
+        `DatastreamResource` — for OSHConnect's persistence layer.
+
+        Not a CS API server-shaped payload — the ``underlying_resource``
+        block is the only piece that matches the CS API datastream shape.
+        """
+        data = super().to_storage_dict()
         data["should_poll"] = getattr(self, "should_poll", None)
         underlying = getattr(self, "_underlying_resource", None)
         if underlying is not None:
@@ -1049,7 +1366,12 @@ class Datastream(StreamableResource[DatastreamResource]):
         return data
 
     @classmethod
-    def deserialize(cls, data: dict, node: 'Node') -> 'Datastream':
+    def from_storage_dict(cls, data: dict, node: 'Node') -> 'Datastream':
+        """Build a `Datastream` from a dict produced by `to_storage_dict`.
+        The embedded ``underlying_resource`` is parsed via
+        `DatastreamResource.model_validate`, so that nested block can also
+        be a CS API server response body for the datastream.
+        """
         ds_resource = DatastreamResource.model_validate(data["underlying_resource"]) if data.get("underlying_resource") else None
         obj = cls(parent_node=node, datastream_resource=ds_resource)
         obj._id = uuid.UUID(data["id"])
@@ -1057,6 +1379,16 @@ class Datastream(StreamableResource[DatastreamResource]):
         return obj
 
     def subscribe(self, topic=None, callback=None, qos=0):
+        """Subscribe to this datastream's observation MQTT topic.
+
+        :param topic: ``None`` or ``"observation"`` — both resolve to the
+            datastream's data topic. Any other string raises.
+        :param callback: Override the default callback (which appends
+            payloads to ``_inbound_deque``).
+        :param qos: MQTT QoS level. Default 0.
+        :raises ValueError: if ``topic`` is anything other than None /
+            ``"observation"``.
+        """
         t = None
 
         if topic is None or topic == APIResourceTypes.OBSERVATION.value:
@@ -1073,6 +1405,19 @@ class Datastream(StreamableResource[DatastreamResource]):
 
 
 class ControlStream(StreamableResource[ControlStreamResource]):
+    """An input channel of a `System`: accepts commands and emits status.
+
+    Unlike `Datastream`, a control stream has TWO MQTT topics — one for
+    commands (``self._topic``) and one for status updates
+    (``self._status_topic``) — and two pairs of inbound/outbound deques to
+    match. Construct from a parsed `ControlStreamResource` (typically from
+    `System.discover_controlstreams`) or build locally and insert via
+    `System.add_and_insert_control_stream`.
+
+    :param node: The `Node` this control stream lives under.
+    :param controlstream_resource: The pydantic `ControlStreamResource`
+        model that backs this stream.
+    """
     _status_topic: str
     _inbound_status_deque: deque
     _outbound_status_deque: deque
@@ -1087,13 +1432,16 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         self._status_topic = self.get_mqtt_status_topic()
 
     def add_underlying_resource(self, resource: ControlStreamResource):
+        """Replace the underlying `ControlStreamResource` model."""
         self._underlying_resource = resource
 
     def init_mqtt(self):
+        """Set ``self._topic`` to the control stream's command data topic."""
         super().init_mqtt()
         self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND, data_topic=True)
 
-    def get_mqtt_status_topic(self):
+    def get_mqtt_status_topic(self) -> str:
+        """Return the MQTT topic for command status updates (``:status``)."""
         return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS, data_topic=True)
 
     def _emit_inbound_event(self, msg):
@@ -1108,6 +1456,10 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         EventHandler().publish(evt)
 
     def start(self):
+        """Start the control stream. PULL/BIDIRECTIONAL subscribes to the
+        command topic; PUSH spawns the async MQTT write loop. Requires
+        an active asyncio event loop for PUSH mode.
+        """
         super().start()
         if self._mqtt_client is not None:
             if self._connection_mode is StreamableModes.PULL or self._connection_mode is StreamableModes.BIDIRECTIONAL:
@@ -1124,22 +1476,28 @@ class ControlStream(StreamableResource[ControlStreamResource]):
                     logging.error("Error starting MQTT write task for %s: %s\n%s",
                                   self._id, e, traceback.format_exc())
 
-    def get_inbound_deque(self):
+    def get_inbound_deque(self) -> deque:
+        """Return the deque receiving inbound command payloads."""
         return self._inbound_deque
 
-    def get_outbound_deque(self):
+    def get_outbound_deque(self) -> deque:
+        """Return the deque feeding outbound command publishes."""
         return self._outbound_deque
 
-    def get_status_deque_inbound(self):
+    def get_status_deque_inbound(self) -> deque:
+        """Return the deque receiving inbound status updates."""
         return self._inbound_status_deque
 
-    def get_status_deque_outbound(self):
+    def get_status_deque_outbound(self) -> deque:
+        """Return the deque feeding outbound status publishes."""
         return self._outbound_status_deque
 
     def publish_command(self, payload):
+        """Publish ``payload`` to the command MQTT topic. Convenience wrapper for ``publish(payload, 'command')``."""
         self.publish(payload, topic=APIResourceTypes.COMMAND.value)
 
     def publish_status(self, payload):
+        """Publish ``payload`` to the status MQTT topic. Convenience wrapper for ``publish(payload, 'status')``."""
         self.publish(payload, topic=APIResourceTypes.STATUS.value)
 
     def publish(self, payload, topic: str = 'command'):
@@ -1178,8 +1536,16 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         else:
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=callback)
 
-    def serialize(self) -> dict:
-        data = super().serialize()
+    def to_storage_dict(self) -> dict:
+        """Return a JSON-safe snapshot of this control stream — local
+        identity, connection state, status topic, and the dumped underlying
+        `ControlStreamResource` — for OSHConnect's persistence layer.
+
+        Not a CS API server-shaped payload — the ``underlying_resource``
+        block is the only piece that matches the CS API control-stream
+        shape.
+        """
+        data = super().to_storage_dict()
         data["status_topic"] = getattr(self, "_status_topic", None)
         underlying = getattr(self, "_underlying_resource", None)
         if underlying is not None:
@@ -1196,7 +1562,12 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         return data
 
     @classmethod
-    def deserialize(cls, data: dict, node: 'Node') -> 'ControlStream':
+    def from_storage_dict(cls, data: dict, node: 'Node') -> 'ControlStream':
+        """Build a `ControlStream` from a dict produced by `to_storage_dict`.
+        The embedded ``underlying_resource`` is parsed via
+        `ControlStreamResource.model_validate`, so that nested block can
+        also be a CS API server response body for the control stream.
+        """
         cs_resource = ControlStreamResource.model_validate(data["underlying_resource"]) if data.get("underlying_resource") else None
         obj = cls(node=node, controlstream_resource=cs_resource)
         obj._id = uuid.UUID(data["id"])
