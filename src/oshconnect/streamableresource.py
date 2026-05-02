@@ -1108,11 +1108,14 @@ class System(StreamableResource[SystemResource]):
         return self._underlying_resource
 
     def add_insert_datastream(self, datarecord_schema: DataRecordSchema):
-        """
-        Adds a datastream to the system while also inserting it into the system's parent node via HTTP POST.
-        :param datarecord_schema: DataRecordSchema to be used to define the datastream. Must carry a `name`
-            matching NameToken (^[A-Za-z][A-Za-z0-9_\\-]*$); SWE Common 3 wraps DataStream.elementType in
-            SoftNamedProperty, so the root component requires a name.
+        """Adds a datastream to the system while also inserting it into the
+        system's parent node via HTTP POST.
+
+        :param datarecord_schema: DataRecordSchema to be used to define the
+            datastream. Must carry a ``name`` matching NameToken
+            (``^[A-Za-z][A-Za-z0-9_\\-]*$``); SWE Common 3 wraps
+            DataStream.elementType in SoftNamedProperty, so the root
+            component requires a name.
         :return:
         """
         print(f'Adding datastream: {datarecord_schema.model_dump_json(exclude_none=True, by_alias=True)}')
@@ -1151,14 +1154,18 @@ class System(StreamableResource[SystemResource]):
 
     def add_and_insert_control_stream(self, control_stream_record_schema: DataRecordSchema, input_name: str = None,
                                       valid_time: TimePeriod = None) -> ControlStream:
-        """
-        Accepts a DataRecordSchema and creates a JSON encoded schema structure ControlStreamResource, which is inserted
-        into the parent system via the host node.
-        :param control_stream_record_schema: DataRecordSchema to be used for the control stream. Must carry a `name`
-            matching NameToken (^[A-Za-z][A-Za-z0-9_\\-]*$); JSONCommandSchema.parametersSchema is wrapped in
-            SoftNamedProperty so the root component requires a name.
-        :param input_name: Name of the input, if None the label of the schema is converted to lower and stripped of whitespace
-        :return: ControlStream object added to the system
+        """Accepts a DataRecordSchema and creates a JSON encoded schema
+        structure ControlStreamResource, which is inserted into the parent
+        system via the host node.
+
+        :param control_stream_record_schema: DataRecordSchema to be used for
+            the control stream. Must carry a ``name`` matching NameToken
+            (``^[A-Za-z][A-Za-z0-9_\\-]*$``); JSONCommandSchema.parametersSchema
+            is wrapped in SoftNamedProperty so the root component requires a
+            name.
+        :param input_name: Name of the input. If None, the schema label is
+            lowercased and whitespace-stripped.
+        :return: ControlStream object added to the system.
         """
         input_name_checked = input_name if input_name is not None else control_stream_record_schema.label.lower().replace(
             ' ', '')

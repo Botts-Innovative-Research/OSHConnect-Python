@@ -7,20 +7,24 @@ logger = logging.getLogger(__name__)
 class MQTTCommClient:
     def __init__(self, url, port=1883, username=None, password=None, path='mqtt', client_id_suffix="",
                  transport='tcp', use_tls=False, reconnect_delay=5):
-        """
-    Wraps a paho mqtt client to provide a simple interface for interacting with the mqtt server that is customized
-    for this library.
+        """Wraps a paho mqtt client to provide a simple interface for
+        interacting with the mqtt server that is customized for this library.
 
-    :param url: url of the mqtt server
-    :param port: port the mqtt server is communicating over, default is 1883 or whichever port the main node is
-    using if in websocket mode
-    :param username: used if node is requiring authentication to access this service
-    :param password: used if node is requiring authentication to access this service
-    :param path: used for setting the path when using websockets (usually sensorhub/mqtt by default)
-    :param transport: 'tcp' (default) or 'websockets'
-    :param use_tls: explicitly enable TLS; when False (default), credentials are sent without TLS
-    :param reconnect_delay: seconds between automatic reconnect attempts on disconnect (0 disables)
-    """
+        :param url: url of the mqtt server
+        :param port: port the mqtt server is communicating over, default is
+            1883 or whichever port the main node is using if in websocket mode
+        :param username: used if node is requiring authentication to access
+            this service
+        :param password: used if node is requiring authentication to access
+            this service
+        :param path: used for setting the path when using websockets
+            (usually sensorhub/mqtt by default)
+        :param transport: 'tcp' (default) or 'websockets'
+        :param use_tls: explicitly enable TLS; when False (default),
+            credentials are sent without TLS
+        :param reconnect_delay: seconds between automatic reconnect attempts
+            on disconnect (0 disables)
+        """
         self.__url = url
         self.__port = port
         self.__path = path
