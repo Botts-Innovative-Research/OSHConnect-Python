@@ -17,6 +17,12 @@ from .encoding import Encoding
 from .geometry import Geometry
 from .swe_components import AnyComponent, check_named
 
+
+def _dump_csapi(model: BaseModel) -> dict:
+    """Internal: canonical CS API serialization (alias keys, exclude None, JSON-mode)."""
+    return model.model_dump(by_alias=True, exclude_none=True, mode='json')
+
+
 """
 In many of the top level resource models there is a "schema" field of some description. These models are meant to ease
 the burden on the end user to create those.
@@ -32,6 +38,15 @@ class CommandJSON(BaseModel):
     issue_time: Union[str, float] = Field(datetime.now().isoformat(), serialization_alias="issueTime")
     sender: str = Field(None)
     params: Union[dict, list, int, float, str] = Field(None)
+
+    def to_csapi_dict(self) -> dict:
+        """Render as the CS API `application/json` command body."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_csapi_dict(cls, data: dict) -> "CommandJSON":
+        """Build from a CS API command JSON dict."""
+        return cls.model_validate(data)
 
 
 class CommandSchema(BaseModel):
@@ -58,6 +73,15 @@ class SWEJSONCommandSchema(CommandSchema):
         check_named(self.record_schema, "SWEJSONCommandSchema.recordSchema")
         return self
 
+    def to_swejson_dict(self) -> dict:
+        """Render as an `application/swe+json` command-schema document."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_swejson_dict(cls, data: dict) -> "SWEJSONCommandSchema":
+        """Build from an `application/swe+json` command-schema dict."""
+        return cls.model_validate(data, by_alias=True)
+
 
 class JSONCommandSchema(CommandSchema):
     """
@@ -78,6 +102,15 @@ class JSONCommandSchema(CommandSchema):
         if self.feasibility_schema is not None:
             check_named(self.feasibility_schema, "JSONCommandSchema.feasibilityResultSchema")
         return self
+
+    def to_json_dict(self) -> dict:
+        """Render as an `application/json` command-schema document."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_json_dict(cls, data: dict) -> "JSONCommandSchema":
+        """Build from an `application/json` command-schema dict."""
+        return cls.model_validate(data, by_alias=True)
 
 
 class DatastreamRecordSchema(BaseModel):
@@ -110,6 +143,16 @@ class SWEDatastreamRecordSchema(DatastreamRecordSchema):
     def _root_record_schema_requires_name(self):
         check_named(self.record_schema, "SWEDatastreamRecordSchema.recordSchema")
         return self
+
+    def to_swejson_dict(self) -> dict:
+        """Render as an `application/swe+json` datastream-schema document."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_swejson_dict(cls, data: dict) -> "SWEDatastreamRecordSchema":
+        """Build from an `application/swe+json` datastream-schema dict
+        (e.g., a CS API ``/datastreams/{id}/schema`` response in SWE form)."""
+        return cls.model_validate(data, by_alias=True)
 
 
 class JSONDatastreamRecordSchema(DatastreamRecordSchema):
@@ -144,19 +187,39 @@ class JSONDatastreamRecordSchema(DatastreamRecordSchema):
             check_named(self.parameters_schema, "JSONDatastreamRecordSchema.parametersSchema")
         return self
 
+    def to_omjson_dict(self) -> dict:
+        """Render as an `application/om+json` datastream-schema document."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_omjson_dict(cls, data: dict) -> "JSONDatastreamRecordSchema":
+        """Build from an `application/om+json` (or `application/json`)
+        datastream-schema dict (e.g., a CS API ``/datastreams/{id}/schema``
+        response in OM+JSON form)."""
+        return cls.model_validate(data, by_alias=True)
+
 
 class ObservationOMJSONInline(BaseModel):
     """
     A class to represent an observation in OM-JSON format
     """
     model_config = ConfigDict(populate_by_name=True)
-    datastream_id: str = Field(None, serialization_alias="datastream@id")
-    foi_id: str = Field(None, serialization_alias="foi@id")
-    phenomenon_time: str = Field(None, serialization_alias="phenomenonTime")
-    result_time: str = Field(datetime.now().isoformat(), serialization_alias="resultTime")
+    datastream_id: str = Field(None, alias="datastream@id")
+    foi_id: str = Field(None, alias="foi@id")
+    phenomenon_time: str = Field(None, alias="phenomenonTime")
+    result_time: str = Field(datetime.now().isoformat(), alias="resultTime")
     parameters: dict = Field(None)
     result: Union[int, float, str, dict, list] = Field(...)
-    result_links: List[Link] = Field(None, serialization_alias="result@links")
+    result_links: List[Link] = Field(None, alias="result@links")
+
+    def to_csapi_dict(self) -> dict:
+        """Render as an `application/om+json` observation body."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_csapi_dict(cls, data: dict) -> "ObservationOMJSONInline":
+        """Build from an `application/om+json` observation dict."""
+        return cls.model_validate(data)
 
 
 class SystemEventOMJSON(BaseModel):
