@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.5.0a0"
+version = "0.5.0a1"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations. Implements OGC CS API Part 3 (Pub/Sub) MQTT topic conventions including :data topics and resource event topics."
 readme = "README.md"
 authors = [
@@ -19,6 +19,8 @@ dependencies = [
 dev = [
     "flake8>=7.2.0",
     "pytest>=8.3.5",
+    "pytest-cov>=5.0.0",
+    "interrogate>=1.7.0",
     "sphinx>=7.4.7",
     "sphinx-rtd-theme>=2.0.0",
     "mkdocs-material>=9.5.0",
@@ -31,3 +33,44 @@ packages = {find = { where = ["src/"]}}
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "network: test requires a live OSH server or external network endpoint (skipped by default in CI; see workflow `tests.yaml`).",
+]
+
+# Coverage is opt-in (run with `pytest --cov`) so the default `pytest` run stays fast.
+# `--cov` with no argument picks up the source paths configured below.
+
+[tool.coverage.run]
+source = ["src/oshconnect"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+# Docstring presence (not style). Run with `uv run interrogate -v src/oshconnect`.
+[tool.interrogate]
+ignore-init-method = true       # constructors covered by class docstring
+ignore-init-module = true       # don't require docstrings on bare __init__.py
+ignore-magic = true             # skip dunder methods (__repr__, __eq__, etc.)
+ignore-private = true           # skip _name and __name (non-dunder) members
+ignore-property-decorators = true
+ignore-nested-functions = true
+ignore-setters = true
+fail-under = 0                  # report-only for now; raise once a baseline is set
+exclude = ["tests", "docs", "build", ".venv", "scripts"]
+verbose = 2                     # 0=summary, 1=per-file, 2=per-symbol
