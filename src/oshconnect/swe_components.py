@@ -7,14 +7,33 @@
 
 from __future__ import annotations
 
+import re
 from numbers import Real
-from typing import Union, Any
+from typing import Union, Any, Literal, Annotated
 
-from pydantic import BaseModel, Field, field_validator, SerializeAsAny
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, SerializeAsAny
 
 from .csapi4py.constants import GeometryTypes
 from .api_utils import UCUMCode, URI
 from .geometry import Geometry
+
+# SWE Common 3 NameToken: basicTypes.json#/$defs/NameToken
+_NAME_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]*$")
+
+
+def check_named(component, location: str) -> None:
+    """Validate that a component bound via SoftNamedProperty carries a NameToken `name`."""
+    name = getattr(component, "name", None)
+    if not name:
+        raise ValueError(
+            f"{location}: a component bound here must carry `name` (SWE Common 3 SoftNamedProperty)."
+        )
+    if not _NAME_TOKEN_RE.match(name):
+        raise ValueError(
+            f"{location}: `name` {name!r} does not match NameToken pattern "
+            f"^[A-Za-z][A-Za-z0-9_\\-]*$."
+        )
+
 
 """
  NOTE: The following classes are used to represent the Record Schemas that are required for use with Datastreams
@@ -31,8 +50,14 @@ the API solely
 
 
 class AnyComponentSchema(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     type: str = Field(...)
     id: str = Field(None)
+    # Wire-format flat carrier for SoftNamedProperty.name. Optional on the component
+    # itself (per AbstractDataComponent.json); enforced as required by parent
+    # binding-context validators (DataRecord/DataChoice/Vector/DataArray/Matrix and
+    # the datastream/controlstream schema wrappers in schema_datamodels.py).
+    name: str = Field(None)
     label: str = Field(None)
     description: str = Field(None)
     updatable: bool = Field(False)
@@ -41,51 +66,81 @@ class AnyComponentSchema(BaseModel):
 
 
 class DataRecordSchema(AnyComponentSchema):
-    type: str = "DataRecord"
-    fields: SerializeAsAny[list[AnyComponentSchema]] = Field(...)
+    type: Literal["DataRecord"] = "DataRecord"
+    # DataRecord.json: fields.minItems = 1
+    fields: list["AnyComponent"] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _fields_require_name(self):
+        for i, f in enumerate(self.fields):
+            check_named(f, f"DataRecord.fields[{i}]")
+        return self
 
 
 class VectorSchema(AnyComponentSchema):
     label: str = Field(...)
-    name: str = Field(...)
-    type: str = "Vector"
+    type: Literal["Vector"] = "Vector"
     definition: str = Field(...)
-    reference_frame: str = Field(...)
-    local_frame: str = Field(None)
+    reference_frame: str = Field(..., alias='referenceFrame')
+    local_frame: str = Field(None, alias='localFrame')
     # TODO: VERIFY might need to be moved further down when these are defined
     coordinates: SerializeAsAny[Union[list[CountSchema], list[QuantitySchema], list[TimeSchema]]] = Field(...)
 
+    @model_validator(mode="after")
+    def _coordinates_require_name(self):
+        for i, c in enumerate(self.coordinates):
+            check_named(c, f"Vector.coordinates[{i}]")
+        return self
+
 
 class DataArraySchema(AnyComponentSchema):
-    type: str = "DataArray"
-    name: str = Field(...)
-    element_count: dict | str | CountSchema = Field(..., serialization_alias='elementCount')  # Should type of Count
-    element_type: SerializeAsAny[list[AnyComponentSchema]] = Field(..., serialization_alias='elementType')
+    type: Literal["DataArray"] = "DataArray"
+    element_count: dict | str | CountSchema = Field(..., alias='elementCount')  # Should type of Count
+    element_type: "AnyComponent" = Field(..., alias='elementType')
     encoding: str = Field(...)  # TODO: implement an encodings class
     values: list = Field(None)
 
+    @model_validator(mode="after")
+    def _element_type_requires_name(self):
+        check_named(self.element_type, "DataArray.elementType")
+        return self
+
 
 class MatrixSchema(AnyComponentSchema):
-    type: str = "Matrix"
-    element_count: dict | str | CountSchema = Field(..., serialization_alias='elementCount')  # Should be type of Count
-    element_type: SerializeAsAny[list[AnyComponentSchema]] = Field(..., serialization_alias='elementType')
+    type: Literal["Matrix"] = "Matrix"
+    element_count: dict | str | CountSchema = Field(..., alias='elementCount')  # Should be type of Count
+    # TODO: spec defines Matrix.elementType as a single component (allOf SoftNamedProperty + AnyComponent),
+    # not a list. Cardinality fix is out of scope for the name-validator change.
+    element_type: list["AnyComponent"] = Field(..., alias='elementType')
     encoding: str = Field(...)  # TODO: implement an encodings class
     values: list = Field(None)
     reference_frame: str = Field(None)
     local_frame: str = Field(None)
 
+    @model_validator(mode="after")
+    def _element_type_requires_name(self):
+        for i, et in enumerate(self.element_type):
+            check_named(et, f"Matrix.elementType[{i}]")
+        return self
+
 
 class DataChoiceSchema(AnyComponentSchema):
-    type: str = "DataChoice"
+    type: Literal["DataChoice"] = "DataChoice"
     updatable: bool = Field(False)
     optional: bool = Field(False)
-    choice_value: CategorySchema = Field(..., serialization_alias='choiceValue')  # TODO: Might be called "choiceValues"
-    items: SerializeAsAny[list[AnyComponentSchema]] = Field(...)
+    choice_value: CategorySchema = Field(..., alias='choiceValue')  # TODO: Might be called "choiceValues"
+    items: list["AnyComponent"] = Field(...)
+
+    @model_validator(mode="after")
+    def _items_require_name(self):
+        for i, item in enumerate(self.items):
+            check_named(item, f"DataChoice.items[{i}]")
+        return self
 
 
 class GeometrySchema(AnyComponentSchema):
     label: str = Field(...)
-    type: str = "Geometry"
+    type: Literal["Geometry"] = "Geometry"
     updatable: bool = Field(False)
     optional: bool = Field(False)
     definition: str = Field(...)
@@ -99,7 +154,7 @@ class GeometrySchema(AnyComponentSchema):
             GeometryTypes.MULTI_POLYGON.value
         ]
     })
-    nil_values: list = Field(None, serialization_alias='nilValues')
+    nil_values: list = Field(None, alias='nilValues')
     srs: str = Field(...)
     value: Geometry = Field(None)
 
@@ -111,14 +166,15 @@ class AnySimpleComponentSchema(AnyComponentSchema):
     updatable: bool = Field(False)
     optional: bool = Field(False)
     definition: str = Field(...)
-    reference_frame: str = Field(None, serialization_alias='referenceFrame')
-    axis_id: str = Field(None, serialization_alias='axisID')
-    quality: Union[list[QuantitySchema], list[QuantityRangeSchema], list[CategorySchema], list[TextSchema]] = Field(
-        None)  # TODO: Union[Quantity, QuantityRange, Category, Text]
-    nil_values: list = Field(None, serialization_alias='nilValues')
+    reference_frame: str = Field(None, alias='referenceFrame')
+    axis_id: str = Field(None, alias='axisID')
+    quality: list[Annotated[
+        Union[QuantitySchema, QuantityRangeSchema, CategorySchema, TextSchema],
+        Field(discriminator='type'),
+    ]] = Field(None)
+    nil_values: list = Field(None, alias='nilValues')
     constraint: Any = Field(None)
     value: Any = Field(None)
-    name: str = Field(...)
 
 
 class AnyScalarComponentSchema(AnySimpleComponentSchema):
@@ -129,17 +185,17 @@ class AnyScalarComponentSchema(AnySimpleComponentSchema):
 
 
 class BooleanSchema(AnyScalarComponentSchema):
-    type: str = "Boolean"
+    type: Literal["Boolean"] = "Boolean"
     value: bool = Field(None)
 
 
 class CountSchema(AnyScalarComponentSchema):
-    type: str = "Count"
+    type: Literal["Count"] = "Count"
     value: int = Field(None)
 
 
 class QuantitySchema(AnyScalarComponentSchema):
-    type: str = "Quantity"
+    type: Literal["Quantity"] = "Quantity"
     value: Union[float, str] = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
@@ -163,45 +219,57 @@ class QuantitySchema(AnyScalarComponentSchema):
 
 
 class TimeSchema(AnyScalarComponentSchema):
-    type: str = "Time"
+    type: Literal["Time"] = "Time"
     value: str = Field(None)
-    reference_time: str = Field(None, serialization_alias='referenceTime')
+    reference_time: str = Field(None, alias='referenceTime')
     local_frame: str = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
 
 class CategorySchema(AnyScalarComponentSchema):
-    type: str = "Category"
+    type: Literal["Category"] = "Category"
     value: str = Field(None)
-    code_space: str = Field(None, serialization_alias='codeSpace')
+    code_space: str = Field(None, alias='codeSpace')
 
 
 class TextSchema(AnyScalarComponentSchema):
-    type: str = "Text"
+    type: Literal["Text"] = "Text"
     value: str = Field(None)
 
 
 class CountRangeSchema(AnySimpleComponentSchema):
-    type: str = "CountRange"
+    type: Literal["CountRange"] = "CountRange"
     value: list[int] = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
 
 class QuantityRangeSchema(AnySimpleComponentSchema):
-    type: str = "QuantityRange"
+    type: Literal["QuantityRange"] = "QuantityRange"
     value: list[Union[float, str]] = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
 
 class TimeRangeSchema(AnySimpleComponentSchema):
-    type: str = "TimeRange"
+    type: Literal["TimeRange"] = "TimeRange"
     value: list[str] = Field(None)
-    reference_time: str = Field(None, serialization_alias='referenceTime')
+    reference_time: str = Field(None, alias='referenceTime')
     local_frame: str = Field(None)
     uom: Union[UCUMCode, URI] = Field(...)
 
 
 class CategoryRangeSchema(AnySimpleComponentSchema):
-    type: str = "CategoryRange"
+    type: Literal["CategoryRange"] = "CategoryRange"
     value: list[str] = Field(None)
-    code_space: str = Field(None, serialization_alias='codeSpace')
+    code_space: str = Field(None, alias='codeSpace')
+
+
+AnyComponent = Annotated[
+    Union[
+        DataRecordSchema, VectorSchema, DataArraySchema, MatrixSchema,
+        DataChoiceSchema, GeometrySchema,
+        BooleanSchema, CountSchema, QuantitySchema, TimeSchema,
+        CategorySchema, TextSchema,
+        CountRangeSchema, QuantityRangeSchema, TimeRangeSchema, CategoryRangeSchema,
+    ],
+    Field(discriminator="type"),
+]

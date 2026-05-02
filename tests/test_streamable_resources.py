@@ -1,4 +1,4 @@
-from src.oshconnect import OSHConnect, Node
+from oshconnect import OSHConnect, Node
 
 
 def test_streamble_observations():

@@ -1,69 +1,117 @@
 API Reference
 =============
 
-OSHConnect
-----------
+All public symbols are re-exported from the top-level package and can be imported directly::
 
+    from oshconnect import OSHConnect, Node, Datastream, TimePeriod, ObservationFormat, ...
 
-OSHConnect Utilities and Helpers
---------------------------------
+Lower-level CS API utilities are available from the ``oshconnect.csapi4py`` subpackage::
+
+    from oshconnect.csapi4py import APIResourceTypes, MQTTCommClient, ConnectedSystemsRequestBuilder, ...
+
+---
+
+Core Application
+----------------
+
 .. automodule:: oshconnect.oshconnectapi
     :members:
     :undoc-members:
     :show-inheritance:
 
-OSH Connect Data Models
------------------------
-These are the second highest level pieces in the hierarchy of the library and the utilities needed to help almost
-everything else in the app function.
+---
 
-.. automodule:: oshconnect.osh_connect_datamodels
+Streamable Resources
+--------------------
+These are the primary objects for interacting with systems, datastreams, and control streams on an OSH node.
+Includes ``Node``, ``System``, ``Datastream``, ``ControlStream``, and supporting enums.
+
+.. automodule:: oshconnect.streamableresource
     :members:
     :undoc-members:
     :show-inheritance:
 
+---
 
-DataSources and Messaging
--------------------------
-Due to their extreme importance in the library, the data sources are listed separately along with the classes that help
-manage them and their data.
+Resource Data Models
+--------------------
+Pydantic models that represent CS API resources returned from or sent to an OSH server.
 
-.. automodule:: oshconnect.datasource
+.. automodule:: oshconnect.resource_datamodels
     :members:
     :undoc-members:
     :show-inheritance:
+
+---
+
+SWE Schema Components
+---------------------
+Builder classes for constructing datastream and command schemas using SWE Common data types.
+
+.. automodule:: oshconnect.swe_components
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. automodule:: oshconnect.schema_datamodels
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+---
+
+Event System
+------------
+Pub/sub event bus for in-process notifications. Implement ``IEventListener`` to receive events.
+
+.. automodule:: oshconnect.eventbus
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+---
 
 Time Management
 ---------------
-Currently **WIP** but this module will contain the classes and functions that help manage the current time and other
-playback features of groups of datasources/datafeeds
 
 .. automodule:: oshconnect.timemanagement
     :members:
     :undoc-members:
     :show-inheritance:
 
-Styling
--------
-**WIP** This module contains the classes and functions that help manage the styling and visualization recommendations that
-the library provides.
+---
 
-Datastore
----------
-**WIP** This module is for managing the state of the app. The configurations files are intended to be interchgangale
-among all language versions of the OSHConnect ecosystem.
+CS API Integration (``csapi4py``)
+----------------------------------
 
-Core Data Models
-----------------
-Theses data models are not often intended to be used directly by the user, but are used by the library to help manage
-validation of data that flows to and from the API.
+Constants and Enums
+~~~~~~~~~~~~~~~~~~~
 
-.. automodule:: oshconnect.core_datamodels
+.. automodule:: oshconnect.csapi4py.constants
     :members:
     :undoc-members:
     :show-inheritance:
 
+Request Builder
+~~~~~~~~~~~~~~~
 
+.. automodule:: oshconnect.csapi4py.con_sys_api
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
-Helpers
-~~~~~~~
+API Helper
+~~~~~~~~~~
+
+.. automodule:: oshconnect.csapi4py.default_api_helpers
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+MQTT Client
+~~~~~~~~~~~
+
+.. automodule:: oshconnect.csapi4py.mqtt
+    :members:
+    :undoc-members:
+    :show-inheritance:

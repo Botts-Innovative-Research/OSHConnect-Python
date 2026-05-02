@@ -1,0 +1,35 @@
+# =============================================================================
+# OSHConnect-Python — Local PyPI Server
+#
+# A lightweight pypiserver for publishing dev builds of oshconnect so that
+# downstream projects (OCSASim, etc.) can `pip install` normally instead of
+# pointing at raw wheel paths.
+#
+# Usage:
+#   docker compose up -d                 # start the local PyPI
+#   ./scripts/publish-local.sh           # build wheel + upload to local PyPI
+#   docker compose down -v               # tear down + remove packages volume
+#
+# Consumer side (e.g. OCSASim):
+#   pip install --index-url http://localhost:8090/simple/ oshconnect
+#   uv pip install --index-url http://localhost:8090/simple/ oshconnect
+# =============================================================================
+
+services:
+  pypi:
+    image: pypiserver/pypiserver:latest
+    container_name: local-pypi
+    command: run -a . -P . -o
+    ports:
+      - "8090:8080"
+    volumes:
+      - pypi-packages:/data/packages
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+volumes:
+  pypi-packages:

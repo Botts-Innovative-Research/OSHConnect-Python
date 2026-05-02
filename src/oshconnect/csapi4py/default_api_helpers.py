@@ -92,9 +92,18 @@ class APIHelper(ABC):
     protocol: str = "https"
     server_root: str = "sensorhub"
     api_root: str = "api"
+    mqtt_topic_root: str = None
     username: str = None
     password: str = None
     user_auth: bool = False
+
+    def get_mqtt_root(self) -> str:
+        """
+        Returns the root path segment used when building MQTT topic strings.
+        Defaults to ``api_root`` when ``mqtt_topic_root`` has not been set explicitly,
+        so existing callers that only configure ``api_root`` are unaffected.
+        """
+        return self.mqtt_topic_root if self.mqtt_topic_root is not None else self.api_root
 
     def create_resource(self, res_type: APIResourceTypes, json_data: any, parent_res_id: str = None,
                         from_collection: bool = False, url_endpoint: str = None, req_headers: dict = None):
@@ -284,25 +293,27 @@ class APIHelper(ABC):
         self.protocol = protocol
 
     # TODO: add validity checking for resource type combinations
-    def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None):
+    def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None,
+                       data_topic: bool = True):
         """
         Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
-        :param resource_type : The API resource type of the resource that comes first in the URL, cannot be None
+        :param resource_type: The API resource type of the resource that comes first in the URL, cannot be None
         :param subresource_type: The API resource type of the sub-resource that comes second in the URL, optional if there
         is no sub-resource.
         :param resource_id: The ID of the primary resource, can be none if the request is being made for all resources of
         the given type.
         :param subresource_id: The ID of the sub-resource, can be none if the request is being made for all sub-resources of
         the given type.
+        :param data_topic: If True (default), appends ':data' to the subresource collection endpoint per CS API Part 3
+        spec for Resource Data Topics. Set to False for Resource Event Topics (no suffix).
         :return:
         """
+        data_suffix = ':data' if data_topic else ''
         subresource_endpoint = f'/{resource_type_to_endpoint(subresource_type)}'
         resource_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
         resource_ident = "" if resource_id is None else f'/{resource_id}'
         subresource_ident = "" if subresource_id is None else f'/{subresource_id}'
-        topic_locator = f'/{self.api_root}{resource_endpoint}{resource_ident}{subresource_endpoint}{subresource_ident}'
-        print(f'MQTT Topic: {topic_locator}')
-
+        topic_locator = f'{self.get_mqtt_root()}{resource_endpoint}{resource_ident}{subresource_endpoint}{data_suffix}{subresource_ident}'
         return topic_locator
 
 

@@ -3,6 +3,10 @@ on: [ push, pull_request, workflow_dispatch ]
 permissions:
   contents: write
 
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-docs:
     runs-on: ubuntu-latest
@@ -19,9 +23,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Sphinx build
+      - name: Build MkDocs site
         run: |
-          uv run sphinx-build -b html docs/source docs/build/html
+          uv run mkdocs build --strict
 
       - name: Deploy documentation
         uses: peaceiris/actions-gh-pages@v4

@@ -10,7 +10,7 @@ import os
 import sys
 import traceback
 
-sys.path.insert(0, os.path.abspath("../.."))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
 
 
 def process_exception(app, what, name, obj, options, lines):
@@ -22,9 +22,9 @@ def setup(app):
 
 
 project = 'OSHConnect-Python'
-copyright = '2024, Botts Innovative Research, Inc.'
+copyright = '2025, Botts Innovative Research, Inc.'
 author = 'Ian Patterson'
-release = '0.2'
+release = '0.4'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

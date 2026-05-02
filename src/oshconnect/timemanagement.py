@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import calendar
 import re
 import time
 from datetime import datetime, timezone
@@ -48,7 +49,10 @@ class TimeUtils:
             return time.mktime(
                 datetime.strptime(a_time, "%Y-%m-%d %H:%M:%S.%fZ").timetuple())
         elif isinstance(a_time, datetime):
-            return time.mktime(a_time.timetuple())
+            if a_time.tzinfo is not None:
+                return a_time.timestamp()
+            else:
+                return float(calendar.timegm(a_time.timetuple()))
 
     @staticmethod
     def to_utc_time(a_time: float | str) -> datetime:
@@ -167,11 +171,9 @@ class TimeInstant:
 
     @staticmethod
     def from_string(utc_time: str):
-        # TODO: handle timezones
-        if re.match(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.)(\d+)(Z)', utc_time):
-            dt = datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%S.%fZ")
-        else:
-            dt = datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%SZ")
+        # Normalize 'Z' suffix to '+00:00' for fromisoformat(), which handles all
+        # ISO 8601 timezone offsets (Z, +HH:MM, -HH:MM) in Python 3.12+.
+        dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
         return TimeInstant(utc_time=dt)
 
     @staticmethod

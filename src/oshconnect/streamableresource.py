@@ -15,7 +15,6 @@ import logging
 import traceback
 import uuid
 from abc import ABC
-from argparse import ArgumentError
 from dataclasses import dataclass, field
 from enum import Enum
 from multiprocessing import Process
@@ -24,9 +23,11 @@ from typing import TypeVar, Generic, Union
 from uuid import UUID, uuid4
 from collections import deque
 
-from pydantic.v1.utils import to_lower_camel
+from pydantic.alias_generators import to_camel
 
 from .csapi4py.constants import ContentTypes
+from .events import EventHandler, DefaultEventTypes
+from .events.builder import EventBuilder
 from .schema_datamodels import JSONCommandSchema
 from .csapi4py.mqtt import MQTTCommClient
 from .csapi4py.constants import APIResourceTypes, ObservationFormat
@@ -125,6 +126,7 @@ class Node:
 
     def __init__(self, protocol: str, address: str, port: int,
                  username: str = None, password: str = None, server_root: str = 'sensorhub',
+                 api_root: str = 'api', mqtt_topic_root: str = None,
                  session_manager: SessionManager = None,
                  **kwargs):
         self._id = f'node-{uuid.uuid4()}'
@@ -141,7 +143,9 @@ class Node:
             protocol=self.protocol,
             port=self.port,
             server_root=self.server_root,
-            api_root='api', username=username,
+            api_root=api_root,
+            mqtt_topic_root=mqtt_topic_root,
+            username=username,
             password=password)
         if self.is_secure:
             self._api_helper.user_auth = True
@@ -154,6 +158,7 @@ class Node:
             if kwargs.get('mqtt_port') is not None:
                 self._mqtt_port = kwargs.get('mqtt_port')
             self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port,
+                                               username=username, password=password,
                                                client_id_suffix=uuid.uuid4().hex, )
             self._mqtt_client.connect()
             self._mqtt_client.start()
@@ -183,7 +188,7 @@ class Node:
     #     return BasicAuth(self._api_helper.username, self._api_helper.password)
 
     def get_mqtt_client(self) -> MQTTCommClient:
-        return self._mqtt_client
+        return getattr(self, '_mqtt_client', None)
 
     def discover_systems(self):
         result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM,
@@ -194,10 +199,10 @@ class Node:
             print(system_objs)
             for system_json in system_objs:
                 print(system_json)
-                system = SystemResource.model_validate(system_json)
+                system = SystemResource.model_validate(system_json, by_alias=True)
                 sys_obj = System(label=system.properties['name'],
-                                 name=to_lower_camel(system.properties['name'].replace(" ", "_")),
-                                 urn=system.properties['uid'], parent_node=self)
+                                 name=to_camel(system.properties['name'].replace(" ", "_")),
+                                 urn=system.properties['uid'], parent_node=self, resource_id=system.system_id)
 
                 self._systems.append(sys_obj)
                 new_systems.append(sys_obj)
@@ -214,17 +219,16 @@ class Node:
 
     # System Management
 
-    def add_system(self, system: System, target_node: Node, insert_resource: bool = False):
+    def add_system(self, system: System, insert_resource: bool = False):
         """
         Add a system to the target node.
         :param system: System object
-        :param target_node: Node object
         :param insert_resource: Whether to insert the system into the target node's server, default is False
         :return:
         """
         if insert_resource:
             system.insert_self()
-        target_node.add_new_system(system)
+        self.add_new_system(system)
         self._systems.append(system)
         return system
 
@@ -246,6 +250,71 @@ class Node:
 
     def get_session(self) -> OSHClientSession:
         return self._client_session
+
+    def serialize(self) -> dict:
+        data = {
+            "_id": self._id,
+            "protocol": self.protocol,
+            "address": self.address,
+            "port": self.port,
+            "server_root": self.server_root,
+            "api_root": getattr(self._api_helper, "api_root", "api"),
+            "mqtt_topic_root": getattr(self._api_helper, "mqtt_topic_root", None),
+            "is_secure": self.is_secure,
+            "username": getattr(self._api_helper, "username", None),
+            "password": getattr(self._api_helper, "password", None),
+            "_systems": [system.serialize() for system in self._systems] if self._systems is not None else None,
+        }
+        data["name"] = getattr(self, "name", None)
+        data["label"] = getattr(self, "label", None)
+        data["urn"] = getattr(self, "urn", None)
+        data["description"] = getattr(self, "description", None)
+        datastreams = getattr(self, "datastreams", None)
+        if datastreams is not None:
+            data["datastreams"] = [ds.serialize() for ds in datastreams]
+        else:
+            data["datastreams"] = None
+        control_channels = getattr(self, "control_channels", None)
+        if control_channels is not None:
+            data["control_channels"] = [cc.serialize() for cc in control_channels]
+        else:
+            data["control_channels"] = None
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+        # Remove any 'resource' key if present
+        data.pop("resource", None)
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, session_manager: 'SessionManager' = None) -> 'Node':
+        node = cls(
+            protocol=data["protocol"],
+            address=data["address"],
+            port=data["port"],
+            username=data.get("username"),
+            password=data.get("password"),
+            server_root=data.get("server_root", "sensorhub"),
+            api_root=data.get("api_root", "api"),
+            mqtt_topic_root=data.get("mqtt_topic_root"),
+        )
+        node._id = data["_id"]
+        node.is_secure = data.get("is_secure", False)
+        # Register with the session manager before deserializing child resources,
+        # because StreamableResource.__init__ calls node.register_streamable().
+        if session_manager is not None:
+            node.register_with_session_manager(session_manager)
+        node._systems = [System.deserialize(sys, node) for sys in data.get("_systems", [])] if data.get(
+            "_systems") is not None else []
+        return node
 
 
 class Status(Enum):
@@ -269,7 +338,7 @@ T = TypeVar('T', SystemResource, DatastreamResource, ControlStreamResource)
 class StreamableResource(Generic[T], ABC):
     _id: UUID
     _resource_id: str
-    _canonical_link: str
+    # _canonical_link: str
     _topic: str
     _status: str = Status.STOPPED.value
     ws_url: str
@@ -293,6 +362,7 @@ class StreamableResource(Generic[T], ABC):
         self._connection_mode = connection_mode
         self._inbound_deque = deque()
         self._outbound_deque = deque()
+        self._parent_resource_id = None
 
     def get_streamable_id(self) -> UUID:
         return self._id
@@ -352,13 +422,15 @@ class StreamableResource(Generic[T], ABC):
         # self.get_mqtt_topic()
 
     def _default_on_subscribe(self, client, userdata, mid, granted_qos, properties):
-        print("OSH Subscribed: " + str(mid) + " " + str(granted_qos))
+        logging.debug("OSH Subscribed: mid=%s granted_qos=%s", mid, granted_qos)
 
-    def get_mqtt_topic(self, subresource: APIResourceTypes | None = None):
+    def get_mqtt_topic(self, subresource: APIResourceTypes | None = None, data_topic: bool = True):
         """
-        Retrieves the MQTT topic for this streamable resource based on its underlying resource type. By default, the topic
-        is actually for listening to subresources of a default type
-        :param subresource : Optional subresource type to get the topic for, defaults to None
+        Retrieves the MQTT topic for this streamable resource based on its underlying resource type. By default,
+        returns a Resource Data Topic (`:data` suffix per CS API Part 3).
+        :param subresource: Optional subresource type to get the topic for, defaults to None
+        :param data_topic: If True (default), produces a Resource Data Topic with ':data' suffix. Set False for
+        Resource Event Topics.
         """
         resource_type = None
         parent_res_type = None
@@ -398,8 +470,51 @@ class StreamableResource(Generic[T], ABC):
 
         topic = self._parent_node.get_api_helper().get_mqtt_topic(subresource_type=resource_type,
                                                                   resource_id=parent_id,
-                                                                  resource_type=parent_res_type)
+                                                                  resource_type=parent_res_type,
+                                                                  data_topic=data_topic)
         return topic
+
+    def get_event_topic(self) -> str:
+        """
+        Returns the Resource Event Topic for this streamable resource per CS API Part 3. Event topics point to the
+        resource itself (no ':data' suffix) and are used to receive CloudEvents lifecycle notifications
+        (create/update/delete) published by the server.
+
+        For Datastream/ControlStream, includes the parent system path when a parent resource ID is available.
+        """
+        mqtt_root = self._parent_node.get_api_helper().get_mqtt_root()
+
+        if isinstance(self._underlying_resource, DatastreamResource):
+            if self._parent_resource_id:
+                return f'{mqtt_root}/systems/{self._parent_resource_id}/datastreams/{self._resource_id}'
+            return f'{mqtt_root}/datastreams/{self._resource_id}'
+
+        elif isinstance(self._underlying_resource, ControlStreamResource):
+            if self._parent_resource_id:
+                return f'{mqtt_root}/systems/{self._parent_resource_id}/controlstreams/{self._resource_id}'
+            return f'{mqtt_root}/controlstreams/{self._resource_id}'
+
+        elif isinstance(self._underlying_resource, SystemResource):
+            return f'{mqtt_root}/systems/{self._resource_id}'
+
+        raise ValueError(f"Cannot determine event topic for resource type {type(self._underlying_resource)}")
+
+    def subscribe_events(self, callback=None, qos: int = 0) -> str:
+        """
+        Subscribes to the Resource Event Topic for this streamable resource. Event messages are CloudEvents v1.0
+        JSON payloads published by the server when the resource is created, updated, or deleted.
+
+        :param callback: Optional message callback. If None, uses the default handler (appends to inbound deque).
+        :param qos: MQTT Quality of Service level, default 0.
+        :return: The event topic string that was subscribed to.
+        """
+        if self._mqtt_client is None:
+            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            return ""
+        event_topic = self.get_event_topic()
+        cb = callback if callback is not None else self._mqtt_sub_callback
+        self._mqtt_client.subscribe(event_topic, qos=qos, msg_callback=cb)
+        return event_topic
 
     async def _read_from_ws(self, ws):
         async for msg in ws:
@@ -479,24 +594,23 @@ class StreamableResource(Generic[T], ABC):
 
     def _publish_mqtt(self, topic, payload):
         if self._mqtt_client is None:
-            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            logging.warning("No MQTT client configured for streamable resource %s.", self._id)
             return
-        print(f'Publishing to MQTT topic {topic}: {payload}')
+        logging.debug("Publishing to MQTT topic %s", topic)
         self._mqtt_client.publish(topic, payload, qos=0)
 
     async def _write_to_mqtt(self):
-        while self._status is Status.STARTED.value:
+        while self._status == Status.STARTED.value:
             try:
                 msg = self._outbound_deque.popleft()
-                print(f"Popped message: {msg}, attempting to publish...")
+                logging.debug("Publishing outbound message from %s", self._id)
                 self._publish_mqtt(self._topic, msg)
             except IndexError:
                 await asyncio.sleep(0.05)
             except Exception as e:
-                print(f"Error in Write To MQTT {self._id}: {e}")
-                print(traceback.format_exc())
-        if self._status is Status.STOPPED.value:
-            print("MQTT write task stopping as streamable resource is stopped.")
+                logging.error("Error in Write To MQTT %s: %s\n%s", self._id, e, traceback.format_exc())
+        if self._status == Status.STOPPED.value:
+            logging.debug("MQTT write task stopping: resource %s stopped", self._id)
 
     def publish(self, payload, topic: str = None):
         """
@@ -518,7 +632,7 @@ class StreamableResource(Generic[T], ABC):
         if topic is None:
             t = self._topic
         else:
-            raise ArgumentError("Invalid topic provided, must be None to use default topic.")
+            raise ValueError("Invalid topic provided, must be None to use default topic.")
 
         if callback is None:
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=self._mqtt_sub_callback)
@@ -526,15 +640,53 @@ class StreamableResource(Generic[T], ABC):
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=callback)
 
     def _mqtt_sub_callback(self, client, userdata, msg):
-        print(f"Received MQTT message on topic {msg.topic}: {msg.payload}")
+        logging.debug("Received MQTT message on topic %s (%s bytes)", msg.topic, len(msg.payload))
         # Appends to right of deque
         self._inbound_deque.append(msg.payload)
+        self._emit_inbound_event(msg)
+
+    def _emit_inbound_event(self, msg):
+        """Hook for subclasses to publish EventHandler events on incoming MQTT messages."""
+        pass
 
     def get_inbound_deque(self):
         return self._inbound_deque
 
     def get_outbound_deque(self):
         return self._outbound_deque
+
+    def serialize(self) -> dict:
+        """Serializes common attributes of StreamableResource, safely handling missing/None attributes."""
+        topic = getattr(self, "_topic", None)
+        status = getattr(self, "_status", None)
+        parent_resource_id = getattr(self, "_parent_resource_id", None)
+        connection_mode = getattr(self, "_connection_mode", None)
+        resource_id = getattr(self, "_resource_id", None)
+        if isinstance(connection_mode, Enum):
+            connection_mode = connection_mode.value
+
+        return {
+            "id": str(getattr(self, "_id", None)),
+            "resource_id": resource_id,
+            # "canonical_link": getattr(self, "_canonical_link", None),
+            "topic": topic,
+            "status": status,
+            "parent_resource_id": parent_resource_id,
+            "connection_mode": connection_mode,
+        }
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'StreamableResource':
+        """Deserializes common attributes. Subclasses should override and call super()."""
+        obj = cls(node=node)
+        obj._id = uuid.UUID(data["id"])
+        obj._resource_id = data.get("resource_id")
+        # obj._canonical_link = data.get("canonical_link")
+        obj._topic = data.get("topic")
+        obj._status = data.get("status")
+        obj._parent_resource_id = data.get("parent_resource_id")
+        obj._connection_mode = StreamableModes(data.get("connection_mode", StreamableModes.PUSH.value)),
+        return obj
 
 
 class System(StreamableResource[SystemResource]):
@@ -567,29 +719,37 @@ class System(StreamableResource[SystemResource]):
 
         self._underlying_resource = self.to_system_resource()
 
-    def discover_datastreams(self) -> list[DatastreamResource]:
+    def discover_datastreams(self) -> list[Datastream]:
         res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                                               APIResourceTypes.DATASTREAM)
         datastream_json = res.json()['items']
-        ds_resources = []
+        datastreams = []
 
         for ds in datastream_json:
-            datastream_objs = DatastreamResource.model_validate(ds)
-            ds_resources.append(datastream_objs)
+            datastream_objs = DatastreamResource.model_validate(ds, by_alias=True)
+            new_ds = Datastream(self._parent_node, datastream_objs)
+            datastreams.append(new_ds)
 
-        return ds_resources
+            if not [ds.get_underlying_resource() != datastream_objs for ds in self.datastreams]:
+                self.datastreams.append(new_ds)
 
-    def discover_controlstreams(self) -> list[ControlStreamResource]:
+        return datastreams
+
+    def discover_controlstreams(self) -> list[ControlStream]:
         res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                                               APIResourceTypes.CONTROL_CHANNEL)
         controlstream_json = res.json()['items']
-        cs_resources = []
+        controlstreams = []
 
-        for cs in controlstream_json:
-            controlstream_objs = ControlStreamResource.model_validate(cs)
-            cs_resources.append(controlstream_objs)
+        for cs_json in controlstream_json:
+            controlstream_objs = ControlStreamResource.model_validate(cs_json)
+            new_cs = ControlStream(self._parent_node, controlstream_objs)
+            controlstreams.append(new_cs)
 
-        return cs_resources
+            if not [cs.get_underlying_resource() != controlstream_objs for cs in self.control_channels]:
+                self.control_channels.append(new_cs)
+
+        return controlstreams
 
     @staticmethod
     def from_system_resource(system_resource: SystemResource, parent_node: Node) -> System:
@@ -629,7 +789,9 @@ class System(StreamableResource[SystemResource]):
     def add_insert_datastream(self, datarecord_schema: DataRecordSchema):
         """
         Adds a datastream to the system while also inserting it into the system's parent node via HTTP POST.
-        :param datarecord_schema: DataRecordSchema to be used to define the datastream
+        :param datarecord_schema: DataRecordSchema to be used to define the datastream. Must carry a `name`
+            matching NameToken (^[A-Za-z][A-Za-z0-9_\\-]*$); SWE Common 3 wraps DataStream.elementType in
+            SoftNamedProperty, so the root component requires a name.
         :return:
         """
         print(f'Adding datastream: {datarecord_schema.model_dump_json(exclude_none=True, by_alias=True)}')
@@ -671,7 +833,9 @@ class System(StreamableResource[SystemResource]):
         """
         Accepts a DataRecordSchema and creates a JSON encoded schema structure ControlStreamResource, which is inserted
         into the parent system via the host node.
-        :param control_stream_record_schema: DataRecordSchema to be used for the control stream
+        :param control_stream_record_schema: DataRecordSchema to be used for the control stream. Must carry a `name`
+            matching NameToken (^[A-Za-z][A-Za-z0-9_\\-]*$); JSONCommandSchema.parametersSchema is wrapped in
+            SoftNamedProperty so the root component requires a name.
         :param input_name: Name of the input, if None the label of the schema is converted to lower and stripped of whitespace
         :return: ControlStream object added to the system
         """
@@ -737,6 +901,54 @@ class System(StreamableResource[SystemResource]):
             self._underlying_resource = system_resource
             return None
 
+    def serialize(self) -> dict:
+        data = super().serialize()
+        data["name"] = getattr(self, "name", None)
+        data["label"] = getattr(self, "label", None)
+        data["urn"] = getattr(self, "urn", None)
+        data["description"] = getattr(self, "description", None)
+        datastreams = getattr(self, "datastreams", None)
+        if datastreams is not None:
+            data["datastreams"] = [ds.serialize() for ds in datastreams]
+        else:
+            data["datastreams"] = None
+        control_channels = getattr(self, "control_channels", None)
+        if control_channels is not None:
+            data["control_channels"] = [cc.serialize() for cc in control_channels]
+        else:
+            data["control_channels"] = None
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+        # Remove any 'resource' key if present
+        data.pop("resource", None)
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'System':
+        obj = cls(
+            name=data["name"],
+            label=data["label"],
+            urn=data["urn"],
+            parent_node=node,
+            description=data.get("description"),
+            resource_id=data.get("resource_id")
+        )
+        obj._id = uuid.UUID(data["id"])
+        obj.datastreams = [Datastream.deserialize(ds, node) for ds in data.get("datastreams", [])]
+        obj.control_channels = [ControlStream.deserialize(cc, node) for cc in data.get("control_channels", [])]
+        underlying = data.get("underlying_resource")
+        obj._underlying_resource = SystemResource.model_validate(underlying) if underlying else None
+        return obj
+
 
 class Datastream(StreamableResource[DatastreamResource]):
     should_poll: bool
@@ -781,24 +993,30 @@ class Datastream(StreamableResource[DatastreamResource]):
     def start(self):
         super().start()
         if self._mqtt_client is not None:
-            # self._mqtt_client.connect()
-
             if self._connection_mode is StreamableModes.PULL or self._connection_mode is StreamableModes.BIDIRECTIONAL:
                 self._mqtt_client.subscribe(self._topic, msg_callback=self._mqtt_sub_callback)
             else:
                 try:
-                    loop = asyncio.get_event_loop()
+                    loop = asyncio.get_running_loop()
                     loop.create_task(self._write_to_mqtt())
+                except RuntimeError:
+                    logging.warning("No running event loop — MQTT write task for %s not started. "
+                                    "Call start() from within an async context.", self._id)
                 except Exception as e:
-                    # TODO: Use logging instead of print
-                    print(traceback.format_exc())
-                    print(f"Error starting MQTT write task: {e}")
-
-            # self._mqtt_client.start()
+                    logging.error("Error starting MQTT write task for %s: %s\n%s",
+                                  self._id, e, traceback.format_exc())
 
     def init_mqtt(self):
         super().init_mqtt()
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
+
+    def _emit_inbound_event(self, msg):
+        evt = (EventBuilder().with_type(DefaultEventTypes.NEW_OBSERVATION)
+               .with_topic(msg.topic)
+               .with_data(msg.payload)
+               .with_producer(self)
+               .build())
+        EventHandler().publish(evt)
 
     def _queue_push(self, msg):
         print(f'Pushing message to reader queue: {msg}')
@@ -812,6 +1030,46 @@ class Datastream(StreamableResource[DatastreamResource]):
         # self._queue_push(data)
         encoded = json.dumps(data).encode('utf-8')
         self._publish_mqtt(self._topic, encoded)
+
+    def serialize(self) -> dict:
+        data = super().serialize()
+        data["should_poll"] = getattr(self, "should_poll", None)
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'Datastream':
+        ds_resource = DatastreamResource.model_validate(data["underlying_resource"]) if data.get("underlying_resource") else None
+        obj = cls(parent_node=node, datastream_resource=ds_resource)
+        obj._id = uuid.UUID(data["id"])
+        obj.should_poll = data.get("should_poll", False)
+        return obj
+
+    def subscribe(self, topic=None, callback=None, qos=0):
+        t = None
+
+        if topic is None or topic == APIResourceTypes.OBSERVATION.value:
+            t = self._topic
+        # elif topic == APIResourceTypes.STATUS.value:
+        #     t = self._status_topic
+        else:
+            raise ValueError(f"Invalid topic provided {topic}, must be None or 'observation'.")
+
+        if callback is None:
+            self._mqtt_client.subscribe(t, qos=qos, msg_callback=self._mqtt_sub_callback)
+        else:
+            self._mqtt_client.subscribe(t, qos=qos, msg_callback=callback)
 
 
 class ControlStream(StreamableResource[ControlStreamResource]):
@@ -833,10 +1091,21 @@ class ControlStream(StreamableResource[ControlStreamResource]):
 
     def init_mqtt(self):
         super().init_mqtt()
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND, data_topic=True)
 
     def get_mqtt_status_topic(self):
-        return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS)
+        return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS, data_topic=True)
+
+    def _emit_inbound_event(self, msg):
+        evt_type = (DefaultEventTypes.NEW_COMMAND
+                    if msg.topic == self._topic
+                    else DefaultEventTypes.NEW_COMMAND_STATUS)
+        evt = (EventBuilder().with_type(evt_type)
+               .with_topic(msg.topic)
+               .with_data(msg.payload)
+               .with_producer(self)
+               .build())
+        EventHandler().publish(evt)
 
     def start(self):
         super().start()
@@ -846,11 +1115,14 @@ class ControlStream(StreamableResource[ControlStreamResource]):
                 self._mqtt_client.subscribe(self._topic, msg_callback=self._mqtt_sub_callback)
             else:
                 try:
-                    loop = asyncio.get_event_loop()
+                    loop = asyncio.get_running_loop()
                     loop.create_task(self._write_to_mqtt())
+                except RuntimeError:
+                    logging.warning("No running event loop — MQTT write task for %s not started. "
+                                    "Call start() from within an async context.", self._id)
                 except Exception as e:
-                    print(traceback.format_exc())
-                    print(f"Error starting MQTT write task: {e}")
+                    logging.error("Error starting MQTT write task for %s: %s\n%s",
+                                  self._id, e, traceback.format_exc())
 
     def get_inbound_deque(self):
         return self._inbound_deque
@@ -899,9 +1171,34 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         elif topic == APIResourceTypes.STATUS.value:
             t = self._status_topic
         else:
-            raise ArgumentError(f"Invalid topic provided {topic}, must be None or one of 'command' or 'status'.")
+            raise ValueError(f"Invalid topic provided {topic}, must be None or one of 'command' or 'status'.")
 
         if callback is None:
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=self._mqtt_sub_callback)
         else:
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=callback)
+
+    def serialize(self) -> dict:
+        data = super().serialize()
+        data["status_topic"] = getattr(self, "_status_topic", None)
+        underlying = getattr(self, "_underlying_resource", None)
+        if underlying is not None:
+            dump = getattr(underlying, 'model_dump', None)
+            if callable(dump):
+                data["underlying_resource"] = underlying.model_dump(by_alias=True, exclude_none=True, mode='json')
+            elif hasattr(underlying, 'to_dict'):
+                data["underlying_resource"] = underlying.to_dict()
+            else:
+                data["underlying_resource"] = str(underlying)
+        else:
+            data["underlying_resource"] = None
+
+        return data
+
+    @classmethod
+    def deserialize(cls, data: dict, node: 'Node') -> 'ControlStream':
+        cs_resource = ControlStreamResource.model_validate(data["underlying_resource"]) if data.get("underlying_resource") else None
+        obj = cls(node=node, controlstream_resource=cs_resource)
+        obj._id = uuid.UUID(data["id"])
+        obj._status_topic = data.get("status_topic")
+        return obj

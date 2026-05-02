@@ -9,13 +9,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Union, List
 
-from pydantic import BaseModel, Field, SerializeAsAny, field_validator, HttpUrl, ConfigDict
+from pydantic import BaseModel, Field, SerializeAsAny, field_validator, model_validator, HttpUrl, ConfigDict
 
 from .api_utils import Link, URI
 from .csapi4py.constants import ObservationFormat
 from .encoding import Encoding
 from .geometry import Geometry
-from .swe_components import AnyComponentSchema
+from .swe_components import AnyComponent, check_named
 
 """
 In many of the top level resource models there is a "schema" field of some description. These models are meant to ease
@@ -51,7 +51,12 @@ class SWEJSONCommandSchema(CommandSchema):
 
     command_format: str = Field("application/swe+json", alias='commandFormat')
     encoding: SerializeAsAny[Encoding] = Field(...)
-    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='recordSchema')
+    record_schema: AnyComponent = Field(..., alias='recordSchema')
+
+    @model_validator(mode="after")
+    def _root_record_schema_requires_name(self):
+        check_named(self.record_schema, "SWEJSONCommandSchema.recordSchema")
+        return self
 
 
 class JSONCommandSchema(CommandSchema):
@@ -61,9 +66,18 @@ class JSONCommandSchema(CommandSchema):
     model_config = ConfigDict(populate_by_name=True)
 
     command_format: str = Field("application/json", alias='commandFormat')
-    params_schema: SerializeAsAny[AnyComponentSchema] = Field(..., alias='parametersSchema')
-    result_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='resultSchema')
-    feasibility_schema: SerializeAsAny[AnyComponentSchema] = Field(None, alias='feasibilityResultSchema')
+    params_schema: AnyComponent = Field(..., alias='parametersSchema')
+    result_schema: AnyComponent = Field(None, alias='resultSchema')
+    feasibility_schema: AnyComponent = Field(None, alias='feasibilityResultSchema')
+
+    @model_validator(mode="after")
+    def _root_schemas_require_name(self):
+        check_named(self.params_schema, "JSONCommandSchema.parametersSchema")
+        if self.result_schema is not None:
+            check_named(self.result_schema, "JSONCommandSchema.resultSchema")
+        if self.feasibility_schema is not None:
+            check_named(self.feasibility_schema, "JSONCommandSchema.feasibilityResultSchema")
+        return self
 
 
 class DatastreamRecordSchema(BaseModel):
@@ -75,10 +89,14 @@ class DatastreamRecordSchema(BaseModel):
     obs_format: str = Field(..., alias='obsFormat')
 
 
+# `encoding` is required per CS API Part 2 §16.2.3 Requirement 109.B, but the
+# OSH server omits it from /datastreams/{id}/schema responses. We accept it as
+# optional to be able to parse what the server returns. See
+# docs/osh_spec_deviations.md (swe-json-missing-encoding).
 class SWEDatastreamRecordSchema(DatastreamRecordSchema):
     model_config = ConfigDict(populate_by_name=True)
-    encoding: SerializeAsAny[Encoding] = Field(...)
-    record_schema: SerializeAsAny[AnyComponentSchema] = Field(..., serialization_alias='recordSchema')
+    encoding: SerializeAsAny[Encoding] = Field(None)
+    record_schema: AnyComponent = Field(..., alias='recordSchema')
 
     @field_validator('obs_format')
     @classmethod
@@ -87,6 +105,44 @@ class SWEDatastreamRecordSchema(DatastreamRecordSchema):
                      ObservationFormat.SWE_TEXT.value, ObservationFormat.SWE_BINARY.value]:
             raise ValueError('obsFormat must be on of the SWE formats')
         return v
+
+    @model_validator(mode="after")
+    def _root_record_schema_requires_name(self):
+        check_named(self.record_schema, "SWEDatastreamRecordSchema.recordSchema")
+        return self
+
+
+class JSONDatastreamRecordSchema(DatastreamRecordSchema):
+    """Datastream observation schema for the JSON media types
+    (`application/json`, `application/om+json`).
+
+    Per CS API Part 2 §16.1.4, this form does not carry a SWE `encoding`
+    block; structure is fully described by `resultSchema` (inline result)
+    or `resultLink` (out-of-band). `parametersSchema` is optional.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    obs_format: str = Field(ObservationFormat.JSON.value, alias='obsFormat')
+    result_schema: AnyComponent = Field(None, alias='resultSchema')
+    parameters_schema: AnyComponent = Field(None, alias='parametersSchema')
+    result_link: dict = Field(None, alias='resultLink')
+
+    @field_validator('obs_format')
+    @classmethod
+    def _check_obs_format(cls, v):
+        if v not in (ObservationFormat.JSON.value, "application/json"):
+            raise ValueError(
+                f"obsFormat must be 'application/json' or '{ObservationFormat.JSON.value}'"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _root_schemas_require_name(self):
+        if self.result_schema is not None:
+            check_named(self.result_schema, "JSONDatastreamRecordSchema.resultSchema")
+        if self.parameters_schema is not None:
+            check_named(self.parameters_schema, "JSONDatastreamRecordSchema.parametersSchema")
+        return self
 
 
 class ObservationOMJSONInline(BaseModel):
