@@ -1,6 +1,8 @@
 name: Tests
 on:
   push:
+    branches:
+      - '**'
     # Tag pushes (v*) are handled by publish.yml, which runs the same matrix
     # before publishing — skip here to avoid running the suite twice.
     tags-ignore:
