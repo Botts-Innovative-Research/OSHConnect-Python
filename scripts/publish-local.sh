@@ -96,8 +96,12 @@ fi
 ok "Wheel(s): ${WHEELS[*]}"
 
 # ── Upload ──────────────────────────────────────────────────────────────────
+# pypiserver runs with `-a . -P .` (auth disabled), but `uv publish` still
+# prompts for credentials when none are configured. Pass empty values via
+# flags to skip the prompt and run non-interactively.
 info "Uploading to ${PYPI_URL}"
-uv publish --publish-url "${PYPI_URL}" dist/*.whl || fail "uv publish failed"
+uv publish --publish-url "${PYPI_URL}" --username "" --password "" dist/*.whl \
+    || fail "uv publish failed"
 
 ok "Published to local PyPI"
 echo ""

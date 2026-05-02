@@ -11,24 +11,48 @@ Links:
 
 ## Generating the Docs
 
-The documentation is built with [Sphinx](https://www.sphinx-doc.org/). Dev dependencies (including Sphinx) are installed automatically with:
+The documentation is built with [MkDocs](https://www.mkdocs.org/) using the
+Material theme, [mkdocstrings](https://mkdocstrings.github.io/) for
+auto-generated API reference from the source, and
+[mermaid](https://mermaid.js.org/) for architecture diagrams. Markdown sources
+live under `docs/markdown/`.
+
+Install dev dependencies (including MkDocs and plugins):
 
 ```bash
 uv sync
 ```
 
-Then build the HTML docs:
+Build the HTML docs:
 
 ```bash
-uv run sphinx-build -b html docs/source docs/build/html
+uv run mkdocs build
 ```
 
-The output will be in `docs/build/html/`. Open `docs/build/html/index.html` in a browser to view locally.
+The output will be in `docs/build/html/`. Open `docs/build/html/index.html` in
+a browser to view locally.
 
-To do a clean rebuild:
+For a live-reloading preview while editing:
 
 ```bash
-uv run sphinx-build -E -b html docs/source docs/build/html
+uv run mkdocs serve
 ```
 
-The `-E` flag forces Sphinx to re-read all source files rather than using cached data.
+Then visit http://127.0.0.1:8000.
+
+To match what CI publishes (warnings become errors — useful when you've
+touched docstrings):
+
+```bash
+uv run mkdocs build --strict
+```
+
+CI builds the site on every push and deploys `main` to GitHub Pages via
+`.github/workflows/docs_pages.yaml`.
+
+The legacy Sphinx setup under `docs/source/` is kept temporarily for
+reference and builds to a separate output directory:
+
+```bash
+uv run sphinx-build -b html docs/source docs/build/sphinx
+```
