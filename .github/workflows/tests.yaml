@@ -1,0 +1,38 @@
+name: Tests
+on: [ push, pull_request, workflow_dispatch ]
+
+permissions: {}
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.12", "3.13", "3.14" ]
+    name: pytest (Python ${{ matrix.python-version }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras --python ${{ matrix.python-version }}
+
+      # Network-dependent tests need a live OSH server (e.g. localhost:8282).
+      # They're tagged `@pytest.mark.network` and skipped here. The plan is
+      # to shim those with mocks; once a test no longer needs a real server,
+      # drop the marker and it will run in CI automatically.
+      - name: Run pytest
+        run: uv run --python ${{ matrix.python-version }} pytest -v -m "not network"
