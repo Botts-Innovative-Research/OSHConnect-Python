@@ -63,6 +63,41 @@ uv run interrogate -vv src/oshconnect          # per-symbol (shows which symbols
 Once we agree on a baseline, raise `[tool.interrogate].fail-under` from `0` so
 new code without docstrings starts failing locally and in CI.
 
+## OGC Format Serialization
+
+Format-explicit conversion methods on the wrapper classes (`System`,
+`Datastream`, `ControlStream`) and the underlying pydantic resource models.
+Use these to round-trip CS API server JSON in **SML+JSON**, **OM+JSON**, and
+**SWE+JSON** without having to remember the `model_dump(by_alias=True, …)`
+incantation, and to construct OSHConnect wrappers from raw server payloads.
+
+```python
+from oshconnect import Node, System, Datastream
+
+node = Node(protocol="http", address="localhost", port=8282)
+
+# Build a System from an SML+JSON server response
+sys_dict = {"type": "PhysicalSystem", "uniqueId": "urn:test:1", "label": "Sensor"}
+sys = System.from_csapi_dict(sys_dict, node)        # auto-detects SML vs GeoJSON
+sys.to_smljson_dict()                                # -> dict ready to POST
+
+# Build a Datastream from a CS API listing entry
+ds = Datastream.from_csapi_dict(ds_json, node)
+ds.to_csapi_dict()                                   # the resource body
+ds.schema_to_swejson_dict()                          # the SWE+JSON schema doc
+ds.observation_to_omjson_dict({"temperature": 22.5}) # one OM+JSON observation
+
+# Single observations / commands
+from oshconnect.resource_datamodels import ObservationResource
+obs = ObservationResource.from_omjson_dict(om_json_payload)
+obs.to_swejson_dict()                                # flat SWE+JSON record
+```
+
+The two older static factories `System.from_system_resource` and
+`Datastream.from_resource` are deprecated in favor of `from_csapi_dict` and
+emit `DeprecationWarning` on use. They'll be removed in a future major
+version.
+
 ## Generating the Docs
 
 The documentation is built with [MkDocs](https://www.mkdocs.org/) using the

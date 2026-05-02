@@ -93,7 +93,7 @@ class TimeUtils:
         :return:
         """
         if isinstance(a_time, float):
-            return datetime.fromtimestamp(a_time).strftime(TimeUtils.iso_format)
+            return datetime.fromtimestamp(a_time, tz=timezone.utc).strftime(TimeUtils.iso_format)
         elif isinstance(a_time, datetime):
             return a_time.strftime(TimeUtils.iso_format)
 
