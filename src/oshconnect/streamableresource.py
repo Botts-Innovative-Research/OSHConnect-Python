@@ -49,6 +49,8 @@ import logging
 import traceback
 import uuid
 import warnings
+
+import requests
 from abc import ABC
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1022,81 +1024,58 @@ class System(StreamableResource[SystemResource]):
         new_system.set_system_resource(system_resource)
         return new_system
 
+    @classmethod
+    def from_resource(cls, system_resource: SystemResource, parent_node: Node) -> "System":
+        """Build a `System` from an already-parsed `SystemResource`.
+
+        Mirror of `Datastream.__init__(parent_node=, datastream_resource=)`
+        and `ControlStream.__init__(node=, controlstream_resource=)` —
+        provides the same "I have a parsed pydantic resource model in
+        memory and want a wrapper attached to a node" entry point for
+        Systems, whose constructor takes individual fields rather than a
+        full resource model.
+
+        Handles both wire shapes that round-trip through `SystemResource`:
+        the GeoJSON form (with a ``properties`` block carrying
+        ``name``/``uid``) and the SML form (``label``/``uid`` directly on
+        the resource). Source of the resource doesn't matter — built
+        locally, validated from `from_smljson_dict` / `from_geojson_dict`
+        / `from_csapi_dict`, returned by some other library, etc.
+
+        :param system_resource: A populated `SystemResource` instance.
+        :param parent_node: The `Node` the new `System` will attach to.
+        :return: A `System` wrapper bound to ``parent_node`` with
+            ``_underlying_resource`` set to ``system_resource``.
+        """
+        return cls._construct_from_resource(system_resource, parent_node)
+
     @staticmethod
     def from_system_resource(system_resource: SystemResource, parent_node: Node) -> System:
         """Build a `System` from an already-parsed `SystemResource`.
 
         .. deprecated:: 0.5.1
-            Use :meth:`System.from_csapi_dict` (auto-detect),
-            :meth:`System.from_smljson_dict`, or
-            :meth:`System.from_geojson_dict` instead. Those accept the raw
-            CS API dict directly without the manual `model_validate` step.
+            Use :meth:`System.from_resource` instead — same behavior, more
+            consistent name with other wrappers' resource-taking factories.
 
         Handles both shapes the OSH server emits: the GeoJSON form (with a
         ``properties`` block carrying ``name``/``uid``) and the SML form
         (``label``/``uid`` directly on the resource).
         """
         warnings.warn(
-            "System.from_system_resource is deprecated; use System.from_csapi_dict "
-            "(auto-detect), from_smljson_dict, or from_geojson_dict instead.",
+            "System.from_system_resource is deprecated; use System.from_resource instead "
+            "(then dump it to a dict if you need wire JSON).",
             DeprecationWarning, stacklevel=2,
         )
         return System._construct_from_resource(system_resource, parent_node)
 
-    @classmethod
-    def from_smljson_dict(cls, data: dict, parent_node: Node) -> "System":
-        """Build a `System` from an `application/sml+json` dict (e.g., a
-        CS API server response body for a system in SML form)."""
-        resource = SystemResource.from_smljson_dict(data)
-        return cls._construct_from_resource(resource, parent_node)
-
-    @classmethod
-    def from_geojson_dict(cls, data: dict, parent_node: Node) -> "System":
-        """Build a `System` from an `application/geo+json` dict (e.g., a
-        CS API server response body for a system in GeoJSON form)."""
-        resource = SystemResource.from_geojson_dict(data)
-        return cls._construct_from_resource(resource, parent_node)
-
-    @classmethod
-    def from_csapi_dict(cls, data: dict, parent_node: Node) -> "System":
-        """Build a `System` from any CS API system dict, auto-dispatching on
-        the ``type`` field (``"PhysicalSystem"`` → SML+JSON,
-        ``"Feature"`` → GeoJSON, anything else → permissive validate)."""
-        resource = SystemResource.from_csapi_dict(data)
-        return cls._construct_from_resource(resource, parent_node)
-
-    def to_smljson_dict(self) -> dict:
-        """Render this system as an `application/sml+json` dict
-        (SensorML JSON) ready to POST to a CS API ``/systems`` endpoint."""
-        return self._underlying_resource.to_smljson_dict() if self._underlying_resource \
-            else self.to_system_resource().to_smljson_dict()
-
-    def to_smljson(self) -> str:
-        """JSON-string variant of `to_smljson_dict`."""
-        return json.dumps(self.to_smljson_dict())
-
-    def to_geojson_dict(self) -> dict:
-        """Render this system as an `application/geo+json` dict
-        (GeoJSON Feature shape)."""
-        return self._underlying_resource.to_geojson_dict() if self._underlying_resource \
-            else self.to_system_resource().to_geojson_dict()
-
-    def to_geojson(self) -> str:
-        """JSON-string variant of `to_geojson_dict`."""
-        return json.dumps(self.to_geojson_dict())
-
     def to_system_resource(self) -> SystemResource:
         """Render this `System` as a `SystemResource` pydantic model
-        suitable for POSTing to the server. Includes any attached
-        datastreams as ``outputs``.
+        suitable for POSTing to the server. Wrapper-specific: assembles
+        attached datastreams into the resource's ``outputs`` list.
         """
         resource = SystemResource(uid=self.urn, label=self.name, feature_type='PhysicalSystem')
-
-        if len(self.datastreams) > 0:
+        if self.datastreams:
             resource.outputs = [ds.get_underlying_resource() for ds in self.datastreams]
-
-        # if len(self.control_channels) > 0:
-        #     resource.inputs = [cc.to_resource() for cc in self.control_channels]
         return resource
 
     def set_system_resource(self, sys_resource: SystemResource):
@@ -1330,98 +1309,68 @@ class Datastream(StreamableResource[DatastreamResource]):
         """Build a `Datastream` from an already-parsed `DatastreamResource`.
 
         .. deprecated:: 0.5.1
-            Use :meth:`Datastream.from_csapi_dict` instead, which accepts
-            the raw CS API dict directly without the manual `model_validate`
-            step.
+            Use the constructor directly instead:
+            ``Datastream(parent_node=node, datastream_resource=ds_resource)``.
+            For raw JSON, parse first via ``DatastreamResource.from_csapi_dict(data)``.
         """
         warnings.warn(
-            "Datastream.from_resource is deprecated; use Datastream.from_csapi_dict instead.",
+            "Datastream.from_resource is deprecated; pass datastream_resource directly "
+            "to the constructor: Datastream(parent_node=node, datastream_resource=res). "
+            "For raw JSON, parse via DatastreamResource.from_csapi_dict(data) first.",
             DeprecationWarning, stacklevel=2,
         )
-        new_ds = Datastream(parent_node=parent_node, datastream_resource=ds_resource)
-        return new_ds
+        return Datastream(parent_node=parent_node, datastream_resource=ds_resource)
 
-    @classmethod
-    def from_csapi_dict(cls, data: dict, parent_node: Node) -> "Datastream":
-        """Build a `Datastream` from a CS API datastream dict (e.g., a server
-        response body or an entry from a ``/datastreams`` listing)."""
-        ds_resource = DatastreamResource.from_csapi_dict(data)
-        return cls(parent_node=parent_node, datastream_resource=ds_resource)
+    # ------------------------------------------------------------------
+    # Schema retrieval from CS API server (GET /datastreams/{id}/schema)
+    # ------------------------------------------------------------------
 
-    def to_csapi_dict(self) -> dict:
-        """Render this datastream as a CS API `application/json` resource
-        body (the same shape the server emits for ``/datastreams/{id}``).
-
-        The embedded ``schema`` field carries whichever variant
-        (`SWEDatastreamRecordSchema` or `JSONDatastreamRecordSchema`) the
-        datastream was constructed with.
+    def _fetch_schema_dict(self, obs_format: str) -> dict:
+        """Internal: GET ``/datastreams/{id}/schema?obsFormat={obs_format}``
+        through the parent node's APIHelper auth, return the JSON body.
+        Raises :class:`requests.HTTPError` on non-2xx responses.
         """
-        return self._underlying_resource.to_csapi_dict()
+        api = self._parent_node.get_api_helper()
+        url = f"{api.get_api_root_url()}/datastreams/{self._resource_id}/schema"
+        resp = requests.get(url, params={"obsFormat": obs_format},
+                            auth=api.get_helper_auth())
+        resp.raise_for_status()
+        return resp.json()
 
-    def to_csapi_json(self) -> str:
-        """JSON-string variant of `to_csapi_dict`."""
-        return self._underlying_resource.to_csapi_json()
+    def fetch_swejson_schema(self):
+        """Fetch this datastream's schema in `application/swe+json` form
+        from the server, parsed into a `SWEDatastreamRecordSchema`.
 
-    def schema_to_swejson_dict(self) -> dict:
-        """Return the embedded record schema as an `application/swe+json`
-        document. Raises if the underlying schema is OM+JSON."""
+        Hits ``GET /datastreams/{id}/schema?obsFormat=application/swe+json``.
+        Auth + base URL come from the parent `Node`'s `APIHelper`.
+        """
         from .schema_datamodels import SWEDatastreamRecordSchema
-        rs = self._underlying_resource.record_schema
-        if not isinstance(rs, SWEDatastreamRecordSchema):
-            raise TypeError(
-                "Datastream is not configured with a SWE+JSON schema; "
-                f"got {type(rs).__name__}. Use schema_to_omjson_dict() instead."
-            )
-        return rs.to_swejson_dict()
+        data = self._fetch_schema_dict(ObservationFormat.SWE_JSON.value)
+        return SWEDatastreamRecordSchema.from_swejson_dict(data)
 
-    def schema_to_omjson_dict(self) -> dict:
-        """Return the embedded record schema as an `application/om+json`
-        document. Raises if the underlying schema is SWE+JSON."""
+    def fetch_omjson_schema(self):
+        """Fetch this datastream's schema in `application/om+json` form
+        from the server, parsed into a `JSONDatastreamRecordSchema`.
+
+        Hits ``GET /datastreams/{id}/schema?obsFormat=application/om+json``.
+        """
         from .schema_datamodels import JSONDatastreamRecordSchema
-        rs = self._underlying_resource.record_schema
-        if not isinstance(rs, JSONDatastreamRecordSchema):
-            raise TypeError(
-                "Datastream is not configured with an OM+JSON schema; "
-                f"got {type(rs).__name__}. Use schema_to_swejson_dict() instead."
-            )
-        return rs.to_omjson_dict()
+        data = self._fetch_schema_dict(ObservationFormat.JSON.value)
+        return JSONDatastreamRecordSchema.from_omjson_dict(data)
 
-    def observation_to_omjson_dict(self, obs: ObservationResource | dict) -> dict:
-        """Render a single observation as an `application/om+json` payload.
+    def fetch_logical_schema(self):
+        """Fetch this datastream's schema in OSH's `obsFormat=logical` form
+        from the server, parsed into a `LogicalDatastreamRecordSchema`.
 
-        :param obs: An `ObservationResource` or a result dict
-            (``create_observation`` will be used to wrap the latter).
+        Hits ``GET /datastreams/{id}/schema?obsFormat=logical``. The
+        response is a JSON Schema document with OGC extension keywords
+        (``x-ogc-definition``, ``x-ogc-refFrame``, ``x-ogc-unit``,
+        ``x-ogc-axis``) carrying the SWE Common metadata. OSH-specific —
+        not in the OGC CS API spec.
         """
-        if isinstance(obs, dict):
-            obs = self.create_observation(obs)
-        return obs.to_omjson_dict(datastream_id=self._resource_id)
-
-    def observation_to_swejson_dict(self, obs: ObservationResource | dict) -> dict:
-        """Render a single observation as an `application/swe+json` payload
-        (a flat record matching the schema's field names)."""
-        if isinstance(obs, dict):
-            obs = self.create_observation(obs)
-        schema = None
-        rs = getattr(self._underlying_resource, 'record_schema', None)
-        if rs is not None:
-            schema = getattr(rs, 'record_schema', None)
-        return obs.to_swejson_dict(schema=schema)
-
-    @classmethod
-    def observation_from_omjson_dict(cls, data: dict) -> ObservationResource:
-        """Build an `ObservationResource` from an `application/om+json` dict."""
-        return ObservationResource.from_omjson_dict(data)
-
-    @classmethod
-    def observation_from_swejson_dict(cls, data: dict, schema=None,
-                                      result_time: str | None = None) -> ObservationResource:
-        """Build an `ObservationResource` from a SWE+JSON payload.
-
-        :param data: The flat SWE+JSON record dict.
-        :param schema: Optional schema, currently advisory.
-        :param result_time: ISO 8601 timestamp; defaults to now.
-        """
-        return ObservationResource.from_swejson_dict(data, schema=schema, result_time=result_time)
+        from .schema_datamodels import LogicalDatastreamRecordSchema
+        data = self._fetch_schema_dict("logical")
+        return LogicalDatastreamRecordSchema.from_logical_dict(data)
 
     def set_resource(self, resource: DatastreamResource):
         """Replace the underlying `DatastreamResource` model."""
@@ -1601,80 +1550,6 @@ class ControlStream(StreamableResource[ControlStreamResource]):
     def add_underlying_resource(self, resource: ControlStreamResource):
         """Replace the underlying `ControlStreamResource` model."""
         self._underlying_resource = resource
-
-    @classmethod
-    def from_csapi_dict(cls, data: dict, parent_node: Node) -> "ControlStream":
-        """Build a `ControlStream` from a CS API control-stream dict (e.g.,
-        a server response body or an entry from a ``/controlstreams``
-        listing)."""
-        cs_resource = ControlStreamResource.from_csapi_dict(data)
-        return cls(node=parent_node, controlstream_resource=cs_resource)
-
-    def to_csapi_dict(self) -> dict:
-        """Render this control stream as a CS API `application/json`
-        resource body. The embedded ``schema`` field carries whichever
-        variant (`SWEJSONCommandSchema` or `JSONCommandSchema`) the
-        control stream was constructed with.
-        """
-        return self._underlying_resource.to_csapi_dict()
-
-    def to_csapi_json(self) -> str:
-        """JSON-string variant of `to_csapi_dict`."""
-        return self._underlying_resource.to_csapi_json()
-
-    def schema_to_swejson_dict(self) -> dict:
-        """Return the embedded command schema as an `application/swe+json`
-        document. Raises if the underlying schema is JSON."""
-        from .schema_datamodels import SWEJSONCommandSchema
-        cs = self._underlying_resource.command_schema
-        if not isinstance(cs, SWEJSONCommandSchema):
-            raise TypeError(
-                "ControlStream is not configured with a SWE+JSON schema; "
-                f"got {type(cs).__name__}. Use schema_to_json_dict() instead."
-            )
-        return cs.to_swejson_dict()
-
-    def schema_to_json_dict(self) -> dict:
-        """Return the embedded command schema as an `application/json`
-        document. Raises if the underlying schema is SWE+JSON."""
-        cs = self._underlying_resource.command_schema
-        if not isinstance(cs, JSONCommandSchema):
-            raise TypeError(
-                "ControlStream is not configured with a JSON schema; "
-                f"got {type(cs).__name__}. Use schema_to_swejson_dict() instead."
-            )
-        return cs.to_json_dict()
-
-    def command_to_json_dict(self, payload: dict, sender: str | None = None) -> dict:
-        """Render a single command as an `application/json` payload
-        (the `CommandJSON` envelope: ``control@id``, ``issueTime``,
-        ``sender``, ``params``)."""
-        from .schema_datamodels import CommandJSON
-        cmd = CommandJSON(
-            control_id=self._resource_id,
-            sender=sender,
-            params=payload,
-        )
-        return cmd.to_csapi_dict()
-
-    def command_to_swejson_dict(self, payload: dict) -> dict:
-        """Render a single command as an `application/swe+json` payload
-        (a flat record matching the schema's field names)."""
-        return dict(payload)
-
-    @classmethod
-    def command_from_json_dict(cls, data: dict):
-        """Build a `CommandJSON` from an `application/json` command dict."""
-        from .schema_datamodels import CommandJSON
-        return CommandJSON.from_csapi_dict(data)
-
-    @classmethod
-    def command_from_swejson_dict(cls, data: dict, schema=None) -> dict:
-        """Build a command params dict from a SWE+JSON payload. Schema is
-        accepted for forward compatibility (per-field type coercion);
-        currently a passthrough."""
-        del schema
-        return dict(data)
 
     def init_mqtt(self):
         """Set ``self._topic`` to the control stream's command data topic."""

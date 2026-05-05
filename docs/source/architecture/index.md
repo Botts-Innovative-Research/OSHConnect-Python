@@ -2,6 +2,20 @@
 
 OSHConnect is structured around a small number of long-lived objects that mirror
 the resource hierarchy of the OGC API – Connected Systems specification.
+Start here for the 30-second tour; the subpages go into depth on the type
+system, the POST/insertion path, the in-process event bus, and how the OGC
+format methods slot together.
+
+```{toctree}
+:maxdepth: 1
+:caption: Deep dives
+
+class_hierarchy
+construction
+insertion
+events
+serialization
+```
 
 ## Object hierarchy
 
@@ -81,6 +95,9 @@ sequenceDiagram
     S-->>DS: observations → _inbound_deque
     Note over App,DS: To insert: resource.insert_self() →<br/>APIHelper.create_resource() → POST →<br/>server returns Location header with new ID
 ```
+
+For the inverse direction (creating resources server-side), see
+[Insertion sequence](insertion.md).
 
 ## Dependencies
 

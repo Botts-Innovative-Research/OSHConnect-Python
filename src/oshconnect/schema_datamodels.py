@@ -199,6 +199,69 @@ class JSONDatastreamRecordSchema(DatastreamRecordSchema):
         return cls.model_validate(data, by_alias=True)
 
 
+class LogicalProperty(BaseModel):
+    """One entry in `LogicalDatastreamRecordSchema.properties`.
+
+    The logical schema is OSH's JSON-Schema-flavored representation of a
+    SWE Common DataRecord. Each property is a JSON Schema field with
+    OGC extension keywords (`x-ogc-definition`, `x-ogc-refFrame`,
+    `x-ogc-unit`, `x-ogc-axis`) that carry the SWE Common metadata.
+
+    Permissive: ``extra='allow'`` accepts JSON Schema fields we haven't
+    modeled (e.g. ``description``, ``default``, ``minimum``, ``maximum``,
+    nested ``items`` for arrays).
+    """
+    model_config = ConfigDict(populate_by_name=True, extra='allow')
+
+    title: str = Field(None)
+    type: str = Field(...)            # "string" | "number" | "integer" | "boolean" | "object" | "array"
+    format: str = Field(None)         # e.g. "date-time"
+    enum: list = Field(None)
+    items: dict = Field(None)         # for type="array"
+    properties: dict = Field(None)    # for type="object" (nested)
+
+    # OGC SWE Common extensions (hyphenated keys → aliased)
+    ogc_definition: str = Field(None, alias='x-ogc-definition')
+    ogc_ref_frame: str = Field(None, alias='x-ogc-refFrame')
+    ogc_unit: str = Field(None, alias='x-ogc-unit')
+    ogc_axis: str = Field(None, alias='x-ogc-axis')
+
+
+class LogicalDatastreamRecordSchema(BaseModel):
+    """Logical schema document — OSH's `obsFormat=logical` representation.
+
+    Returned by ``GET /datastreams/{id}/schema?obsFormat=logical``. Distinct
+    from `SWEDatastreamRecordSchema` and `JSONDatastreamRecordSchema`:
+
+    - No ``obsFormat`` envelope field
+    - No ``recordSchema`` wrapper — the schema is the document
+    - JSON Schema flavor (``type: "object"`` + ``properties``) instead of
+      a SWE Common AnyComponent tree
+    - Each property carries SWE Common metadata via ``x-ogc-*`` extension
+      keywords
+
+    OSH-specific (not in the OGC CS API spec) but useful for tooling that
+    speaks JSON Schema natively. Permissive (``extra='allow'``) so future
+    JSON Schema fields don't break parsing.
+    """
+    model_config = ConfigDict(populate_by_name=True, extra='allow')
+
+    type: str = Field(...)            # always "object" for OSH datastream schemas
+    title: str = Field(None)
+    properties: dict[str, LogicalProperty] = Field(...)
+    required: list[str] = Field(None)
+
+    def to_logical_dict(self) -> dict:
+        """Render as an OSH `obsFormat=logical` JSON Schema dict."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_logical_dict(cls, data: dict) -> "LogicalDatastreamRecordSchema":
+        """Build from a logical schema dict (e.g., a CS API
+        ``/datastreams/{id}/schema?obsFormat=logical`` response body)."""
+        return cls.model_validate(data, by_alias=True)
+
+
 class ObservationOMJSONInline(BaseModel):
     """
     A class to represent an observation in OM-JSON format
