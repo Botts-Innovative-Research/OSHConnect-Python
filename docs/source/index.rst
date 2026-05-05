@@ -23,7 +23,7 @@ Lower-level CS API utilities are available from ``oshconnect.csapi4py``.
    :maxdepth: 2
    :caption: Contents
 
-   architecture
+   architecture/index
    tutorial
    api
 

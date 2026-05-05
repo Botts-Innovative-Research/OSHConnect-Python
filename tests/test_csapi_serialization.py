@@ -31,6 +31,7 @@ from oshconnect.schema_datamodels import (
     CommandJSON,
     JSONCommandSchema,
     JSONDatastreamRecordSchema,
+    LogicalDatastreamRecordSchema,
     ObservationOMJSONInline,
     SWEDatastreamRecordSchema,
     SWEJSONCommandSchema,
@@ -97,22 +98,55 @@ def test_system_smljson_fixture_round_trips():
         assert key in re_dumped
 
 
-def test_system_wrapper_from_smljson_dict_builds_attached_to_node(node):
-    raw = json.loads((FIXTURES_DIR / "fake_weather_system_smljson.json").read_text())
-    sys = System.from_smljson_dict(raw, node)
+def test_system_from_resource_attaches_to_node(node):
+    """`from_resource` is the canonical bridge from a parsed SystemResource
+    to a System wrapper, mirroring how Datastream/ControlStream's __init__
+    accept their parsed resource directly."""
+    res = SystemResource(
+        uid="urn:test:s1", label="S1", feature_type="PhysicalSystem",
+        system_id="ext-id-1",
+    )
+    sys = System.from_resource(res, node)
     assert isinstance(sys, System)
-    assert sys.urn == "urn:osh:sensor:fakeweather:001"
+    assert sys.urn == "urn:test:s1"
+    assert sys.label == "S1"
     assert sys.get_parent_node() is node
+    assert sys.get_system_resource() is res
 
 
-def test_system_wrapper_from_csapi_dict_dispatches_on_type(node):
-    raw_sml = json.loads((FIXTURES_DIR / "fake_weather_system_smljson.json").read_text())
-    raw_geo = {"type": "Feature", "id": "geo-1",
-               "properties": {"name": "GeoSys", "uid": "urn:test:geo"}}
-    sys_sml = System.from_csapi_dict(raw_sml, node)
-    sys_geo = System.from_csapi_dict(raw_geo, node)
-    assert sys_sml.urn == "urn:osh:sensor:fakeweather:001"
-    assert sys_geo.urn == "urn:test:geo"
+def test_system_from_resource_handles_geojson_shape(node):
+    """`from_resource` accepts a SystemResource regardless of which CS API
+    shape it was parsed from (GeoJSON vs SML+JSON). The properties-block
+    GeoJSON case routes name/uid through the `properties` dict."""
+    res = SystemResource(
+        feature_type="Feature",
+        system_id="ext-id-2",
+        properties={"name": "GeoSys", "uid": "urn:test:geo"},
+    )
+    sys = System.from_resource(res, node)
+    assert sys.urn == "urn:test:geo"
+    assert sys.name == "GeoSys"
+
+
+def test_system_full_chain_smljson_dict_to_resource_to_wrapper(node):
+    """End-to-end JSON -> SystemResource -> System chain. Format
+    conversion lives entirely on `SystemResource`; the wrapper only
+    knows how to bind a parsed resource to a parent node."""
+    raw = json.loads((FIXTURES_DIR / "fake_weather_system_smljson.json").read_text())
+    res = SystemResource.from_smljson_dict(raw)
+    sys = System.from_resource(res, node)
+    assert sys.urn == "urn:osh:sensor:fakeweather:001"
+    assert sys.get_system_resource() is res
+
+
+def test_system_full_chain_geojson_dict_to_resource_to_wrapper(node):
+    """End-to-end GeoJSON variant of the chain."""
+    raw = {"type": "Feature", "id": "geo-2",
+           "properties": {"name": "GeoSys2", "uid": "urn:test:geo:2"}}
+    res = SystemResource.from_geojson_dict(raw)
+    sys = System.from_resource(res, node)
+    assert sys.urn == "urn:test:geo:2"
+    assert sys.name == "GeoSys2"
 
 
 # ===========================================================================
@@ -139,37 +173,9 @@ def test_datastream_resource_round_trips():
     assert rebuilt.ds_id == "ds-001"
 
 
-def test_datastream_schema_to_swejson_dict_matches_fixture(node):
-    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text())
-    schema = SWEDatastreamRecordSchema.from_swejson_dict(raw)
-    ds_resource = DatastreamResource(
-        ds_id="ds-1", name="w",
-        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
-                              end="2099-12-31T00:00:00Z"),
-        record_schema=schema,
-    )
-    ds = Datastream(parent_node=node, datastream_resource=ds_resource)
-    out = ds.schema_to_swejson_dict()
-    assert out["obsFormat"] == "application/swe+json"
-    assert out["recordSchema"]["name"] == "weather"
-
-
-def test_datastream_schema_to_omjson_dict_matches_fixture(node):
-    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_omjson.json").read_text())
-    schema = JSONDatastreamRecordSchema.from_omjson_dict(raw)
-    ds_resource = DatastreamResource(
-        ds_id="ds-1", name="w",
-        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
-                              end="2099-12-31T00:00:00Z"),
-        record_schema=schema,
-    )
-    ds = Datastream(parent_node=node, datastream_resource=ds_resource)
-    out = ds.schema_to_omjson_dict()
-    assert out["obsFormat"] == "application/om+json"
-    assert out["resultSchema"]["name"] == "weather"
-
-
-def test_datastream_schema_methods_reject_wrong_variant(node):
+def test_datastream_schema_accessible_via_underlying_resource(node):
+    """Schema rendering lives on the schema model, not on the wrapper.
+    Users reach it via `ds._underlying_resource.record_schema.to_*_dict()`."""
     raw = json.loads((FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text())
     schema = SWEDatastreamRecordSchema.from_swejson_dict(raw)
     ds = Datastream(parent_node=node, datastream_resource=DatastreamResource(
@@ -178,8 +184,150 @@ def test_datastream_schema_methods_reject_wrong_variant(node):
                               end="2099-12-31T00:00:00Z"),
         record_schema=schema,
     ))
-    with pytest.raises(TypeError, match="OM\\+JSON"):
-        ds.schema_to_omjson_dict()
+    out = ds._underlying_resource.record_schema.to_swejson_dict()
+    assert out["obsFormat"] == "application/swe+json"
+    assert out["recordSchema"]["name"] == "weather"
+
+
+# ---------------------------------------------------------------------------
+# Logical schema (OSH's `obsFormat=logical` shape)
+# ---------------------------------------------------------------------------
+
+def test_logical_schema_round_trips_from_fixture():
+    """Parse OSH's logical schema (JSON Schema with x-ogc-* extensions),
+    re-dump it, and confirm the round-trip preserves all fields."""
+    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_logical.json").read_text())
+    schema = LogicalDatastreamRecordSchema.from_logical_dict(raw)
+
+    assert schema.type == "object"
+    assert schema.title == "New Simulated Weather Sensor - weather"
+    assert set(schema.properties.keys()) == {
+        "time", "temperature", "pressure", "windSpeed", "windDirection"
+    }
+
+    # OGC extensions parsed via aliases
+    temp = schema.properties["temperature"]
+    assert temp.type == "number"
+    assert temp.title == "Air Temperature"
+    assert temp.ogc_definition == "http://mmisw.org/ont/cf/parameter/air_temperature"
+    assert temp.ogc_unit == "Cel"
+
+    time = schema.properties["time"]
+    assert time.type == "string"
+    assert time.format == "date-time"
+    assert time.ogc_ref_frame == "http://www.opengis.net/def/trs/BIPM/0/UTC"
+
+    wind_dir = schema.properties["windDirection"]
+    assert wind_dir.ogc_axis == "z"
+
+    # Round-trip: dump back into wire form, deep-equal to fixture
+    dumped = schema.to_logical_dict()
+    assert dumped == raw
+
+
+def test_logical_schema_distinct_shape_from_swe_and_om():
+    """The logical fixture is structurally distinct: no `obsFormat`
+    envelope and no `recordSchema` wrapper. Parsing SWE+JSON / OM+JSON
+    fixtures through `LogicalDatastreamRecordSchema` (which requires the
+    JSON-Schema-style ``type`` + ``properties``) fails — confirming the
+    three models target genuinely different shapes."""
+    swe_raw = json.loads((FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text())
+    om_raw = json.loads((FIXTURES_DIR / "fake_weather_schema_omjson.json").read_text())
+    with pytest.raises(ValidationError):
+        LogicalDatastreamRecordSchema.from_logical_dict(swe_raw)
+    with pytest.raises(ValidationError):
+        LogicalDatastreamRecordSchema.from_logical_dict(om_raw)
+
+
+def test_logical_schema_permissive_extra_fields():
+    """JSON Schema fields we haven't modeled (description, default,
+    minimum, maximum, etc.) are accepted via ``extra='allow'`` so future
+    OSH additions don't break parsing."""
+    raw = {
+        "type": "object",
+        "title": "Test",
+        "description": "extra field, not modeled",
+        "properties": {
+            "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100,
+                "default": 50,
+                "x-ogc-unit": "Cel",
+            },
+        },
+    }
+    schema = LogicalDatastreamRecordSchema.from_logical_dict(raw)
+    # Extra fields preserved on the model
+    dumped = schema.to_logical_dict()
+    assert dumped["description"] == "extra field, not modeled"
+    assert dumped["properties"]["x"]["minimum"] == 0
+
+
+def test_datastream_fetch_logical_schema_hits_correct_endpoint(node, monkeypatch):
+    """Mock `requests.get` and verify `fetch_logical_schema()` constructs
+    the right URL + query param + auth, and routes the response through
+    `LogicalDatastreamRecordSchema`."""
+    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_logical.json").read_text())
+
+    captured = {}
+
+    class _MockResponse:
+        status_code = 200
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return raw
+
+    def _mock_get(url, params=None, auth=None, **kwargs):
+        captured["url"] = url
+        captured["params"] = params
+        captured["auth"] = auth
+        return _MockResponse()
+
+    monkeypatch.setattr("oshconnect.streamableresource.requests.get", _mock_get)
+
+    ds_resource = DatastreamResource(
+        ds_id="038s1ic7k460", name="weather",
+        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
+                              end="2099-12-31T00:00:00Z"),
+    )
+    ds = Datastream(parent_node=node, datastream_resource=ds_resource)
+    schema = ds.fetch_logical_schema()
+
+    assert isinstance(schema, LogicalDatastreamRecordSchema)
+    assert schema.title == "New Simulated Weather Sensor - weather"
+    # URL: /sensorhub/api/datastreams/{id}/schema, query: obsFormat=logical
+    assert captured["url"].endswith("/datastreams/038s1ic7k460/schema")
+    assert captured["params"] == {"obsFormat": "logical"}
+
+
+def test_datastream_fetch_swejson_schema_uses_correct_obsformat(node, monkeypatch):
+    """Symmetric: `fetch_swejson_schema()` requests the SWE+JSON format."""
+    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text())
+
+    captured = {}
+
+    class _MockResponse:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return raw
+
+    def _mock_get(url, params=None, auth=None, **kwargs):
+        captured["params"] = params
+        return _MockResponse()
+
+    monkeypatch.setattr("oshconnect.streamableresource.requests.get", _mock_get)
+
+    ds = Datastream(parent_node=node, datastream_resource=DatastreamResource(
+        ds_id="ds-x", name="w",
+        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
+                              end="2099-12-31T00:00:00Z"),
+    ))
+    schema = ds.fetch_swejson_schema()
+    assert isinstance(schema, SWEDatastreamRecordSchema)
+    assert captured["params"] == {"obsFormat": "application/swe+json"}
 
 
 def test_observation_to_omjson_round_trips():
@@ -212,15 +360,19 @@ def test_observation_to_swejson_round_trips():
     assert rebuilt.result == payload
 
 
-def test_datastream_observation_methods_attach_datastream_id(node):
-    ds_resource = DatastreamResource(
-        ds_id="ds-99", name="w",
-        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
-                              end="2099-12-31T00:00:00Z"),
+def test_observation_omjson_caller_supplies_datastream_id():
+    """ObservationResource.to_omjson_dict accepts an optional `datastream_id`
+    so the caller (typically wrapping code that knows the parent datastream)
+    can stamp it onto the OM+JSON envelope."""
+    obs = ObservationResource(
+        result={"temperature": 22.5},
+        result_time=TimeInstant.from_string("2025-06-01T12:00:00Z"),
     )
-    ds = Datastream(parent_node=node, datastream_resource=ds_resource)
-    payload = ds.observation_to_omjson_dict({"temperature": 22.5})
+    payload = obs.to_omjson_dict(datastream_id="ds-99")
     assert payload["datastream@id"] == "ds-99"
+    # When omitted, no datastream@id key in the output.
+    payload_bare = obs.to_omjson_dict()
+    assert "datastream@id" not in payload_bare
 
 
 # ===========================================================================
@@ -255,37 +407,14 @@ def test_controlstream_resource_round_trips():
     assert rebuilt.cs_id == "cs-001"
 
 
-def test_controlstream_schema_to_json_dict(node):
+def test_controlstream_schema_accessible_via_underlying_resource(node):
+    """Command schema rendering lives on the schema model. Users reach
+    it via `cs._underlying_resource.command_schema.to_json_dict()`."""
     cs_resource = _controlstream_resource_with_json_schema()
     cs = ControlStream(node=node, controlstream_resource=cs_resource)
-    out = cs.schema_to_json_dict()
+    out = cs._underlying_resource.command_schema.to_json_dict()
     assert out["commandFormat"] == "application/json"
     assert out["parametersSchema"]["name"] == "params"
-
-
-def test_controlstream_schema_methods_reject_wrong_variant(node):
-    cs_resource = _controlstream_resource_with_json_schema()
-    cs = ControlStream(node=node, controlstream_resource=cs_resource)
-    with pytest.raises(TypeError, match="SWE\\+JSON"):
-        cs.schema_to_swejson_dict()
-
-
-def test_controlstream_command_to_json_dict(node):
-    cs_resource = _controlstream_resource_with_json_schema()
-    cs = ControlStream(node=node, controlstream_resource=cs_resource)
-    out = cs.command_to_json_dict({"speed": 1.5}, sender="tester")
-    assert out["control@id"] == "cs-001"
-    assert out["sender"] == "tester"
-    assert out["params"] == {"speed": 1.5}
-
-
-def test_controlstream_command_to_swejson_round_trips(node):
-    cs_resource = _controlstream_resource_with_json_schema()
-    cs = ControlStream(node=node, controlstream_resource=cs_resource)
-    payload = cs.command_to_swejson_dict({"speed": 1.5})
-    assert payload == {"speed": 1.5}
-    rebuilt = ControlStream.command_from_swejson_dict(payload)
-    assert rebuilt == payload
 
 
 def test_command_json_round_trips():
@@ -320,7 +449,7 @@ def test_resource_to_csapi_matches_raw_model_dump(build, method):
 def test_system_from_system_resource_emits_deprecation_warning(node):
     raw = json.loads((FIXTURES_DIR / "fake_weather_system_smljson.json").read_text())
     res = SystemResource.from_smljson_dict(raw)
-    with pytest.warns(DeprecationWarning, match="from_csapi_dict"):
+    with pytest.warns(DeprecationWarning, match="from_resource"):
         sys = System.from_system_resource(res, node)
     assert sys.urn == "urn:osh:sensor:fakeweather:001"
 
@@ -331,6 +460,6 @@ def test_datastream_from_resource_emits_deprecation_warning(node):
         valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
                               end="2099-12-31T00:00:00Z"),
     )
-    with pytest.warns(DeprecationWarning, match="from_csapi_dict"):
+    with pytest.warns(DeprecationWarning, match="constructor"):
         ds = Datastream.from_resource(ds_resource, node)
     assert ds.get_id() == "ds-1"
