@@ -60,7 +60,7 @@ from uuid import UUID, uuid4
 
 from pydantic.alias_generators import to_camel
 
-from .csapi4py.constants import APIResourceTypes, ObservationFormat
+from .csapi4py.constants import APIResourceTypes
 from .csapi4py.constants import ContentTypes
 from .csapi4py.default_api_helpers import APIHelper
 from .csapi4py.mqtt import MQTTCommClient
@@ -69,7 +69,8 @@ from .events.builder import EventBuilder
 from .resource_datamodels import ControlStreamResource
 from .resource_datamodels import DatastreamResource, ObservationResource
 from .resource_datamodels import SystemResource
-from .schema_datamodels import JSONCommandSchema, SWEDatastreamRecordSchema
+from .encoding import JSONEncoding
+from .schema_datamodels import JSONCommandSchema, SWEDatastreamRecordSchema, SWEJSONCommandSchema
 from .swe_components import DataRecordSchema
 from .timemanagement import TimeInstant, TimePeriod, TimeUtils
 
@@ -990,15 +991,42 @@ class System(StreamableResource[SystemResource]):
         """GET ``/systems/{id}/controlstreams`` and instantiate `ControlStream`
         objects for every entry. New control streams are appended to
         ``self.control_channels`` and also returned.
+
+        For each discovered control stream we additionally fetch the
+        command schema (``GET /controlstreams/{id}/schema``, which OSH
+        returns as ``application/json`` with a ``parametersSchema``
+        SWE Common component) and cache it on
+        ``_underlying_resource.command_schema``. The CS API listing
+        endpoint omits the inner schema, so without this step every
+        discovered control stream would be missing the schema callers
+        need for command construction or cross-node sync. A failure on
+        a single control stream's schema fetch is downgraded to a
+        warning so it doesn't poison the whole call.
         """
-        res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
-                                                              APIResourceTypes.CONTROL_CHANNEL)
+        api = self._parent_node.get_api_helper()
+        res = api.get_resource(APIResourceTypes.SYSTEM, self._resource_id,
+                               APIResourceTypes.CONTROL_CHANNEL)
         controlstream_json = res.json()['items']
         controlstreams = []
 
         for cs_json in controlstream_json:
             controlstream_objs = ControlStreamResource.model_validate(cs_json)
             new_cs = ControlStream(self._parent_node, controlstream_objs)
+            try:
+                schema_resp = api.get_resource(
+                    APIResourceTypes.CONTROL_CHANNEL, controlstream_objs.cs_id,
+                    APIResourceTypes.SCHEMA,
+                )
+                schema_resp.raise_for_status()
+                new_cs._underlying_resource.command_schema = (
+                    JSONCommandSchema.from_json_dict(schema_resp.json())
+                )
+            except Exception as e:
+                warnings.warn(
+                    f"Failed to fetch command schema for control stream "
+                    f"{controlstream_objs.cs_id}: {e}",
+                    stacklevel=2,
+                )
             controlstreams.append(new_cs)
 
             if not [cs.get_underlying_resource() != controlstream_objs for cs in self.control_channels]:
@@ -1132,19 +1160,70 @@ class System(StreamableResource[SystemResource]):
         self.datastreams.append(new_ds)
         return new_ds
 
-    def add_and_insert_control_stream(self, control_stream_record_schema: DataRecordSchema, input_name: str = None,
-                                      valid_time: TimePeriod = None) -> ControlStream:
-        """Accepts a DataRecordSchema and creates a JSON encoded schema
-        structure ControlStreamResource, which is inserted into the parent
-        system via the host node.
+    def add_insert_controlstream(self, controlstream_resource: ControlStreamResource) -> ControlStream:
+        """Adds a control stream to the system while also inserting it into
+        the system's parent node via HTTP POST.
 
-        :param control_stream_record_schema: DataRecordSchema to be used for
-            the control stream. Must carry a ``name`` matching NameToken
-            (``^[A-Za-z][A-Za-z0-9_\\-]*$``); JSONCommandSchema.parametersSchema
-            is wrapped in SoftNamedProperty so the root component requires a
-            name.
-        :param input_name: Name of the input. If None, the schema label is
-            lowercased and whitespace-stripped.
+        Mirrors `add_insert_datastream`: caller assembles the full
+        `ControlStreamResource` (including the embedded `command_schema`
+        — a `JSONCommandSchema` for ``application/json`` or a
+        `SWEJSONCommandSchema` for ``application/swe+json``) and this
+        method posts it to ``/systems/{id}/controlstreams``, captures
+        the new resource ID from the ``Location`` header, and returns a
+        wrapped `ControlStream`.
+
+        :param controlstream_resource: A fully-built
+            `ControlStreamResource` carrying ``name``, ``input_name``,
+            and ``command_schema``.
+        :return: ControlStream object added to the system.
+        """
+        api = self._parent_node.get_api_helper()
+        res = api.create_resource(
+            APIResourceTypes.CONTROL_CHANNEL,
+            controlstream_resource.model_dump_json(by_alias=True, exclude_none=True),
+            req_headers={'Content-Type': ContentTypes.JSON.value},
+            parent_res_id=self._resource_id,
+        )
+
+        if res.ok:
+            cs_id = res.headers['Location'].split('/')[-1]
+            controlstream_resource.cs_id = cs_id
+        else:
+            raise Exception(
+                f'Failed to create control stream {controlstream_resource.name!r}: '
+                f'HTTP {res.status_code} — {res.text}'
+            )
+
+        new_cs = ControlStream(node=self._parent_node, controlstream_resource=controlstream_resource)
+        new_cs.set_parent_resource_id(self._underlying_resource.system_id)
+        self.control_channels.append(new_cs)
+        return new_cs
+
+    def add_and_insert_control_stream(self, control_stream_record_schema: DataRecordSchema, input_name: str = None,
+                                      valid_time: TimePeriod = None,
+                                      command_format: str = "application/swe+json") -> ControlStream:
+        """Accepts a DataRecordSchema and creates a ControlStreamResource
+        with the matching command-schema variant, then POSTs it to the
+        parent node.
+
+        Per CS API Part 2 §16.x, command schemas come in two wire forms:
+
+        - ``application/swe+json`` → `SWEJSONCommandSchema` carrying
+          `recordSchema` (the SWE Common component) and `encoding`
+          (`JSONEncoding`). This is the spec-compliant default.
+        - ``application/json`` → `JSONCommandSchema` carrying
+          `parametersSchema` (the SWE Common component); no `encoding`.
+
+        :param control_stream_record_schema: DataRecordSchema to wrap.
+            Must carry a ``name`` matching NameToken
+            (``^[A-Za-z][A-Za-z0-9_\\-]*$``); the schema is the root
+            named component required by both command-schema variants.
+        :param input_name: Name of the input. If None, the schema label
+            is lowercased and whitespace-stripped.
+        :param valid_time: Optional `TimePeriod`; defaults to
+            ``[now, now + 1 year]``.
+        :param command_format: ``"application/swe+json"`` (default) or
+            ``"application/json"``. Anything else raises ``ValueError``.
         :return: ControlStream object added to the system.
         """
         input_name_checked = input_name if input_name is not None else control_stream_record_schema.label.lower().replace(
@@ -1158,8 +1237,23 @@ class System(StreamableResource[SystemResource]):
                                                                       end=TimeInstant(
                                                                           utc_time=TimeUtils.to_utc_time(future_str)))
 
-        command_schema = JSONCommandSchema(command_format=ObservationFormat.SWE_JSON.value,
-                                           params_schema=control_stream_record_schema)
+        if command_format == "application/swe+json":
+            command_schema = SWEJSONCommandSchema(
+                command_format="application/swe+json",
+                record_schema=control_stream_record_schema,
+                encoding=JSONEncoding(),
+            )
+        elif command_format == "application/json":
+            command_schema = JSONCommandSchema(
+                command_format="application/json",
+                params_schema=control_stream_record_schema,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported command_format: {command_format!r}. "
+                f"Expected 'application/swe+json' or 'application/json'."
+            )
+
         control_stream_resource = ControlStreamResource(name=control_stream_record_schema.label,
                                                         input_name=input_name_checked, command_schema=command_schema,
                                                         validTime=valid_time_checked)
@@ -1170,10 +1264,12 @@ class System(StreamableResource[SystemResource]):
 
         if res.ok:
             control_channel_id = res.headers['Location'].split('/')[-1]
-            print(f'Control Stream Resource Location: {control_channel_id}')
             control_stream_resource.cs_id = control_channel_id
         else:
-            raise Exception(f'Failed to create control stream: {control_stream_resource.name}')
+            raise Exception(
+                f'Failed to create control stream {control_stream_resource.name!r}: '
+                f'HTTP {res.status_code} — {res.text}'
+            )
 
         new_cs = ControlStream(node=self._parent_node, controlstream_resource=control_stream_resource)
         new_cs.set_parent_resource_id(self._underlying_resource.system_id)
@@ -1488,6 +1584,10 @@ class ControlStream(StreamableResource[ControlStreamResource]):
     def add_underlying_resource(self, resource: ControlStreamResource):
         """Replace the underlying `ControlStreamResource` model."""
         self._underlying_resource = resource
+
+    def get_id(self) -> str:
+        """Return the server-side control-stream ID."""
+        return self._underlying_resource.cs_id
 
     def init_mqtt(self):
         """Set ``self._topic`` to the control stream's command data topic."""

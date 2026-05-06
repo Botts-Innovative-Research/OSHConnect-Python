@@ -124,9 +124,10 @@ A third schema model, `LogicalDatastreamRecordSchema`, covers OSH's
 extension keywords (`x-ogc-definition`, `x-ogc-refFrame`, `x-ogc-unit`,
 `x-ogc-axis`) carrying SWE Common metadata. Distinct from the SWE+JSON
 and OM+JSON envelopes (no `obsFormat` field, no `recordSchema`
-wrapper). See [Construction → "I want the schema for an existing
-datastream from the server"](construction.md) for the
-`Datastream.fetch_logical_schema()` method that retrieves it.
+wrapper). To retrieve it, use the per-`Node` `APIHelper`:
+`api.get_resource(APIResourceTypes.DATASTREAM, ds_id, APIResourceTypes.SCHEMA, params={'obsFormat': 'logical'})`,
+then parse the response with
+`LogicalDatastreamRecordSchema.from_logical_dict(...)`.
 
 ## Deprecated factories
 

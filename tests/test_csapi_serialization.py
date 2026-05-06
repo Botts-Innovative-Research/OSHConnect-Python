@@ -437,6 +437,13 @@ def test_command_json_round_trips():
     src = CommandJSON(control_id="cs-1", sender="me", params={"x": 1})
     dumped = src.to_csapi_dict()
     assert dumped["control@id"] == "cs-1"
+    # CS API Part 2 / OSH expects "parameters" on the wire, not "params".
+    # OSH returns 500 if the body uses "params" (verified against a live
+    # 8282 instance against the controllable-counter sample sensor).
+    assert dumped["parameters"] == {"x": 1}
+    assert "params" not in dumped, (
+        "CommandJSON must serialize as 'parameters' (CS API Part 2), not 'params'"
+    )
     rebuilt = CommandJSON.from_csapi_dict(dumped)
     assert rebuilt.params == {"x": 1}
 

@@ -128,7 +128,10 @@ class DataChoiceSchema(AnyComponentSchema):
     type: Literal["DataChoice"] = "DataChoice"
     updatable: bool = Field(False)
     optional: bool = Field(False)
-    choice_value: CategorySchema = Field(..., alias='choiceValue')  # TODO: Might be called "choiceValues"
+    # `choiceValue` carries a runtime selection (which item is active) and is
+    # absent from schema responses emitted by OpenSensorHub. See
+    # `docs/osh_spec_deviations.md` (datachoice-schema-missing-choicevalue).
+    choice_value: CategorySchema = Field(None, alias='choiceValue')
     items: list["AnyComponent"] = Field(...)
 
     @model_validator(mode="after")
