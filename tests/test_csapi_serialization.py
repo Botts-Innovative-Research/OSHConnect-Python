@@ -264,68 +264,84 @@ def test_logical_schema_permissive_extra_fields():
     assert dumped["properties"]["x"]["minimum"] == 0
 
 
-def test_datastream_fetch_logical_schema_hits_correct_endpoint(node, monkeypatch):
-    """Mock `requests.get` and verify `fetch_logical_schema()` constructs
-    the right URL + query param + auth, and routes the response through
-    `LogicalDatastreamRecordSchema`."""
+def test_retrieve_datastream_schema_logical_obsformat(monkeypatch):
+    """Schema retrieval lives as a free function in
+    ``oshconnect.api_helpers``, not on ``Datastream``. Callers pick the
+    schema variant via the ``obs_format`` query param. Verify the URL,
+    ``?obsFormat=logical`` query, and that the body parses as
+    ``LogicalDatastreamRecordSchema``.
+    """
+    from oshconnect.api_helpers import retrieve_datastream_schema
+
     raw = json.loads((FIXTURES_DIR / "fake_weather_schema_logical.json").read_text())
 
     captured = {}
 
     class _MockResponse:
         status_code = 200
+
         def raise_for_status(self):
             pass
+
         def json(self):
             return raw
 
-    def _mock_get(url, params=None, auth=None, **kwargs):
-        captured["url"] = url
+    def _mock_get(url, params=None, headers=None, auth=None, **kwargs):
+        captured["url"] = str(url)
         captured["params"] = params
         captured["auth"] = auth
         return _MockResponse()
 
-    monkeypatch.setattr("oshconnect.streamableresource.requests.get", _mock_get)
-
-    ds_resource = DatastreamResource(
-        ds_id="038s1ic7k460", name="weather",
-        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
-                              end="2099-12-31T00:00:00Z"),
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.get", _mock_get,
     )
-    ds = Datastream(parent_node=node, datastream_resource=ds_resource)
-    schema = ds.fetch_logical_schema()
+
+    resp = retrieve_datastream_schema(
+        "http://localhost:8282/sensorhub", "038s1ic7k460",
+        obs_format="logical",
+    )
+    schema = LogicalDatastreamRecordSchema.from_logical_dict(resp.json())
 
     assert isinstance(schema, LogicalDatastreamRecordSchema)
     assert schema.title == "New Simulated Weather Sensor - weather"
-    # URL: /sensorhub/api/datastreams/{id}/schema, query: obsFormat=logical
     assert captured["url"].endswith("/datastreams/038s1ic7k460/schema")
     assert captured["params"] == {"obsFormat": "logical"}
 
 
-def test_datastream_fetch_swejson_schema_uses_correct_obsformat(node, monkeypatch):
-    """Symmetric: `fetch_swejson_schema()` requests the SWE+JSON format."""
+def test_retrieve_datastream_schema_swejson_obsformat(monkeypatch):
+    """Symmetric to the logical-format test: SWE+JSON variant goes
+    through the same ``retrieve_datastream_schema`` helper, picked via
+    ``obs_format='application/swe+json'``. The body parses as
+    ``SWEDatastreamRecordSchema``.
+    """
+    from oshconnect.api_helpers import retrieve_datastream_schema
+
     raw = json.loads((FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text())
 
     captured = {}
 
     class _MockResponse:
+        status_code = 200
+
         def raise_for_status(self):
             pass
+
         def json(self):
             return raw
 
-    def _mock_get(url, params=None, auth=None, **kwargs):
+    def _mock_get(url, params=None, headers=None, auth=None, **kwargs):
         captured["params"] = params
         return _MockResponse()
 
-    monkeypatch.setattr("oshconnect.streamableresource.requests.get", _mock_get)
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.get", _mock_get,
+    )
 
-    ds = Datastream(parent_node=node, datastream_resource=DatastreamResource(
-        ds_id="ds-x", name="w",
-        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
-                              end="2099-12-31T00:00:00Z"),
-    ))
-    schema = ds.fetch_swejson_schema()
+    resp = retrieve_datastream_schema(
+        "http://localhost:8282/sensorhub", "ds-x",
+        obs_format="application/swe+json",
+    )
+    schema = SWEDatastreamRecordSchema.from_swejson_dict(resp.json())
     assert isinstance(schema, SWEDatastreamRecordSchema)
     assert captured["params"] == {"obsFormat": "application/swe+json"}
 

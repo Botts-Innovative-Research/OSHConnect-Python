@@ -58,7 +58,6 @@ from multiprocessing.queues import Queue
 from typing import TypeVar, Generic, Union
 from uuid import UUID, uuid4
 
-import requests
 from pydantic.alias_generators import to_camel
 
 from .csapi4py.constants import APIResourceTypes, ObservationFormat
@@ -70,7 +69,7 @@ from .events.builder import EventBuilder
 from .resource_datamodels import ControlStreamResource
 from .resource_datamodels import DatastreamResource, ObservationResource
 from .resource_datamodels import SystemResource
-from .schema_datamodels import JSONCommandSchema
+from .schema_datamodels import JSONCommandSchema, SWEDatastreamRecordSchema
 from .swe_components import DataRecordSchema
 from .timemanagement import TimeInstant, TimePeriod, TimeUtils
 
@@ -955,8 +954,9 @@ class System(StreamableResource[SystemResource]):
         datastream's schema fetch is downgraded to a warning so it doesn't
         poison the whole call.
         """
-        res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
-                                                              APIResourceTypes.DATASTREAM)
+        api = self._parent_node.get_api_helper()
+        res = api.get_resource(APIResourceTypes.SYSTEM, self._resource_id,
+                               APIResourceTypes.DATASTREAM)
         datastream_json = res.json()['items']
         datastreams = []
 
@@ -964,7 +964,15 @@ class System(StreamableResource[SystemResource]):
             datastream_objs = DatastreamResource.model_validate(ds, by_alias=True)
             new_ds = Datastream(self._parent_node, datastream_objs)
             try:
-                new_ds._underlying_resource.record_schema = new_ds.fetch_swejson_schema()
+                schema_resp = api.get_resource(
+                    APIResourceTypes.DATASTREAM, datastream_objs.ds_id,
+                    APIResourceTypes.SCHEMA,
+                    params={'obsFormat': 'application/swe+json'},
+                )
+                schema_resp.raise_for_status()
+                new_ds._underlying_resource.record_schema = (
+                    SWEDatastreamRecordSchema.from_swejson_dict(schema_resp.json())
+                )
             except Exception as e:
                 warnings.warn(
                     f"Failed to fetch SWE+JSON schema for datastream "
@@ -1304,56 +1312,6 @@ class Datastream(StreamableResource[DatastreamResource]):
             DeprecationWarning, stacklevel=2,
         )
         return Datastream(parent_node=parent_node, datastream_resource=ds_resource)
-
-    # ------------------------------------------------------------------
-    # Schema retrieval from CS API server (GET /datastreams/{id}/schema)
-    # ------------------------------------------------------------------
-
-    def _fetch_schema_dict(self, obs_format: str) -> dict:
-        """Internal: GET ``/datastreams/{id}/schema?obsFormat={obs_format}``
-        through the parent node's APIHelper auth, return the JSON body.
-        Raises :class:`requests.HTTPError` on non-2xx responses.
-        """
-        api = self._parent_node.get_api_helper()
-        url = f"{api.get_api_root_url()}/datastreams/{self._resource_id}/schema"
-        resp = requests.get(url, params={"obsFormat": obs_format}, auth=api.get_helper_auth())
-        resp.raise_for_status()
-        return resp.json()
-
-    def fetch_swejson_schema(self):
-        """Fetch this datastream's schema in `application/swe+json` form
-        from the server, parsed into a `SWEDatastreamRecordSchema`.
-
-        Hits ``GET /datastreams/{id}/schema?obsFormat=application/swe+json``.
-        Auth + base URL come from the parent `Node`'s `APIHelper`.
-        """
-        from .schema_datamodels import SWEDatastreamRecordSchema
-        data = self._fetch_schema_dict(ObservationFormat.SWE_JSON.value)
-        return SWEDatastreamRecordSchema.from_swejson_dict(data)
-
-    def fetch_omjson_schema(self):
-        """Fetch this datastream's schema in `application/om+json` form
-        from the server, parsed into an `OMJSONDatastreamRecordSchema`.
-
-        Hits ``GET /datastreams/{id}/schema?obsFormat=application/om+json``.
-        """
-        from .schema_datamodels import OMJSONDatastreamRecordSchema
-        data = self._fetch_schema_dict(ObservationFormat.JSON.value)
-        return OMJSONDatastreamRecordSchema.from_omjson_dict(data)
-
-    def fetch_logical_schema(self):
-        """Fetch this datastream's schema in OSH's `obsFormat=logical` form
-        from the server, parsed into a `LogicalDatastreamRecordSchema`.
-
-        Hits ``GET /datastreams/{id}/schema?obsFormat=logical``. The
-        response is a JSON Schema document with OGC extension keywords
-        (``x-ogc-definition``, ``x-ogc-refFrame``, ``x-ogc-unit``,
-        ``x-ogc-axis``) carrying the SWE Common metadata. OSH-specific —
-        not in the OGC CS API spec.
-        """
-        from .schema_datamodels import LogicalDatastreamRecordSchema
-        data = self._fetch_schema_dict("logical")
-        return LogicalDatastreamRecordSchema.from_logical_dict(data)
 
     def set_resource(self, resource: DatastreamResource):
         """Replace the underlying `DatastreamResource` model."""

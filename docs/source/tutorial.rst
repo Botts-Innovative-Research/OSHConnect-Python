@@ -62,6 +62,68 @@ To connect a node with MQTT support for streaming:
    app.add_node(node)
 
 
+Authentication
+--------------
+OSHConnect speaks **HTTP Basic Auth** to OGC CS API servers. There is no
+bearer-token, OAuth, or API-key flow — the underlying ``requests``
+library carries credentials as a ``(username, password)`` tuple.
+
+For a secured server, pass ``username`` and ``password`` to ``Node``:
+
+.. code-block:: python
+
+   node = Node(protocol='https', address='sensors.example.org', port=443,
+               username='alice', password='s3cret')
+
+Every HTTP call the node makes — discovery, resource creation, schema
+fetches — automatically carries those credentials. Internally, the node
+constructs an ``APIHelper`` that holds the credentials and reads them
+back via ``get_helper_auth()`` on each request. The same credentials
+also flow into the MQTT client when ``enable_mqtt=True``.
+
+For an unsecured server (e.g., a local OSH dev instance), simply omit
+``username`` and ``password``:
+
+.. code-block:: python
+
+   node = Node(protocol='http', address='localhost', port=8585)
+
+If the server has been secured but you forget to provide credentials,
+each request will return ``401 Unauthorized`` from the server — no
+exception is raised by the library; inspect the response status.
+
+Lower-level usage (free helpers)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For one-off scripts or when you don't want a full ``Node`` /
+``OSHConnect`` setup, the module-level helpers in
+``oshconnect.api_helpers`` mirror each CS API endpoint and accept an
+optional ``auth`` tuple plus optional ``headers`` dict. Every helper
+returns a ``requests.Response`` object:
+
+.. code-block:: python
+
+   from oshconnect.api_helpers import list_all_systems, create_new_systems
+
+   resp = list_all_systems(
+       'http://sensors.example.org/sensorhub',
+       auth=('alice', 's3cret'),
+   )
+   resp.raise_for_status()
+   systems = resp.json()['items']
+
+   created = create_new_systems(
+       'http://sensors.example.org/sensorhub',
+       request_body={'name': 'Sensor #1', 'uid': 'urn:test:sensor:1'},
+       auth=('alice', 's3cret'),
+       headers={'Content-Type': 'application/sml+json'},
+   )
+   new_id = created.headers['Location'].rsplit('/', 1)[-1]
+
+Omit ``auth`` to call an unsecured endpoint. For application code,
+prefer the ``Node`` / ``APIHelper`` path so credentials are configured
+once at the node boundary instead of threaded through every call site.
+
+
 Discovery
 ---------
 

@@ -120,9 +120,10 @@ class _MockResponse:
 
 
 def _install_dispatching_get(monkeypatch, listing_payload, schema_handler):
-    """Patch ``requests.get`` at both modules discovery touches:
-       - ``oshconnect.csapi4py.request_wrappers.requests.get`` → listing
-       - ``oshconnect.streamableresource.requests.get`` → /schema
+    """Patch ``requests.get`` at the single point both discovery calls
+    funnel through (``oshconnect.csapi4py.request_wrappers.requests.get``).
+    Both the system-scoped listing and the per-datastream schema fetch
+    now go through ``APIHelper.get_resource`` → ``make_request``.
 
     ``schema_handler(ds_id) -> _MockResponse`` is invoked per-datastream
     so a single test can vary failure modes per ds_id.
@@ -137,9 +138,6 @@ def _install_dispatching_get(monkeypatch, listing_payload, schema_handler):
 
     monkeypatch.setattr(
         "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
-    )
-    monkeypatch.setattr(
-        "oshconnect.streamableresource.requests.get", mock_get,
     )
 
 
