@@ -156,7 +156,7 @@ classDiagram
         +encoding: Encoding
         +record_schema: AnyComponent
     }
-    class JSONDatastreamRecordSchema {
+    class OMJSONDatastreamRecordSchema {
         +obs_format = "application/om+json"
         +result_schema: AnyComponent
         +parameters_schema: AnyComponent
@@ -179,7 +179,7 @@ classDiagram
     }
 
     DatastreamRecordSchema <|-- SWEDatastreamRecordSchema
-    DatastreamRecordSchema <|-- JSONDatastreamRecordSchema
+    DatastreamRecordSchema <|-- OMJSONDatastreamRecordSchema
     CommandSchema <|-- SWEJSONCommandSchema
     CommandSchema <|-- JSONCommandSchema
 ```

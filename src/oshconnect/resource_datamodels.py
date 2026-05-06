@@ -209,10 +209,13 @@ class DatastreamResource(BaseModel):
     feature_of_interest_link: Link = Field(None, alias="featureOfInterest@link")
     sampling_feature_link: Link = Field(None, alias="samplingFeature@link")
     parameters: dict = Field(None)
-    phenomenon_time: TimePeriod = Field(None, alias="phenomenonTimeInterval")
+    phenomenon_time: TimePeriod = Field(None, alias="phenomenonTime")
     result_time: TimePeriod = Field(None, alias="resultTimeInterval")
     ds_type: str = Field(None, alias="type")
     result_type: str = Field(None, alias="resultType")
+    formats: List[str] = Field(default_factory=list)
+    observed_properties: List[dict] = Field(default_factory=list, alias="observedProperties")
+    system_id: str = Field(None, alias="system@id")
     links: List[Link] = Field(None)
     record_schema: SerializeAsAny[DatastreamRecordSchema] = Field(None, alias="schema")
 
@@ -236,7 +239,7 @@ class DatastreamResource(BaseModel):
         """Render this datastream as the CS API `application/json` resource
         body. The embedded ``schema`` field is dumped polymorphically per
         whichever variant (`SWEDatastreamRecordSchema` /
-        `JSONDatastreamRecordSchema`) it holds.
+        `OMJSONDatastreamRecordSchema`) it holds.
         """
         return self.model_dump(by_alias=True, exclude_none=True, mode='json')
 

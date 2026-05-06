@@ -33,7 +33,7 @@ from .swe_components import (
     QuantityRangeSchema,
     TimeRangeSchema,
 )
-from .schema_datamodels import SWEDatastreamRecordSchema, JSONDatastreamRecordSchema, JSONCommandSchema
+from .schema_datamodels import SWEDatastreamRecordSchema, OMJSONDatastreamRecordSchema, JSONCommandSchema
 
 # Event system
 from .events import EventHandler, IEventListener, CallbackListener, DefaultEventTypes, AtomicEventTypes, Event, EventBuilder
@@ -76,7 +76,7 @@ __all__ = [
     "QuantityRangeSchema",
     "TimeRangeSchema",
     "SWEDatastreamRecordSchema",
-    "JSONDatastreamRecordSchema",
+    "OMJSONDatastreamRecordSchema",
     "JSONCommandSchema",
     # Event system
     "EventHandler",
