@@ -49,31 +49,28 @@ import logging
 import traceback
 import uuid
 import warnings
-
-import requests
 from abc import ABC
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from multiprocessing import Process
 from multiprocessing.queues import Queue
 from typing import TypeVar, Generic, Union
 from uuid import UUID, uuid4
-from collections import deque
 
+import requests
 from pydantic.alias_generators import to_camel
 
+from .csapi4py.constants import APIResourceTypes, ObservationFormat
 from .csapi4py.constants import ContentTypes
+from .csapi4py.default_api_helpers import APIHelper
+from .csapi4py.mqtt import MQTTCommClient
 from .events import EventHandler, DefaultEventTypes
 from .events.builder import EventBuilder
-from .schema_datamodels import JSONCommandSchema
-from .csapi4py.mqtt import MQTTCommClient
-from .csapi4py.constants import APIResourceTypes, ObservationFormat
-from .csapi4py.default_api_helpers import APIHelper
-from .encoding import JSONEncoding
 from .resource_datamodels import ControlStreamResource
 from .resource_datamodels import DatastreamResource, ObservationResource
 from .resource_datamodels import SystemResource
-from .schema_datamodels import SWEDatastreamRecordSchema
+from .schema_datamodels import JSONCommandSchema
 from .swe_components import DataRecordSchema
 from .timemanagement import TimeInstant, TimePeriod, TimeUtils
 
@@ -220,11 +217,9 @@ class Node:
     _mqtt_client: MQTTCommClient
     _mqtt_port: int = 1883
 
-    def __init__(self, protocol: str, address: str, port: int,
-                 username: str = None, password: str = None, server_root: str = 'sensorhub',
-                 api_root: str = 'api', mqtt_topic_root: str = None,
-                 session_manager: SessionManager = None,
-                 enable_mqtt: bool = False, mqtt_port: int = 1883):
+    def __init__(self, protocol: str, address: str, port: int, username: str = None, password: str = None,
+                 server_root: str = 'sensorhub', api_root: str = 'api', mqtt_topic_root: str = None,
+                 session_manager: SessionManager = None, enable_mqtt: bool = False, mqtt_port: int = 1883):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
@@ -235,14 +230,10 @@ class Node:
             self.add_basicauth(username, password)
         self.endpoints = Endpoints()
         self._api_helper = APIHelper(
-            server_url=self.address,
-            protocol=self.protocol,
-            port=self.port,
-            server_root=self.server_root,
-            api_root=api_root,
-            mqtt_topic_root=mqtt_topic_root,
-            username=username,
-            password=password)
+            server_url=self.address, protocol=self.protocol, port=self.port,
+            server_root=self.server_root, api_root=api_root, mqtt_topic_root=mqtt_topic_root,
+            username=username, password=password,
+        )
         if self.is_secure:
             self._api_helper.user_auth = True
         self._systems = []
@@ -254,9 +245,8 @@ class Node:
 
         if enable_mqtt:
             self._mqtt_port = mqtt_port
-            self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port,
-                                               username=username, password=password,
-                                               client_id_suffix=uuid.uuid4().hex, )
+            self._mqtt_client = MQTTCommClient(url=self.address, port=self._mqtt_port, username=username,
+                                               password=password, client_id_suffix=uuid.uuid4().hex, )
             self._mqtt_client.connect()
             self._mqtt_client.start()
 
@@ -280,8 +270,7 @@ class Node:
         """Attach Basic-Auth credentials and mark the node as secure."""
         if not self.is_secure:
             self.is_secure = True
-        self._basic_auth = base64.b64encode(
-            f"{username}:{password}".encode('utf-8'))
+        self._basic_auth = base64.b64encode(f"{username}:{password}".encode('utf-8'))
 
     def get_decoded_auth(self) -> str:
         """Return the Base64 Basic-Auth header value as a UTF-8 string."""
@@ -304,8 +293,7 @@ class Node:
         :return: List of newly-created `System` objects, or ``None`` if
             the HTTP request failed.
         """
-        result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM,
-                                                    req_headers={})
+        result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM, req_headers={})
         if result.ok:
             new_systems = []
             system_objs = result.json()['items']
@@ -448,11 +436,8 @@ class Node:
             in ``_systems`` was originally registered.
         """
         node = cls(
-            protocol=data["protocol"],
-            address=data["address"],
-            port=data["port"],
-            username=data.get("username"),
-            password=data.get("password"),
+            protocol=data["protocol"], address=data["address"], port=data["port"],
+            username=data.get("username"), password=data.get("password"),
             server_root=data.get("server_root", "sensorhub"),
             api_root=data.get("api_root", "api"),
             mqtt_topic_root=data.get("mqtt_topic_root"),
@@ -567,8 +552,7 @@ class StreamableResource(Generic[T], ABC):
         res_id = getattr(self._underlying_resource, "ds_id", None) or getattr(self._underlying_resource, "cs_id", None)
         self.ws_url = self._parent_node.get_api_helper().construct_url(resource_type=resource_type,
                                                                        subresource_type=APIResourceTypes.OBSERVATION,
-                                                                       resource_id=res_id,
-                                                                       subresource_id=None)
+                                                                       resource_id=res_id, subresource_id=None)
         self._msg_reader_queue = asyncio.Queue()
         self._msg_writer_queue = asyncio.Queue()
         self.init_mqtt()
@@ -665,10 +649,8 @@ class StreamableResource(Generic[T], ABC):
                 case _:
                     raise ValueError(f"Unsupported subresource type {subresource} for SystemResource.")
 
-        topic = self._parent_node.get_api_helper().get_mqtt_topic(subresource_type=resource_type,
-                                                                  resource_id=parent_id,
-                                                                  resource_type=parent_res_type,
-                                                                  data_topic=data_topic)
+        topic = self._parent_node.get_api_helper().get_mqtt_topic(subresource_type=resource_type, resource_id=parent_id,
+                                                                  resource_type=parent_res_type, data_topic=data_topic)
         return topic
 
     def get_event_topic(self) -> str:
@@ -963,6 +945,15 @@ class System(StreamableResource[SystemResource]):
         """GET ``/systems/{id}/datastreams`` and instantiate `Datastream`
         objects for every entry. New datastreams are appended to
         ``self.datastreams`` and also returned.
+
+        For each discovered datastream we additionally fetch the SWE+JSON
+        record schema (``GET /datastreams/{id}/schema?obsFormat=application/swe+json``)
+        and cache it on ``_underlying_resource.record_schema``. The CS API
+        listing endpoint omits the inner schema, so without this step every
+        discovered datastream would be missing the schema callers need for
+        observation construction or cross-node sync. A failure on a single
+        datastream's schema fetch is downgraded to a warning so it doesn't
+        poison the whole call.
         """
         res = self._parent_node.get_api_helper().get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                                               APIResourceTypes.DATASTREAM)
@@ -972,6 +963,14 @@ class System(StreamableResource[SystemResource]):
         for ds in datastream_json:
             datastream_objs = DatastreamResource.model_validate(ds, by_alias=True)
             new_ds = Datastream(self._parent_node, datastream_objs)
+            try:
+                new_ds._underlying_resource.record_schema = new_ds.fetch_swejson_schema()
+            except Exception as e:
+                warnings.warn(
+                    f"Failed to fetch SWE+JSON schema for datastream "
+                    f"{datastream_objs.ds_id}: {e}",
+                    stacklevel=2,
+                )
             datastreams.append(new_ds)
 
             if not [ds.get_underlying_resource() != datastream_objs for ds in self.datastreams]:
@@ -1012,13 +1011,10 @@ class System(StreamableResource[SystemResource]):
         # label/uid directly on the resource.
         if other_props.get('properties'):
             props = other_props['properties']
-            new_system = cls(name=props.get('name'),
-                             label=props.get('name'),
-                             urn=props.get('uid'),
+            new_system = cls(name=props.get('name'), label=props.get('name'), urn=props.get('uid'),
                              resource_id=system_resource.system_id, parent_node=parent_node)
         else:
-            new_system = cls(name=system_resource.label,
-                             label=system_resource.label, urn=system_resource.uid,
+            new_system = cls(name=system_resource.label, label=system_resource.label, urn=system_resource.uid,
                              resource_id=system_resource.system_id, parent_node=parent_node)
 
         new_system.set_system_resource(system_resource)
@@ -1061,11 +1057,8 @@ class System(StreamableResource[SystemResource]):
         ``properties`` block carrying ``name``/``uid``) and the SML form
         (``label``/``uid`` directly on the resource).
         """
-        warnings.warn(
-            "System.from_system_resource is deprecated; use System.from_resource instead "
-            "(then dump it to a dict if you need wire JSON).",
-            DeprecationWarning, stacklevel=2,
-        )
+        warnings.warn("System.from_system_resource is deprecated; use System.from_resource instead "
+                      "(then dump it to a dict if you need wire JSON).", DeprecationWarning, stacklevel=2, )
         return System._construct_from_resource(system_resource, parent_node)
 
     def to_system_resource(self) -> SystemResource:
@@ -1086,47 +1079,47 @@ class System(StreamableResource[SystemResource]):
         """Return the underlying `SystemResource` model."""
         return self._underlying_resource
 
-    def add_insert_datastream(self, datarecord_schema: DataRecordSchema):
+    def add_insert_datastream(self, datastream_schema: DatastreamResource):
         """Adds a datastream to the system while also inserting it into the
         system's parent node via HTTP POST.
 
-        :param datarecord_schema: DataRecordSchema to be used to define the
+        :param datastream_schema: DataRecordSchema to be used to define the
             datastream. Must carry a ``name`` matching NameToken
             (``^[A-Za-z][A-Za-z0-9_\\-]*$``); SWE Common 3 wraps
             DataStream.elementType in SoftNamedProperty, so the root
             component requires a name.
         :return:
         """
-        print(f'Adding datastream: {datarecord_schema.model_dump_json(exclude_none=True, by_alias=True)}')
+        print(f'Adding datastream: {datastream_schema.model_dump_json(exclude_none=True, by_alias=True)}')
         # Make the request to add the datastream
         # if successful, add the datastream to the system
-        datastream_schema = SWEDatastreamRecordSchema(record_schema=datarecord_schema,
-                                                      obs_format='application/swe+json',
-                                                      encoding=JSONEncoding())
-        datastream_resource = DatastreamResource(ds_id="default", name=datarecord_schema.label,
-                                                 output_name=datarecord_schema.label,
-                                                 record_schema=datastream_schema,
-                                                 valid_time=TimePeriod(start=TimeInstant.now_as_time_instant(),
-                                                                       end=TimeInstant(utc_time=TimeUtils.to_utc_time(
-                                                                           "2026-12-31T00:00:00Z"))))
+        # datastream_record_schema = SWEDatastreamRecordSchema(record_schema=datastream_schema,
+        #                                                      obs_format='application/swe+json', encoding=JSONEncoding())
+        # datastream_resource = DatastreamResource(ds_id="default", name=datastream_schema.name,
+        #                                          output_name=datastream_schema.name,
+        #                                          record_schema=datastream_record_schema,
+        #                                          valid_time=TimePeriod(start=TimeInstant.now_as_time_instant(),
+        #                                                                end=TimeInstant(utc_time=TimeUtils.to_utc_time(
+        #                                                                    "2026-12-31T00:00:00Z"))))
 
         api = self._parent_node.get_api_helper()
-        print(
-            f'Attempting to create datastream: {datastream_resource.model_dump(by_alias=True, exclude_none=True)}')
+        # print(f'Attempting to create datastream: {datastream_resource.model_dump(by_alias=True, exclude_none=True)}')
         res = api.create_resource(APIResourceTypes.DATASTREAM,
-                                  datastream_resource.model_dump_json(by_alias=True, exclude_none=True),
-                                  req_headers={
-                                      'Content-Type': ContentTypes.JSON.value
-                                  }, parent_res_id=self._resource_id)
+                                  datastream_schema.model_dump_json(by_alias=True, exclude_none=True),
+                                  req_headers={'Content-Type': ContentTypes.JSON.value},
+                                  parent_res_id=self._resource_id)
 
         if res.ok:
             datastream_id = res.headers['Location'].split('/')[-1]
             print(f'Resource Location: {datastream_id}')
-            datastream_resource.ds_id = datastream_id
+            datastream_schema.ds_id = datastream_id
         else:
-            raise Exception(f'Failed to create datastream: {datastream_resource.name}')
+            raise Exception(
+                f'Failed to create datastream {datastream_schema.name!r}: '
+                f'HTTP {res.status_code} — {res.text}'
+            )
 
-        new_ds = Datastream(self._parent_node, datastream_resource)
+        new_ds = Datastream(self._parent_node, datastream_schema)
         new_ds.set_parent_resource_id(self._underlying_resource.system_id)
         self.datastreams.append(new_ds)
         return new_ds
@@ -1160,15 +1153,12 @@ class System(StreamableResource[SystemResource]):
         command_schema = JSONCommandSchema(command_format=ObservationFormat.SWE_JSON.value,
                                            params_schema=control_stream_record_schema)
         control_stream_resource = ControlStreamResource(name=control_stream_record_schema.label,
-                                                        input_name=input_name_checked,
-                                                        command_schema=command_schema,
+                                                        input_name=input_name_checked, command_schema=command_schema,
                                                         validTime=valid_time_checked)
         api = self._parent_node.get_api_helper()
         res = api.create_resource(APIResourceTypes.CONTROL_CHANNEL,
                                   control_stream_resource.model_dump_json(by_alias=True, exclude_none=True),
-                                  req_headers={
-                                      'Content-Type': 'application/json'
-                                  }, parent_res_id=self._resource_id)
+                                  req_headers={'Content-Type': 'application/json'}, parent_res_id=self._resource_id)
 
         if res.ok:
             control_channel_id = res.headers['Location'].split('/')[-1]
@@ -1188,10 +1178,9 @@ class System(StreamableResource[SystemResource]):
         the ``Location`` response header.
         """
         res = self._parent_node.get_api_helper().create_resource(
-            APIResourceTypes.SYSTEM, self.to_system_resource().model_dump_json(by_alias=True, exclude_none=True),
-            req_headers={
-                'Content-Type': 'application/sml+json'
-            })
+            APIResourceTypes.SYSTEM,
+            self.to_system_resource().model_dump_json(by_alias=True, exclude_none=True),
+            req_headers={'Content-Type': 'application/sml+json'})
 
         if res.ok:
             location = res.headers['Location']
@@ -1267,13 +1256,8 @@ class System(StreamableResource[SystemResource]):
         :param node: Parent `Node` the rebuilt system attaches to.
         """
         obj = cls(
-            name=data["name"],
-            label=data["label"],
-            urn=data["urn"],
-            parent_node=node,
-            description=data.get("description"),
-            resource_id=data.get("resource_id")
-        )
+            name=data["name"], label=data["label"], urn=data["urn"], parent_node=node,
+            description=data.get("description"), resource_id=data.get("resource_id"))
         obj._id = uuid.UUID(data["id"])
         obj.datastreams = [Datastream.from_storage_dict(ds, node) for ds in data.get("datastreams", [])]
         obj.control_channels = [ControlStream.from_storage_dict(cc, node) for cc in data.get("control_channels", [])]
@@ -1332,8 +1316,7 @@ class Datastream(StreamableResource[DatastreamResource]):
         """
         api = self._parent_node.get_api_helper()
         url = f"{api.get_api_root_url()}/datastreams/{self._resource_id}/schema"
-        resp = requests.get(url, params={"obsFormat": obs_format},
-                            auth=api.get_helper_auth())
+        resp = requests.get(url, params={"obsFormat": obs_format}, auth=api.get_helper_auth())
         resp.raise_for_status()
         return resp.json()
 
@@ -1350,13 +1333,13 @@ class Datastream(StreamableResource[DatastreamResource]):
 
     def fetch_omjson_schema(self):
         """Fetch this datastream's schema in `application/om+json` form
-        from the server, parsed into a `JSONDatastreamRecordSchema`.
+        from the server, parsed into an `OMJSONDatastreamRecordSchema`.
 
         Hits ``GET /datastreams/{id}/schema?obsFormat=application/om+json``.
         """
-        from .schema_datamodels import JSONDatastreamRecordSchema
+        from .schema_datamodels import OMJSONDatastreamRecordSchema
         data = self._fetch_schema_dict(ObservationFormat.JSON.value)
-        return JSONDatastreamRecordSchema.from_omjson_dict(data)
+        return OMJSONDatastreamRecordSchema.from_omjson_dict(data)
 
     def fetch_logical_schema(self):
         """Fetch this datastream's schema in OSH's `obsFormat=logical` form
@@ -1425,8 +1408,7 @@ class Datastream(StreamableResource[DatastreamResource]):
                     logging.warning("No running event loop — MQTT write task for %s not started. "
                                     "Call start() from within an async context.", self._id)
                 except Exception as e:
-                    logging.error("Error starting MQTT write task for %s: %s\n%s",
-                                  self._id, e, traceback.format_exc())
+                    logging.error("Error starting MQTT write task for %s: %s\n%s", self._id, e, traceback.format_exc())
 
     def init_mqtt(self):
         """Set ``self._topic`` to the datastream's observation data topic
@@ -1435,11 +1417,8 @@ class Datastream(StreamableResource[DatastreamResource]):
         self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
 
     def _emit_inbound_event(self, msg):
-        evt = (EventBuilder().with_type(DefaultEventTypes.NEW_OBSERVATION)
-               .with_topic(msg.topic)
-               .with_data(msg.payload)
-               .with_producer(self)
-               .build())
+        evt = (EventBuilder().with_type(DefaultEventTypes.NEW_OBSERVATION).with_topic(msg.topic).with_data(
+            msg.payload).with_producer(self).build())
         EventHandler().publish(evt)
 
     def _queue_push(self, msg):
@@ -1488,7 +1467,8 @@ class Datastream(StreamableResource[DatastreamResource]):
         `DatastreamResource.model_validate`, so that nested block can also
         be a CS API server response body for the datastream.
         """
-        ds_resource = DatastreamResource.model_validate(data["underlying_resource"]) if data.get("underlying_resource") else None
+        ds_resource = DatastreamResource.model_validate(data["underlying_resource"]) if data.get(
+            "underlying_resource") else None
         obj = cls(parent_node=node, datastream_resource=ds_resource)
         obj._id = uuid.UUID(data["id"])
         obj.should_poll = data.get("should_poll", False)
@@ -1561,14 +1541,9 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS, data_topic=True)
 
     def _emit_inbound_event(self, msg):
-        evt_type = (DefaultEventTypes.NEW_COMMAND
-                    if msg.topic == self._topic
-                    else DefaultEventTypes.NEW_COMMAND_STATUS)
-        evt = (EventBuilder().with_type(evt_type)
-               .with_topic(msg.topic)
-               .with_data(msg.payload)
-               .with_producer(self)
-               .build())
+        evt_type = (DefaultEventTypes.NEW_COMMAND if msg.topic == self._topic else DefaultEventTypes.NEW_COMMAND_STATUS)
+        evt = (
+            EventBuilder().with_type(evt_type).with_topic(msg.topic).with_data(msg.payload).with_producer(self).build())
         EventHandler().publish(evt)
 
     def start(self):
@@ -1589,8 +1564,7 @@ class ControlStream(StreamableResource[ControlStreamResource]):
                     logging.warning("No running event loop — MQTT write task for %s not started. "
                                     "Call start() from within an async context.", self._id)
                 except Exception as e:
-                    logging.error("Error starting MQTT write task for %s: %s\n%s",
-                                  self._id, e, traceback.format_exc())
+                    logging.error("Error starting MQTT write task for %s: %s\n%s", self._id, e, traceback.format_exc())
 
     def get_inbound_deque(self) -> deque:
         """Return the deque receiving inbound command payloads."""
@@ -1684,7 +1658,8 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         `ControlStreamResource.model_validate`, so that nested block can
         also be a CS API server response body for the control stream.
         """
-        cs_resource = ControlStreamResource.model_validate(data["underlying_resource"]) if data.get("underlying_resource") else None
+        cs_resource = ControlStreamResource.model_validate(data["underlying_resource"]) if data.get(
+            "underlying_resource") else None
         obj = cls(node=node, controlstream_resource=cs_resource)
         obj._id = uuid.UUID(data["id"])
         obj._status_topic = data.get("status_topic")

@@ -30,7 +30,7 @@ from oshconnect.resource_datamodels import (
 from oshconnect.schema_datamodels import (
     CommandJSON,
     JSONCommandSchema,
-    JSONDatastreamRecordSchema,
+    OMJSONDatastreamRecordSchema,
     LogicalDatastreamRecordSchema,
     ObservationOMJSONInline,
     SWEDatastreamRecordSchema,

@@ -24,7 +24,7 @@ wrapper, route through the resource model.
   - n/a
 * - **Datastream** (`DatastreamResource`)
   - `to_csapi_dict` / `from_csapi_dict`<br/>(application/json — single shape)
-  - SWE+JSON: `SWEDatastreamRecordSchema.to_swejson_dict` / `from_swejson_dict`<br/>OM+JSON: `JSONDatastreamRecordSchema.to_omjson_dict` / `from_omjson_dict`<br/>OSH logical: `LogicalDatastreamRecordSchema.to_logical_dict` / `from_logical_dict`
+  - SWE+JSON: `SWEDatastreamRecordSchema.to_swejson_dict` / `from_swejson_dict`<br/>OM+JSON: `OMJSONDatastreamRecordSchema.to_omjson_dict` / `from_omjson_dict`<br/>OSH logical: `LogicalDatastreamRecordSchema.to_logical_dict` / `from_logical_dict`
   - OM+JSON: `ObservationResource.to_omjson_dict` / `from_omjson_dict`<br/>SWE+JSON: `ObservationResource.to_swejson_dict` / `from_swejson_dict`
 * - **ControlStream** (`ControlStreamResource`)
   - `to_csapi_dict` / `from_csapi_dict`

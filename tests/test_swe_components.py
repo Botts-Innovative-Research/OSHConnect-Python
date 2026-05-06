@@ -25,7 +25,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from oshconnect.schema_datamodels import (
     JSONCommandSchema,
-    JSONDatastreamRecordSchema,
+    OMJSONDatastreamRecordSchema,
     SWEDatastreamRecordSchema,
     SWEJSONCommandSchema,
 )
@@ -124,7 +124,7 @@ def test_swejson_fixture_preserves_names_on_round_trip():
 
 def test_omjson_fixture_preserves_names_on_round_trip():
     raw = json.loads((FIXTURES_DIR / "fake_weather_schema_omjson.json").read_text())
-    parsed = JSONDatastreamRecordSchema.model_validate(raw)
+    parsed = OMJSONDatastreamRecordSchema.model_validate(raw)
     re_dumped = parsed.model_dump(mode="json", by_alias=True, exclude_none=True)
     assert re_dumped["resultSchema"]["name"] == "weather"
 
@@ -221,12 +221,12 @@ def test_swe_datastream_root_requires_name():
 def test_json_datastream_optional_when_no_schemas_present():
     # Per CS API Part 2 §16.1.4, JSON form may use resultLink instead of
     # inline schemas, so neither resultSchema nor parametersSchema is required.
-    JSONDatastreamRecordSchema.model_validate({"obsFormat": "application/json"})
+    OMJSONDatastreamRecordSchema.model_validate({"obsFormat": "application/json"})
 
 
 def test_json_datastream_result_schema_requires_name_when_present():
-    with pytest.raises(ValidationError, match="JSONDatastreamRecordSchema.resultSchema"):
-        JSONDatastreamRecordSchema.model_validate({
+    with pytest.raises(ValidationError, match="OMJSONDatastreamRecordSchema.resultSchema"):
+        OMJSONDatastreamRecordSchema.model_validate({
             "obsFormat": "application/json",
             "resultSchema": {
                 "type": "DataRecord",
@@ -505,7 +505,7 @@ def test_swe_datastream_obsformat_recordschema_alias_parity():
 
 @pytest.mark.parametrize("fixture_name,model_cls", [
     ("fake_weather_schema_swejson.json", SWEDatastreamRecordSchema),
-    ("fake_weather_schema_omjson.json", JSONDatastreamRecordSchema),
+    ("fake_weather_schema_omjson.json", OMJSONDatastreamRecordSchema),
 ])
 def test_fixture_round_trip_stable(fixture_name, model_cls):
     raw = json.loads((FIXTURES_DIR / fixture_name).read_text())

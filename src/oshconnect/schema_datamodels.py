@@ -155,9 +155,10 @@ class SWEDatastreamRecordSchema(DatastreamRecordSchema):
         return cls.model_validate(data, by_alias=True)
 
 
-class JSONDatastreamRecordSchema(DatastreamRecordSchema):
-    """Datastream observation schema for the JSON media types
-    (`application/json`, `application/om+json`).
+class OMJSONDatastreamRecordSchema(DatastreamRecordSchema):
+    """Datastream observation schema for the OM+JSON media type
+    (`application/om+json`, also accepts `application/json` as a synonym
+    on parse since OSH treats them equivalently for datastream schemas).
 
     Per CS API Part 2 §16.1.4, this form does not carry a SWE `encoding`
     block; structure is fully described by `resultSchema` (inline result)
@@ -182,9 +183,9 @@ class JSONDatastreamRecordSchema(DatastreamRecordSchema):
     @model_validator(mode="after")
     def _root_schemas_require_name(self):
         if self.result_schema is not None:
-            check_named(self.result_schema, "JSONDatastreamRecordSchema.resultSchema")
+            check_named(self.result_schema, "OMJSONDatastreamRecordSchema.resultSchema")
         if self.parameters_schema is not None:
-            check_named(self.parameters_schema, "JSONDatastreamRecordSchema.parametersSchema")
+            check_named(self.parameters_schema, "OMJSONDatastreamRecordSchema.parametersSchema")
         return self
 
     def to_omjson_dict(self) -> dict:
@@ -192,7 +193,7 @@ class JSONDatastreamRecordSchema(DatastreamRecordSchema):
         return _dump_csapi(self)
 
     @classmethod
-    def from_omjson_dict(cls, data: dict) -> "JSONDatastreamRecordSchema":
+    def from_omjson_dict(cls, data: dict) -> "OMJSONDatastreamRecordSchema":
         """Build from an `application/om+json` (or `application/json`)
         datastream-schema dict (e.g., a CS API ``/datastreams/{id}/schema``
         response in OM+JSON form)."""
@@ -231,7 +232,7 @@ class LogicalDatastreamRecordSchema(BaseModel):
     """Logical schema document — OSH's `obsFormat=logical` representation.
 
     Returned by ``GET /datastreams/{id}/schema?obsFormat=logical``. Distinct
-    from `SWEDatastreamRecordSchema` and `JSONDatastreamRecordSchema`:
+    from `SWEDatastreamRecordSchema` and `OMJSONDatastreamRecordSchema`:
 
     - No ``obsFormat`` envelope field
     - No ``recordSchema`` wrapper — the schema is the document
