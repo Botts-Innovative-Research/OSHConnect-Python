@@ -16,6 +16,15 @@ from .csapi4py.constants import ObservationFormat
 from .encoding import Encoding
 from .geometry import Geometry
 from .swe_components import AnyComponent, check_named
+from .timemanagement import TimeInstant
+
+
+def _now_iso8601_z() -> str:
+    """Per-call default for ``CommandJSON.issue_time``: a UTC timestamp with
+    trailing ``Z`` (CS API Part 2 / SWE Common 3 expect a valid ISO8601
+    with zone info — OSH 400s on the bare ``datetime.now().isoformat()``
+    form because it has no zone designator)."""
+    return TimeInstant.now_as_time_instant().get_iso_time()
 
 
 def _dump_csapi(model: BaseModel) -> dict:
@@ -35,9 +44,12 @@ class CommandJSON(BaseModel):
     """
     model_config = ConfigDict(populate_by_name=True)
     control_id: str = Field(None, serialization_alias="control@id")
-    issue_time: Union[str, float] = Field(datetime.now().isoformat(), serialization_alias="issueTime")
+    issue_time: Union[str, float] = Field(default_factory=_now_iso8601_z,
+                                          serialization_alias="issueTime")
     sender: str = Field(None)
-    params: Union[dict, list, int, float, str] = Field(None)
+    # CS API Part 2 — and OSH — call this field ``parameters`` on the wire.
+    # ``populate_by_name=True`` keeps the Python attribute readable as ``params``.
+    params: Union[dict, list, int, float, str] = Field(None, alias="parameters")
 
     def to_csapi_dict(self) -> dict:
         """Render as the CS API `application/json` command body."""

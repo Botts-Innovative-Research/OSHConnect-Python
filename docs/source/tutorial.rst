@@ -139,6 +139,27 @@ Discover all datastreams across all discovered systems:
 
    app.discover_datastreams()
 
+Each discovered ``Datastream`` arrives with its SWE+JSON record schema
+already cached on ``ds._underlying_resource.record_schema`` — discovery
+makes a follow-up ``GET /datastreams/{id}/schema`` per stream so callers
+that build observations don't need a second round trip.
+
+Discover control streams the same way, per system:
+
+.. code-block:: python
+
+   for system in node.get_systems():
+       control_streams = system.discover_controlstreams()
+       for cs in control_streams:
+           print(cs.get_id(), cs._underlying_resource.input_name)
+
+Discovered control streams arrive with their command schema cached on
+``cs._underlying_resource.command_schema`` (a ``JSONCommandSchema`` —
+OSH normalizes responses to the JSON envelope). Reach the inner SWE
+Common component via ``cs._underlying_resource.command_schema.params_schema``;
+its ``items`` (for ``DataChoice``) or ``fields`` (for ``DataRecord``)
+list the parameters the stream accepts.
+
 
 Streaming Observations (MQTT)
 ------------------------------
@@ -237,6 +258,146 @@ Build a schema using SWE Common component classes, then attach it to a system:
 .. note::
 
    A ``TimeSchema`` must be the first field in the ``DataRecordSchema`` when targeting OpenSensorHub.
+
+
+Inserting a New Control Stream
+------------------------------
+A control stream is the input counterpart to a datastream — it accepts
+commands and emits status reports. Build a ``DataRecordSchema``
+describing the command structure, then attach it to a system via
+``System.add_and_insert_control_stream(...)``:
+
+.. code-block:: python
+
+   from oshconnect import DataRecordSchema, BooleanSchema, CountSchema
+
+   command_record = DataRecordSchema(
+       name='counterControl',
+       label='Counter Control',
+       description='Commands to control the counter behavior',
+       fields=[
+           BooleanSchema(name='setCountDown', label='Set Count Down',
+                         definition='http://sensorml.com/ont/swe/property/SetCountDown'),
+           CountSchema(name='setStep', label='Set Step',
+                       definition='http://sensorml.com/ont/swe/property/SetStep'),
+       ],
+   )
+
+   control_stream = new_system.add_and_insert_control_stream(command_record)
+
+By default the wire form is ``application/swe+json`` (spec-compliant CS API
+Part 2 — ``commandFormat: "application/swe+json"`` plus ``recordSchema`` plus
+a ``JSONEncoding`` block). To target the JSON envelope instead (which is
+what OSH echoes back from ``/controlstreams/{id}/schema``), pass
+``command_format='application/json'``:
+
+.. code-block:: python
+
+   control_stream = new_system.add_and_insert_control_stream(
+       command_record,
+       command_format='application/json',
+   )
+
+The JSON form emits ``commandFormat: "application/json"`` with a
+``parametersSchema`` block (no ``encoding``).
+
+For full control over the resource body — for example, when copying a
+control stream from one node to another and you already have a
+``ControlStreamResource`` in hand — use ``add_insert_controlstream(...)``
+instead. It takes a fully-built resource and POSTs it as-is:
+
+.. code-block:: python
+
+   from oshconnect.resource_datamodels import ControlStreamResource
+   from oshconnect.schema_datamodels import JSONCommandSchema
+
+   resource = ControlStreamResource(
+       name='Counter Control',
+       input_name='counterControl',
+       command_schema=JSONCommandSchema(
+           command_format='application/json',
+           params_schema=command_record,
+       ),
+   )
+   control_stream = new_system.add_insert_controlstream(resource)
+
+After insert, the returned ``ControlStream`` carries the server-assigned
+ID (``control_stream.get_id()``) and is appended to ``new_system.control_channels``.
+
+
+Sending Commands
+----------------
+A control stream is the input side of a system. Once you have one — either
+freshly inserted or reconstructed from ``System.discover_controlstreams()`` —
+there are two ways to deliver a command:
+
+**Over MQTT (preferred for real-time control).** Initialize the stream's
+MQTT client, then publish to the command topic:
+
+.. code-block:: python
+
+   from oshconnect import StreamableModes
+
+   control_stream.set_connection_mode(StreamableModes.BIDIRECTIONAL)
+   control_stream.initialize()
+   control_stream.start()
+
+   control_stream.publish_command({
+       'params': {'setStep': 5},
+   })
+
+``publish_command(payload)`` is sugar for ``publish(payload, topic='command')``;
+it routes to the CS API Part 3 ``:commands`` topic for this stream
+(``…/controlstreams/{id}/commands``). The payload shape is whatever the
+control stream's command schema accepts — a dict matching the field names
+under ``params``, or a SWE+JSON envelope if the stream uses the SWE form.
+
+**Over HTTP (stateless, one-shot).** POST a command directly to the
+``/controlstreams/{id}/commands`` endpoint via the node's
+``APIHelper``:
+
+.. code-block:: python
+
+   from oshconnect.csapi4py.constants import APIResourceTypes
+   from oshconnect.schema_datamodels import CommandJSON
+
+   command = CommandJSON(params={'setStep': 5})
+   api = node.get_api_helper()
+   resp = api.create_resource(
+       APIResourceTypes.COMMAND,
+       command.to_csapi_dict(),
+       parent_res_id=control_stream.get_id(),
+       req_headers={'Content-Type': 'application/json'},
+   )
+   resp.raise_for_status()
+   command_id = resp.headers['Location'].rsplit('/', 1)[-1]
+
+The server responds with ``201 Created`` and a ``Location`` header pointing
+at the newly-created command resource (``/commands/{id}``); poll its
+``/status`` sub-resource (or subscribe to the MQTT status topic — next
+section) to see whether the system accepted and executed it.
+
+Subscribing to Command Status
+-----------------------------
+Control streams emit two MQTT topics: ``:commands`` (input) and ``:status``
+(output, where the system reports execution results). Subscribe to status
+updates:
+
+.. code-block:: python
+
+   def on_status(client, userdata, msg):
+       print(f"Status on {msg.topic}: {msg.payload}")
+
+   control_stream.subscribe(topic='status', callback=on_status)
+
+Inbound status reports are also pushed onto an internal deque — drain it
+exactly like a datastream's inbound queue:
+
+.. code-block:: python
+
+   while control_stream.get_status_deque_inbound():
+       status = control_stream.get_status_deque_inbound().popleft()
+       print(status)
 
 
 Inserting an Observation

@@ -173,30 +173,46 @@ warning so it doesn't poison the rest of the discovery; that
 datastream's `record_schema` stays `None`.
 
 For datastreams built locally (no discovery), or when you need the
-OM+JSON or logical variant, `Datastream` has three dedicated fetch
-methods — one per `obsFormat` the server supports. Each returns a
-typed schema model:
+OM+JSON or logical variant, hit the schema endpoint directly through
+the parent `Node`'s `APIHelper` and parse with the matching schema
+model:
 
 ```python
-ds = Datastream(parent_node=node, datastream_resource=DatastreamResource.from_csapi_dict(server_response))
+from oshconnect.csapi4py.constants import APIResourceTypes
+from oshconnect.schema_datamodels import (
+    SWEDatastreamRecordSchema,
+    OMJSONDatastreamRecordSchema,
+    LogicalDatastreamRecordSchema,
+)
 
-# Wire-format schemas (CS API spec)
-sw = ds.fetch_swejson_schema()    # -> SWEDatastreamRecordSchema (application/swe+json)
-om = ds.fetch_omjson_schema()     # -> OMJSONDatastreamRecordSchema (application/om+json)
+api = node.get_api_helper()
+ds_id = ds._underlying_resource.ds_id
+
+# SWE+JSON (CS API spec)
+sw_resp = api.get_resource(APIResourceTypes.DATASTREAM, ds_id,
+                           APIResourceTypes.SCHEMA,
+                           params={'obsFormat': 'application/swe+json'})
+sw = SWEDatastreamRecordSchema.from_swejson_dict(sw_resp.json())
+
+# OM+JSON (CS API spec)
+om_resp = api.get_resource(APIResourceTypes.DATASTREAM, ds_id,
+                           APIResourceTypes.SCHEMA,
+                           params={'obsFormat': 'application/om+json'})
+om = OMJSONDatastreamRecordSchema.from_omjson_dict(om_resp.json())
 
 # OSH-specific JSON Schema flavor
-lg = ds.fetch_logical_schema()    # -> LogicalDatastreamRecordSchema (obsFormat=logical)
+lg_resp = api.get_resource(APIResourceTypes.DATASTREAM, ds_id,
+                           APIResourceTypes.SCHEMA,
+                           params={'obsFormat': 'logical'})
+lg = LogicalDatastreamRecordSchema.from_logical_dict(lg_resp.json())
 ```
 
-Each method:
-
-1. Hits ``GET /datastreams/{id}/schema?obsFormat={format}`` using the
-   parent `Node`'s `APIHelper` for base URL + auth.
-2. Parses the response into the corresponding pydantic model.
-3. Returns the parsed model — does *not* mutate the datastream's
-   `_underlying_resource.record_schema`. (Discovery is the one place
-   that opts into caching the SWE+JSON variant; if you want to cache
-   an OM+JSON or logical fetch, assign it yourself.)
+`api.get_resource(...)` returns a `requests.Response`; the
+`from_*_dict` classmethods on each schema model parse it into the
+typed pydantic class. None of these calls mutate the datastream's
+`_underlying_resource.record_schema` — only `discover_datastreams`
+populates that, and only with the SWE+JSON variant. If you want to
+cache an OM+JSON or logical fetch, assign it yourself.
 
 The **logical schema** is OSH-specific (not in the OGC CS API spec):
 a JSON Schema document with OGC extension keywords
