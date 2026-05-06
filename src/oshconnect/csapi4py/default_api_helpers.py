@@ -152,7 +152,8 @@ class APIHelper(ABC):
 
     def get_resource(self, resource_type: APIResourceTypes, resource_id: str = None,
                      subresource_type: APIResourceTypes = None,
-                     req_headers: dict = None):
+                     req_headers: dict = None,
+                     params: dict = None):
 
         """
         Helper to get resources by type, specifically by id, and optionally a sub-resource collection of a specified resource.
@@ -160,6 +161,7 @@ class APIHelper(ABC):
         :param resource_id:
         :param subresource_type:
         :param req_headers:
+        :param params: Optional query-string parameters (e.g., ``{"obsFormat": "logical"}`` for schema variants).
         :return:
         """
         if req_headers is None:
@@ -171,6 +173,8 @@ class APIHelper(ABC):
         complete_url = f'{base_api_url}/{resource_type_str}{res_id_str}{sub_res_type_str}'
         api_request = ConnectedSystemAPIRequest(url=complete_url, request_method='GET', auth=self.get_helper_auth(),
                                                 headers=req_headers)
+        if params is not None:
+            api_request.params = params
         return api_request.make_request()
 
     def update_resource(self, res_type: APIResourceTypes, res_id: str, json_data: any, parent_res_id: str = None,

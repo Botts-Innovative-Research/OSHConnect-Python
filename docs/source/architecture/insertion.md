@@ -99,8 +99,14 @@ req_headers=None)` is the single choke point for all POST flows. It:
 
 1. Calls `endpoints.construct_url(resource_type, parent_res_id=...)` to
    build the right URL (e.g. `/sensorhub/api/systems/{id}/datastreams`).
-2. Issues `requests.post(url, data=body, headers=req_headers, auth=self.auth)`.
-3. Returns the raw `requests.Response` — the caller is responsible for
+2. Builds a `ConnectedSystemAPIRequest` carrying the URL, body,
+   `req_headers`, and the auth tuple from `self.get_helper_auth()`
+   (which returns `(username, password)` when the node was constructed
+   with credentials, else `None`).
+3. Calls `.make_request()`, which dispatches into
+   `csapi4py.request_wrappers.post_request` →
+   `requests.post(url, data|json, headers, auth)`.
+4. Returns the raw `requests.Response` — the caller is responsible for
    inspecting `res.ok` and parsing `res.headers['Location']`.
 
 The wrapper classes own the `Location` parsing (you can see it on each

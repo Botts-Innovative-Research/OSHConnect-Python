@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 
 from pydantic import BaseModel, HttpUrl, Field
 
@@ -92,7 +92,16 @@ class ConnectedSystemsRequestBuilder(BaseModel):
         return self
 
     def with_auth(self, uname: str, pword: str):
-        self.api_request.auth = (uname, pword)
+        return self.with_basic_auth((uname, pword) if uname is not None or pword is not None else None)
+
+    def with_basic_auth(self, auth: Optional[tuple]):
+        """
+        Set HTTP Basic Auth credentials as a (username, password) tuple. When ``auth`` is ``None``,
+        leaves any previously set credentials untouched — no-ops cleanly so callers can pass an
+        optional auth value through the fluent chain without an ``if`` branch.
+        """
+        if auth is not None:
+            self.api_request.auth = auth
         return self
 
     def build(self):
