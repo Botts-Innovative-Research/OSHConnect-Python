@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Union, List
+from typing import Union, List, Literal
 
 from pydantic import BaseModel, Field, SerializeAsAny, field_validator, model_validator, HttpUrl, ConfigDict
 
@@ -101,7 +101,7 @@ class JSONCommandSchema(CommandSchema):
     """
     model_config = ConfigDict(populate_by_name=True)
 
-    command_format: str = Field("application/json", alias='commandFormat')
+    command_format: Literal["application/json"] = Field("application/json", alias='commandFormat')
     params_schema: AnyComponent = Field(..., alias='parametersSchema')
     result_schema: AnyComponent = Field(None, alias='resultSchema')
     feasibility_schema: AnyComponent = Field(None, alias='feasibilityResultSchema')
