@@ -285,26 +285,31 @@ describing the command structure, then attach it to a system via
 
    control_stream = new_system.add_and_insert_control_stream(command_record)
 
-By default the wire form is ``application/swe+json`` (spec-compliant CS API
-Part 2 — ``commandFormat: "application/swe+json"`` plus ``recordSchema`` plus
-a ``JSONEncoding`` block). To target the JSON envelope instead (which is
-what OSH echoes back from ``/controlstreams/{id}/schema``), pass
-``command_format='application/json'``:
+The default wire form is ``application/json`` —
+``commandFormat: "application/json"`` with a ``parametersSchema`` block
+(no ``encoding``). It matches what OSH echoes back from
+``GET /controlstreams/{id}/schema?f=json``, which is the form
+``discover_controlstreams`` parses, so cross-node sync round-trips
+without any format conversion. It also sidesteps the SWE+JSON
+``encoding``-omission deviation documented in
+``docs/osh_spec_deviations.md`` §1.
+
+For the spec-canonical SWE+JSON form (``recordSchema`` plus a
+``JSONEncoding`` block), pass ``command_format='application/swe+json'``:
 
 .. code-block:: python
 
    control_stream = new_system.add_and_insert_control_stream(
        command_record,
-       command_format='application/json',
+       command_format='application/swe+json',
    )
-
-The JSON form emits ``commandFormat: "application/json"`` with a
-``parametersSchema`` block (no ``encoding``).
 
 For full control over the resource body — for example, when copying a
 control stream from one node to another and you already have a
 ``ControlStreamResource`` in hand — use ``add_insert_controlstream(...)``
-instead. It takes a fully-built resource and POSTs it as-is:
+instead. It takes a fully-built resource and POSTs it as-is. Build the
+embedded ``command_schema`` as a ``JSONCommandSchema`` for the
+recommended JSON form:
 
 .. code-block:: python
 

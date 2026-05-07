@@ -84,39 +84,16 @@ def _captured_body_json(captured: dict) -> dict:
     return json.loads(body)
 
 
-def test_swejson_default_emits_recordschema_and_encoding(system, monkeypatch):
-    """Default `command_format='application/swe+json'` must produce the
-    spec-compliant wire form: ``commandFormat: application/swe+json`` plus
-    ``recordSchema`` plus ``encoding`` (JSONEncoding). NOT ``parametersSchema``."""
+def test_json_default_emits_parametersschema_no_encoding(system, monkeypatch):
+    """Default ``command_format='application/json'`` must produce the JSON
+    wire form: ``commandFormat: application/json`` plus ``parametersSchema``.
+    NOT ``recordSchema`` and NOT ``encoding``."""
     captured: dict = {}
     monkeypatch.setattr(
         "oshconnect.csapi4py.request_wrappers.requests.post", _capture_post(captured),
     )
 
     system.add_and_insert_control_stream(_record_schema())
-
-    body = _captured_body_json(captured)
-    schema = body["schema"]
-    assert schema["commandFormat"] == "application/swe+json"
-    assert "recordSchema" in schema, "SWE+JSON form must carry recordSchema"
-    assert "parametersSchema" not in schema, (
-        "SWE+JSON form must NOT carry parametersSchema (that's the JSON form)"
-    )
-    assert schema["encoding"]["type"] == "JSONEncoding"
-
-
-def test_json_emits_parametersschema_no_encoding(system, monkeypatch):
-    """`command_format='application/json'` must produce the JSON wire form:
-    ``commandFormat: application/json`` plus ``parametersSchema``. NOT
-    ``recordSchema`` and NOT ``encoding``."""
-    captured: dict = {}
-    monkeypatch.setattr(
-        "oshconnect.csapi4py.request_wrappers.requests.post", _capture_post(captured),
-    )
-
-    system.add_and_insert_control_stream(
-        _record_schema(), command_format="application/json",
-    )
 
     body = _captured_body_json(captured)
     schema = body["schema"]
@@ -128,6 +105,29 @@ def test_json_emits_parametersschema_no_encoding(system, monkeypatch):
     assert "encoding" not in schema, (
         "JSON form has no encoding block — that's SWE+JSON only"
     )
+
+
+def test_swejson_emits_recordschema_and_encoding(system, monkeypatch):
+    """`command_format='application/swe+json'` must produce the
+    spec-canonical wire form: ``commandFormat: application/swe+json`` plus
+    ``recordSchema`` plus ``encoding`` (JSONEncoding). NOT ``parametersSchema``."""
+    captured: dict = {}
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.post", _capture_post(captured),
+    )
+
+    system.add_and_insert_control_stream(
+        _record_schema(), command_format="application/swe+json",
+    )
+
+    body = _captured_body_json(captured)
+    schema = body["schema"]
+    assert schema["commandFormat"] == "application/swe+json"
+    assert "recordSchema" in schema, "SWE+JSON form must carry recordSchema"
+    assert "parametersSchema" not in schema, (
+        "SWE+JSON form must NOT carry parametersSchema (that's the JSON form)"
+    )
+    assert schema["encoding"]["type"] == "JSONEncoding"
 
 
 def test_unsupported_command_format_raises(system):

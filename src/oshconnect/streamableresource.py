@@ -993,15 +993,18 @@ class System(StreamableResource[SystemResource]):
         ``self.control_channels`` and also returned.
 
         For each discovered control stream we additionally fetch the
-        command schema (``GET /controlstreams/{id}/schema``, which OSH
-        returns as ``application/json`` with a ``parametersSchema``
-        SWE Common component) and cache it on
-        ``_underlying_resource.command_schema``. The CS API listing
-        endpoint omits the inner schema, so without this step every
-        discovered control stream would be missing the schema callers
-        need for command construction or cross-node sync. A failure on
-        a single control stream's schema fetch is downgraded to a
-        warning so it doesn't poison the whole call.
+        command schema (``GET /controlstreams/{id}/schema?f=json``,
+        which OSH returns as ``application/json`` with a
+        ``parametersSchema`` SWE Common component) and cache it on
+        ``_underlying_resource.command_schema`` as a `JSONCommandSchema`.
+        ``f=json`` is the OGC API standard format-selector and pins the
+        response shape to the JSON variant — without it the server
+        default could change. The CS API listing endpoint omits the
+        inner schema, so without this step every discovered control
+        stream would be missing the schema callers need for command
+        construction or cross-node sync. A failure on a single control
+        stream's schema fetch is downgraded to a warning so it doesn't
+        poison the whole call.
         """
         api = self._parent_node.get_api_helper()
         res = api.get_resource(APIResourceTypes.SYSTEM, self._resource_id,
@@ -1016,6 +1019,7 @@ class System(StreamableResource[SystemResource]):
                 schema_resp = api.get_resource(
                     APIResourceTypes.CONTROL_CHANNEL, controlstream_objs.cs_id,
                     APIResourceTypes.SCHEMA,
+                    params={'f': 'json'},
                 )
                 schema_resp.raise_for_status()
                 new_cs._underlying_resource.command_schema = (
@@ -1165,12 +1169,21 @@ class System(StreamableResource[SystemResource]):
         the system's parent node via HTTP POST.
 
         Mirrors `add_insert_datastream`: caller assembles the full
-        `ControlStreamResource` (including the embedded `command_schema`
-        — a `JSONCommandSchema` for ``application/json`` or a
-        `SWEJSONCommandSchema` for ``application/swe+json``) and this
-        method posts it to ``/systems/{id}/controlstreams``, captures
-        the new resource ID from the ``Location`` header, and returns a
-        wrapped `ControlStream`.
+        `ControlStreamResource` (including the embedded `command_schema`)
+        and this method posts it to ``/systems/{id}/controlstreams``,
+        captures the new resource ID from the ``Location`` header, and
+        returns a wrapped `ControlStream`.
+
+        For the embedded `command_schema`, prefer
+        `JSONCommandSchema` (`commandFormat: application/json` with a
+        ``parametersSchema``). It matches what OSH returns from
+        ``GET /controlstreams/{id}/schema?f=json`` (the form
+        ``discover_controlstreams`` parses), keeps round-trip sync
+        symmetric, and avoids the SWE+JSON ``encoding``-omission
+        deviation documented in ``docs/osh_spec_deviations.md`` §1.
+        `SWEJSONCommandSchema` (``application/swe+json`` with
+        ``recordSchema`` plus ``encoding``) is also accepted for
+        spec-strict scenarios.
 
         :param controlstream_resource: A fully-built
             `ControlStreamResource` carrying ``name``, ``input_name``,
@@ -1201,18 +1214,24 @@ class System(StreamableResource[SystemResource]):
 
     def add_and_insert_control_stream(self, control_stream_record_schema: DataRecordSchema, input_name: str = None,
                                       valid_time: TimePeriod = None,
-                                      command_format: str = "application/swe+json") -> ControlStream:
+                                      command_format: str = "application/json") -> ControlStream:
         """Accepts a DataRecordSchema and creates a ControlStreamResource
         with the matching command-schema variant, then POSTs it to the
         parent node.
 
         Per CS API Part 2 §16.x, command schemas come in two wire forms:
 
-        - ``application/swe+json`` → `SWEJSONCommandSchema` carrying
-          `recordSchema` (the SWE Common component) and `encoding`
-          (`JSONEncoding`). This is the spec-compliant default.
         - ``application/json`` → `JSONCommandSchema` carrying
           `parametersSchema` (the SWE Common component); no `encoding`.
+          **This is the default.** It matches what OSH returns from
+          ``GET /controlstreams/{id}/schema?f=json`` (the form
+          ``discover_controlstreams`` parses), keeps round-trip sync
+          symmetric, and avoids the SWE+JSON ``encoding``-omission
+          deviation documented in ``docs/osh_spec_deviations.md`` §1.
+        - ``application/swe+json`` → `SWEJSONCommandSchema` carrying
+          `recordSchema` (the SWE Common component) and `encoding`
+          (`JSONEncoding`). Spec-canonical; pass
+          ``command_format='application/swe+json'`` to opt in.
 
         :param control_stream_record_schema: DataRecordSchema to wrap.
             Must carry a ``name`` matching NameToken
@@ -1222,8 +1241,9 @@ class System(StreamableResource[SystemResource]):
             is lowercased and whitespace-stripped.
         :param valid_time: Optional `TimePeriod`; defaults to
             ``[now, now + 1 year]``.
-        :param command_format: ``"application/swe+json"`` (default) or
-            ``"application/json"``. Anything else raises ``ValueError``.
+        :param command_format: ``"application/json"`` (default) or
+            ``"application/swe+json"``. Anything else raises
+            ``ValueError``.
         :return: ControlStream object added to the system.
         """
         input_name_checked = input_name if input_name is not None else control_stream_record_schema.label.lower().replace(

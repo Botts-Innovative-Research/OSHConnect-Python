@@ -22,8 +22,13 @@ import requests
 
 from oshconnect import Node, System
 from oshconnect.csapi4py.constants import APIResourceTypes
+from oshconnect.encoding import JSONEncoding
 from oshconnect.resource_datamodels import ControlStreamResource, DatastreamResource
-from oshconnect.schema_datamodels import CommandJSON, JSONCommandSchema, SWEDatastreamRecordSchema
+from oshconnect.schema_datamodels import (
+    CommandJSON,
+    SWEDatastreamRecordSchema,
+    SWEJSONCommandSchema,
+)
 from oshconnect.timemanagement import TimeInstant, TimePeriod, TimeUtils
 
 SRC_PORT = int(os.environ.get("OSHC_SRC_PORT", "8282"))
