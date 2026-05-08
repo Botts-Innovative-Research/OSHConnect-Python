@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.5.1a17"
+version = "0.5.1a18"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations. Implements OGC CS API Part 3 (Pub/Sub) MQTT topic conventions including :data topics and resource event topics."
 readme = "README.md"
 authors = [
@@ -9,36 +9,40 @@ authors = [
 requires-python = "<4.0,>=3.12"
 dependencies = [
     "paho-mqtt>=2.1.0",
-    "pydantic>=2.12.5,<3.0.0",
+    "pydantic>=2.13.4,<3.0.0",
     "shapely>=2.1.2,<3.0.0",
-    "websockets>=12.0,<17.0",
-    # Floors below resolve open Dependabot alerts (May 2026 sweep). See the
-    # security tab for the per-advisory list; collectively these fix 25 of 27.
+    # websockets 16.0 is several majors past the previous floor; OSHConnect
+    # uses the async client which has been stable across the 13–16 series.
+    "websockets>=16.0,<17.0",
+    # Security floors (Dependabot sweep): floors track the latest patched
+    # release rather than the original advisory baseline, so new installs
+    # don't drift back to a vulnerable version.
     "requests>=2.33.1",
     "aiohttp>=3.13.5",
-    "urllib3>=2.6.3",         # transitive via requests; explicit floor pins the patched version
+    "urllib3>=2.7.0",         # transitive via requests; explicit floor pins the patched version
 ]
 [project.optional-dependencies]
 dev = [
-    "flake8>=7.2.0",
-    # pytest>=8.4.2 picks up the tmpdir handling fix (GHSA / Dependabot alert #27).
-    # 9.x verified compatible (May 2026): only PytestRemovedIn9Warning -> error
-    # could bite, and our suite uses none of those deprecated APIs.
-    "pytest>=8.4.2",
-    "pytest-cov>=5.0.0",
+    "flake8>=7.3.0",
+    # pytest 9.x is the validated target. The suite uses no APIs that
+    # PytestRemovedIn9Warning would convert to errors.
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
     "interrogate>=1.7.0",
     # Sphinx + Furo is the canonical docs toolchain. Furo is the modern
-    # dark-mode-first theme used by Black, attrs, Pip, etc.
-    "sphinx>=7.4.7",
-    "furo>=2024.8.6",
-    "myst-parser>=4.0.0",
-    "sphinxcontrib-mermaid>=1.0.0",
+    # dark-mode-first theme used by Black, attrs, Pip, etc. Sphinx 9.x
+    # and myst-parser 5.x are the validated combo; sphinxcontrib-mermaid
+    # 2.x corresponds to that Sphinx generation.
+    "sphinx>=9.0.0",
+    "furo>=2025.12.19",
+    "myst-parser>=5.0.0",
+    "sphinxcontrib-mermaid>=2.0.0",
     "sphinx-copybutton>=0.5.2",
     # Pygments is transitive via sphinx; explicit floor pins the patched version
     # to resolve the Dependabot alert flagging older versions.
     "Pygments>=2.20.0",
 ]
-tinydb = ["tinydb>=4.8.0,<5.0.0"]
+tinydb = ["tinydb>=4.8.2,<5.0.0"]
 
 [tool.setuptools]
 packages = {find = { where = ["src/"]}}
