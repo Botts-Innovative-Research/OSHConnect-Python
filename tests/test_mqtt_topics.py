@@ -159,6 +159,58 @@ class TestControlStreamTopics:
             f"api/controlstreams/{CS_ID}/status:data", "payload", qos=0
         )
 
+    def test_publish_default_topic_routes_to_command_topic(self):
+        """Regression: prior to the topic-default fix, calling
+        ``cs.publish(payload)`` with no topic argument used the lowercase
+        default ``'command'`` which never matched
+        ``APIResourceTypes.COMMAND.value`` (``'Command'``) and raised
+        ``ValueError`` instead of publishing. The default must canonicalize
+        on the enum value."""
+        node = make_mock_node()
+        mock_mqtt = MagicMock()
+        node.get_mqtt_client.return_value = mock_mqtt
+
+        cs = make_controlstream(node)
+        cs.init_mqtt()
+        cs.publish("payload")  # no topic argument — must hit the command path
+
+        mock_mqtt.publish.assert_called_once_with(
+            f"api/controlstreams/{CS_ID}/commands:data", "payload", qos=0
+        )
+
+    def test_publish_unknown_topic_error_names_canonical_values(self):
+        node = make_mock_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        cs = make_controlstream(node)
+        cs.init_mqtt()
+        with pytest.raises(ValueError) as excinfo:
+            cs.publish("payload", topic="command")  # lowercase — invalid
+        msg = str(excinfo.value)
+        assert "'Command'" in msg and "'Status'" in msg
+
+    def test_subscribe_default_topic_routes_to_command_topic(self):
+        node = make_mock_node()
+        mock_mqtt = MagicMock()
+        node.get_mqtt_client.return_value = mock_mqtt
+
+        cs = make_controlstream(node)
+        cs.init_mqtt()
+        cs.subscribe()  # topic=None default
+
+        mock_mqtt.subscribe.assert_called_once()
+        args, kwargs = mock_mqtt.subscribe.call_args
+        assert args[0] == f"api/controlstreams/{CS_ID}/commands:data"
+
+    def test_subscribe_unknown_topic_error_names_canonical_values(self):
+        node = make_mock_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        cs = make_controlstream(node)
+        cs.init_mqtt()
+        with pytest.raises(ValueError) as excinfo:
+            cs.subscribe(topic="command")  # lowercase — invalid
+        msg = str(excinfo.value)
+        assert "'Command'" in msg and "'Status'" in msg and "None" in msg
+
 
 class TestSystemTopics:
     def test_system_data_topic(self):
