@@ -78,7 +78,6 @@ class DataRecordSchema(AnyComponentSchema):
 
 
 class VectorSchema(AnyComponentSchema):
-    label: str = Field(...)
     type: Literal["Vector"] = "Vector"
     definition: str = Field(...)
     reference_frame: str = Field(..., alias='referenceFrame')
@@ -142,7 +141,6 @@ class DataChoiceSchema(AnyComponentSchema):
 
 
 class GeometrySchema(AnyComponentSchema):
-    label: str = Field(...)
     type: Literal["Geometry"] = "Geometry"
     updatable: bool = Field(False)
     optional: bool = Field(False)
@@ -163,7 +161,6 @@ class GeometrySchema(AnyComponentSchema):
 
 
 class AnySimpleComponentSchema(AnyComponentSchema):
-    label: str = Field(...)
     description: str = Field(None)
     type: str = Field(...)
     updatable: bool = Field(False)

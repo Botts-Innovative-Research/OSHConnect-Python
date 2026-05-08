@@ -312,9 +312,14 @@ def test_swe_datastream_root_invalid_name_pattern_raises():
 #   Quantity:  [type, definition, label, uom]
 #   Boolean:   [type, definition, label]
 #   Text:      [type, definition, label]
-#   Vector:    [type, definition, referenceFrame, label, coordinates]
+#   Vector:    [type, definition, referenceFrame, coordinates]
 #   DataRecord:[type, fields]
-#   Geometry:  [type, srs, definition, label]
+#   Geometry:  [type, srs, definition]
+#
+# `label` is optional everywhere — SWE Common 3 inherits it from
+# AbstractDataComponent as optional. OSH emits labelless components
+# in the wild (e.g. the SensorLocation Vector); a required `label`
+# here would break record-schema parsing during discovery.
 
 
 def test_quantity_requires_uom():
@@ -322,9 +327,9 @@ def test_quantity_requires_uom():
         QuantitySchema(label="X", definition="http://example.org/x")
 
 
-def test_quantity_requires_label():
-    with pytest.raises(ValidationError, match="label"):
-        QuantitySchema(definition="http://example.org/x", uom={"code": "m"})
+def test_quantity_label_is_optional():
+    q = QuantitySchema(definition="http://example.org/x", uom={"code": "m"})
+    assert q.label is None
 
 
 def test_quantity_requires_definition():
@@ -332,21 +337,22 @@ def test_quantity_requires_definition():
         QuantitySchema(label="X", uom={"code": "m"})
 
 
-def test_boolean_requires_label_and_definition():
-    with pytest.raises(ValidationError, match="label"):
-        BooleanSchema(definition="http://example.org/b")
+def test_boolean_label_optional_definition_required():
+    BooleanSchema(definition="http://example.org/b")  # no label — OK
     with pytest.raises(ValidationError, match="definition"):
         BooleanSchema(label="X")
 
 
-def test_text_requires_label_and_definition():
-    with pytest.raises(ValidationError, match="label"):
-        TextSchema(definition="http://example.org/t")
+def test_text_label_optional_definition_required():
+    TextSchema(definition="http://example.org/t")  # no label — OK
     with pytest.raises(ValidationError, match="definition"):
         TextSchema(label="X")
 
 
-def test_vector_requires_label_definition_referenceframe_coordinates():
+def test_vector_requires_definition_referenceframe_coordinates():
+    # `label` is intentionally NOT in the required set: SWE Common 3 inherits
+    # it from AbstractDataComponent as optional, and OSH emits labelless
+    # Vectors (e.g. SensorLocation). See test_vector_label_is_optional…
     base = dict(
         label="V", definition="http://example.org/v",
         referenceFrame="http://example.org/frames/ENU",
@@ -354,7 +360,7 @@ def test_vector_requires_label_definition_referenceframe_coordinates():
                                     definition="http://example.org/x",
                                     uom={"code": "m"})],
     )
-    for missing in ("label", "definition", "referenceFrame", "coordinates"):
+    for missing in ("definition", "referenceFrame", "coordinates"):
         kwargs = {k: v for k, v in base.items() if k != missing}
         with pytest.raises(ValidationError):
             VectorSchema(**kwargs)
@@ -365,13 +371,21 @@ def test_datarecord_requires_fields():
         DataRecordSchema(name="r")
 
 
-def test_geometry_requires_srs_definition_label():
+def test_geometry_requires_srs_and_definition():
+    # `label` deliberately omitted from required set — SWE Common 3
+    # inherits it from AbstractDataComponent as optional.
     base = dict(label="G", definition="http://example.org/g",
                 srs="http://www.opengis.net/def/crs/EPSG/0/4326")
-    for missing in ("label", "definition", "srs"):
+    for missing in ("definition", "srs"):
         kwargs = {k: v for k, v in base.items() if k != missing}
         with pytest.raises(ValidationError):
             GeometrySchema(**kwargs)
+
+
+def test_geometry_label_is_optional():
+    g = GeometrySchema(definition="http://example.org/g",
+                       srs="http://www.opengis.net/def/crs/EPSG/0/4326")
+    assert g.label is None
 
 
 # --- B.2 discriminator routing ---------------------------------------------
@@ -564,6 +578,69 @@ def test_vector_accepts_quantity_in_coordinates():
         "referenceFrame": "http://example.org/frames/ENU",
         "coordinates": [_quantity_field("x")],
     })
+
+
+def test_vector_label_is_optional_per_swe_common3():
+    # SWE Common 3 Vector inherits AbstractDataComponent.label as optional;
+    # OSH's SensorLocation datastream emits a labelless Vector. A required
+    # `label` here would break SWE+JSON schema discovery for any datastream
+    # carrying a Vector — see the discover_datastreams cascade.
+    v = VectorSchema.model_validate({
+        "type": "Vector",
+        "name": "location",
+        "definition": "http://www.opengis.net/def/property/OGC/0/SensorLocation",
+        "referenceFrame": "http://www.opengis.net/def/crs/EPSG/0/4979",
+        "coordinates": [_quantity_field("x")],
+    })
+    assert v.label is None
+
+
+def test_swe_datastream_schema_parses_osh_sensor_location_shape():
+    # End-to-end shape mirroring `GET /datastreams/{id}/schema` for OSH's
+    # built-in `sensorLocation` output (CS API SWE+JSON form).
+    payload = {
+        "obsFormat": "application/swe+json",
+        "recordSchema": {
+            "type": "DataRecord",
+            "name": "sensorLocation",
+            "id": "SENSOR_LOCATION",
+            "label": "Sensor Location",
+            "fields": [
+                {
+                    "type": "Time",
+                    "name": "time",
+                    "definition": "http://www.opengis.net/def/property/OGC/0/SamplingTime",
+                    "label": "Sampling Time",
+                    "referenceFrame": "http://www.opengis.net/def/trs/BIPM/0/UTC",
+                    "uom": {"href": "http://www.opengis.net/def/uom/ISO-8601/0/Gregorian"},
+                },
+                {
+                    "type": "Vector",
+                    "name": "location",
+                    "definition": "http://www.opengis.net/def/property/OGC/0/SensorLocation",
+                    "referenceFrame": "http://www.opengis.net/def/crs/EPSG/0/4979",
+                    "localFrame": "#REF_FRAME_LOCAL",
+                    "coordinates": [
+                        {"type": "Quantity", "name": "lat", "label": "Geodetic Latitude",
+                         "definition": "http://sensorml.com/ont/swe/property/GeodeticLatitude",
+                         "axisID": "Lat", "uom": {"code": "deg"}},
+                        {"type": "Quantity", "name": "lon", "label": "Longitude",
+                         "definition": "http://sensorml.com/ont/swe/property/Longitude",
+                         "axisID": "Lon", "uom": {"code": "deg"}},
+                        {"type": "Quantity", "name": "alt", "label": "Ellipsoidal Height",
+                         "definition": "http://sensorml.com/ont/swe/property/HeightAboveEllipsoid",
+                         "axisID": "h", "uom": {"code": "m"}},
+                    ],
+                },
+            ],
+        },
+    }
+    sw = SWEDatastreamRecordSchema.from_swejson_dict(payload)
+    vec = sw.record_schema.fields[1]
+    assert vec.type == "Vector"
+    assert vec.label is None
+    assert vec.reference_frame == "http://www.opengis.net/def/crs/EPSG/0/4979"
+    assert [c.name for c in vec.coordinates] == ["lat", "lon", "alt"]
 
 
 # --- B.6 DataRecord.fields minItems: 1 -------------------------------------

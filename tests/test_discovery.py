@@ -23,6 +23,7 @@ import pytest
 from oshconnect import Node, System
 from oshconnect.resource_datamodels import DatastreamResource
 from oshconnect.schema_datamodels import SWEDatastreamRecordSchema
+from oshconnect.streamableresource import SchemaFetchWarning
 from oshconnect.timemanagement import TimePeriod
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -191,7 +192,8 @@ def test_discover_datastreams_continues_on_schema_fetch_failure(node, monkeypatc
     sys = System(name="s", label="S", urn="urn:test:s",
                  parent_node=node, resource_id="sys-1")
 
-    with pytest.warns(UserWarning, match="Failed to fetch SWE\\+JSON schema"):
+    with pytest.warns(SchemaFetchWarning,
+                      match=r"Failed to fetch SWE\+JSON schema"):
         discovered = sys.discover_datastreams()
 
     assert len(discovered) == 2
@@ -200,4 +202,42 @@ def test_discover_datastreams_continues_on_schema_fetch_failure(node, monkeypatc
     assert isinstance(
         by_id["ds-ok"]._underlying_resource.record_schema,
         SWEDatastreamRecordSchema,
+    )
+
+
+def test_discover_datastreams_logs_traceback_on_schema_failure(node, monkeypatch, caplog):
+    """A schema-fetch failure must surface in the root logger with the
+    full traceback (`exc_info=True`), so users who configure logging
+    (the common case) actually see *what* broke — not just that
+    something did."""
+    swe_schema = json.loads(
+        (FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text()
+    )
+
+    def schema_handler(ds_id):
+        if ds_id == "ds-broken":
+            return _MockResponse({"error": "boom"}, status=500)
+        return _MockResponse(swe_schema)
+
+    _install_dispatching_get(
+        monkeypatch,
+        listing_payload=_listing_payload("ds-broken", "ds-ok"),
+        schema_handler=schema_handler,
+    )
+
+    sys = System(name="s", label="S", urn="urn:test:s",
+                 parent_node=node, resource_id="sys-1")
+
+    import logging as _logging
+    with caplog.at_level(_logging.ERROR):
+        with pytest.warns(SchemaFetchWarning):
+            sys.discover_datastreams()
+
+    error_records = [r for r in caplog.records if r.levelno == _logging.ERROR]
+    assert any("ds-broken" in r.getMessage() for r in error_records), (
+        "expected an ERROR log mentioning the failing datastream id"
+    )
+    # exc_info plumbed through: the record carries the original exception
+    assert any(r.exc_info is not None for r in error_records), (
+        "expected at least one ERROR record to carry exc_info (traceback)"
     )
