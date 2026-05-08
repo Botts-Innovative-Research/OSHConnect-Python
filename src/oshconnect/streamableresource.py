@@ -312,9 +312,7 @@ class Node:
         if result.ok:
             new_systems = []
             system_objs = result.json()['items']
-            print(system_objs)
             for system_json in system_objs:
-                print(system_json)
                 system = SystemResource.model_validate(system_json, by_alias=True)
                 sys_obj = System(label=system.properties['name'],
                                  name=to_camel(system.properties['name'].replace(" ", "_")),
@@ -793,7 +791,6 @@ class StreamableResource(Generic[T], ABC):
             No Checks are performed to ensure the data is valid for the underlying resource.
             :param data: Data to be sent, typically bytes or str
         """
-        print(f"Inserting data into message writer queue: {data}")
         data_bytes = json.dumps(data).encode("utf-8") if isinstance(data, dict) else data
         self._msg_writer_queue.put_nowait(data_bytes)
 
@@ -1349,7 +1346,6 @@ class System(StreamableResource[SystemResource]):
             self._resource_id = sys_id
             if self._underlying_resource is not None:
                 self._underlying_resource.system_id = sys_id
-            print(f'Created system: {self._resource_id}')
 
     def retrieve_resource(self):
         """GET ``/systems/{id}`` and refresh the underlying `SystemResource`.
@@ -1361,9 +1357,7 @@ class System(StreamableResource[SystemResource]):
                                                                    res_id=self._resource_id)
         if res.ok:
             system_json = res.json()
-            print(system_json)
             system_resource = SystemResource.model_validate(system_json)
-            print(f'System Resource: {system_resource}')
             self._underlying_resource = system_resource
             return None
 
@@ -1499,8 +1493,7 @@ class Datastream(StreamableResource[DatastreamResource]):
                                                                  req_headers={'Content-Type': 'application/json'})
         if res.ok:
             obs_id = res.headers['Location'].split('/')[-1]
-            print(f'Inserted observation: {obs_id}')
-            return id
+            return obs_id
         else:
             raise Exception(f'Failed to insert observation: {res.text}')
 
@@ -1535,9 +1528,7 @@ class Datastream(StreamableResource[DatastreamResource]):
         EventHandler().publish(evt)
 
     def _queue_push(self, msg):
-        print(f'Pushing message to reader queue: {msg}')
         self._msg_writer_queue.put_nowait(msg)
-        print(f'Queue size is now: {self._msg_writer_queue.qsize()}')
 
     def _queue_pop(self):
         return self._msg_reader_queue.get_nowait()
