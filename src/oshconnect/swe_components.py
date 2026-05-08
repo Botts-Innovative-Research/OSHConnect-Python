@@ -11,7 +11,7 @@ import re
 from numbers import Real
 from typing import Union, Any, Literal, Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, SerializeAsAny
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .csapi4py.constants import GeometryTypes
 from .api_utils import UCUMCode, URI
@@ -82,8 +82,7 @@ class VectorSchema(AnyComponentSchema):
     definition: str = Field(...)
     reference_frame: str = Field(..., alias='referenceFrame')
     local_frame: str = Field(None, alias='localFrame')
-    # TODO: VERIFY might need to be moved further down when these are defined
-    coordinates: SerializeAsAny[Union[list[CountSchema], list[QuantitySchema], list[TimeSchema]]] = Field(...)
+    coordinates: Union[list[CountSchema], list[QuantitySchema], list[TimeSchema]] = Field(...)
 
     @model_validator(mode="after")
     def _coordinates_require_name(self):
@@ -273,3 +272,17 @@ AnyComponent = Annotated[
     ],
     Field(discriminator="type"),
 ]
+
+
+# Rebuild every container model that forward-references AnyComponent.
+# Without this, pydantic leaves a `MockValSer` placeholder on the
+# serializer side — `model_validate` upgrades the validator, but
+# `model_dump`/`model_dump_json` raise
+# `TypeError: 'MockValSer' object is not an instance of 'SchemaSerializer'`.
+# Plain `model_rebuild()` is a no-op (the class reports `model_complete`),
+# so `force=True` is required.
+DataRecordSchema.model_rebuild(force=True)
+VectorSchema.model_rebuild(force=True)
+DataArraySchema.model_rebuild(force=True)
+MatrixSchema.model_rebuild(force=True)
+DataChoiceSchema.model_rebuild(force=True)

@@ -7,13 +7,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Union, List, Literal
+from typing import Annotated, Union, List, Literal
 
-from pydantic import BaseModel, Field, SerializeAsAny, field_validator, model_validator, HttpUrl, ConfigDict
+from pydantic import BaseModel, Field, model_validator, HttpUrl, ConfigDict
 
 from .api_utils import Link, URI
-from .csapi4py.constants import ObservationFormat
-from .encoding import Encoding
+from .encoding import JSONEncoding
 from .geometry import Geometry
 from .swe_components import AnyComponent, check_named
 from .timemanagement import TimeInstant
@@ -76,8 +75,16 @@ class SWEJSONCommandSchema(CommandSchema):
     """
     model_config = ConfigDict(populate_by_name=True)
 
-    command_format: str = Field("application/swe+json", alias='commandFormat')
-    encoding: SerializeAsAny[Encoding] = Field(...)
+    # Literal pin powers the discriminated `AnyCommandSchema` union below
+    # and removes the need for a runtime field_validator.
+    command_format: Literal["application/swe+json"] = Field(
+        "application/swe+json", alias='commandFormat')
+    # Concrete subclass instead of `SerializeAsAny[Encoding]` — `JSONEncoding`
+    # is the only Encoding type used in practice, and a concrete type
+    # serializes deterministically without `SerializeAsAny`. If/when more
+    # encoding types arrive, migrate this to a discriminated Union on
+    # `Encoding.type`.
+    encoding: JSONEncoding = Field(...)
     record_schema: AnyComponent = Field(..., alias='recordSchema')
 
     @model_validator(mode="after")
@@ -140,16 +147,16 @@ class DatastreamRecordSchema(BaseModel):
 # docs/osh_spec_deviations.md (swe-json-missing-encoding).
 class SWEDatastreamRecordSchema(DatastreamRecordSchema):
     model_config = ConfigDict(populate_by_name=True)
-    encoding: SerializeAsAny[Encoding] = Field(None)
+    # Multi-Literal acts as the discriminator value(s) for AnyDatastreamRecordSchema
+    # below. Replaces the previous runtime field_validator.
+    obs_format: Literal[
+        "application/swe+json",
+        "application/swe+csv",
+        "application/swe+text",
+        "application/swe+binary",
+    ] = Field(..., alias='obsFormat')
+    encoding: JSONEncoding = Field(None)
     record_schema: AnyComponent = Field(..., alias='recordSchema')
-
-    @field_validator('obs_format')
-    @classmethod
-    def check_check_obs_format(cls, v):
-        if v not in [ObservationFormat.SWE_JSON.value, ObservationFormat.SWE_CSV.value,
-                     ObservationFormat.SWE_TEXT.value, ObservationFormat.SWE_BINARY.value]:
-            raise ValueError('obsFormat must be on of the SWE formats')
-        return v
 
     @model_validator(mode="after")
     def _root_record_schema_requires_name(self):
@@ -178,19 +185,14 @@ class OMJSONDatastreamRecordSchema(DatastreamRecordSchema):
     """
     model_config = ConfigDict(populate_by_name=True)
 
-    obs_format: str = Field(ObservationFormat.JSON.value, alias='obsFormat')
+    # Multi-Literal — both wire forms are spec-equivalent for OM+JSON.
+    obs_format: Literal[
+        "application/om+json",
+        "application/json",
+    ] = Field("application/om+json", alias='obsFormat')
     result_schema: AnyComponent = Field(None, alias='resultSchema')
     parameters_schema: AnyComponent = Field(None, alias='parametersSchema')
     result_link: dict = Field(None, alias='resultLink')
-
-    @field_validator('obs_format')
-    @classmethod
-    def _check_obs_format(cls, v):
-        if v not in (ObservationFormat.JSON.value, "application/json"):
-            raise ValueError(
-                f"obsFormat must be 'application/json' or '{ObservationFormat.JSON.value}'"
-            )
-        return v
 
     @model_validator(mode="after")
     def _root_schemas_require_name(self):
@@ -339,3 +341,30 @@ class SystemHistoryProperties(BaseModel):
     valid_time: list = Field(None)
     parent_system_link: str = Field(None, serialization_alias='parentSystem@link')
     procedure_link: str = Field(None, serialization_alias='procedure@link')
+
+
+# Discriminated unions replace the earlier `SerializeAsAny[<base>]` pattern
+# on resource models. Pydantic dispatches by the literal value of the
+# discriminator field — `obsFormat` / `commandFormat` — so validate and
+# dump round-trip without polymorphism quirks.
+AnyDatastreamRecordSchema = Annotated[
+    Union[SWEDatastreamRecordSchema, OMJSONDatastreamRecordSchema],
+    Field(discriminator='obs_format'),
+]
+"""Public alias for `DatastreamResource.record_schema`. Discriminator: `obs_format`."""
+
+AnyCommandSchema = Annotated[
+    Union[SWEJSONCommandSchema, JSONCommandSchema],
+    Field(discriminator='command_format'),
+]
+"""Public alias for `ControlStreamResource.command_schema`. Discriminator: `command_format`."""
+
+
+# Defense-in-depth: rebuild every container model that forward-references
+# `AnyComponent`. See the matching block in swe_components.py for the
+# `MockValSer` rationale — same fault recurs here because each schema
+# class threads `AnyComponent` through its body.
+SWEJSONCommandSchema.model_rebuild(force=True)
+JSONCommandSchema.model_rebuild(force=True)
+SWEDatastreamRecordSchema.model_rebuild(force=True)
+OMJSONDatastreamRecordSchema.model_rebuild(force=True)

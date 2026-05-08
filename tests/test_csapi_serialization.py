@@ -334,6 +334,106 @@ def test_datastream_schema_accessible_via_underlying_resource(node):
     assert out["recordSchema"]["name"] == "weather"
 
 
+def test_swe_datastream_schema_model_dump_json_directly():
+    """Regression: prior to the SerializeAsAny -> discriminated-union
+    migration, calling `model_dump_json` on a parsed `SWEDatastreamRecordSchema`
+    raised `MockValSer is not an instance of SchemaSerializer` because
+    pydantic deferred building the serializer for the recursive
+    `list["AnyComponent"]` forward refs and never replaced the placeholder.
+
+    The fix combines (a) discriminated unions on `obs_format`/`command_format`
+    eliminating SerializeAsAny on the resource models, and (b) explicit
+    `model_rebuild(force=True)` on every container. Both `model_dump`
+    and `model_dump_json` must now succeed on a parsed schema."""
+    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text())
+    schema = SWEDatastreamRecordSchema.from_swejson_dict(raw)
+
+    py = schema.model_dump(by_alias=True, exclude_none=True)
+    assert py["obsFormat"] == "application/swe+json"
+    assert py["recordSchema"]["name"] == "weather"
+
+    js = schema.model_dump_json(by_alias=True, exclude_none=True)
+    assert json.loads(js)["obsFormat"] == "application/swe+json"
+
+
+def test_datastream_resource_with_populated_schema_dumps_via_broker_path():
+    """Regression covering the broker's exact path: validate a
+    DatastreamResource, populate `record_schema` with a parsed SWE+JSON
+    schema, then `model_dump_json(by_alias=True, exclude_none=True)`.
+    Pre-fix this raised `MockValSer is not an instance of SchemaSerializer`."""
+    schema_raw = json.loads(
+        (FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text()
+    )
+    ds = DatastreamResource(
+        ds_id="ds-001", name="weather",
+        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
+                              end="2099-12-31T00:00:00Z"),
+    )
+    ds.record_schema = SWEDatastreamRecordSchema.from_swejson_dict(schema_raw)
+
+    payload = ds.model_dump_json(by_alias=True, exclude_none=True)
+    parsed = json.loads(payload)
+    assert parsed["id"] == "ds-001"
+    assert parsed["schema"]["obsFormat"] == "application/swe+json"
+    assert parsed["schema"]["recordSchema"]["type"] == "DataRecord"
+
+    # Round-trip: the discriminated union picks the right arm on parse-back.
+    rebuilt = DatastreamResource.model_validate_json(payload)
+    assert isinstance(rebuilt.record_schema, SWEDatastreamRecordSchema)
+    assert rebuilt.record_schema.obs_format == "application/swe+json"
+
+
+def test_datastream_resource_dispatches_to_omjson_arm_via_discriminator():
+    """The `AnyDatastreamRecordSchema` discriminated union must route
+    `obsFormat: application/om+json` payloads to `OMJSONDatastreamRecordSchema`."""
+    om_schema_raw = json.loads(
+        (FIXTURES_DIR / "fake_weather_schema_omjson.json").read_text()
+    )
+    om = OMJSONDatastreamRecordSchema.from_omjson_dict(om_schema_raw)
+    ds = DatastreamResource(
+        ds_id="ds-om", name="weather-om",
+        valid_time=TimePeriod(start="2025-01-01T00:00:00Z",
+                              end="2099-12-31T00:00:00Z"),
+        record_schema=om,
+    )
+    payload = ds.model_dump_json(by_alias=True, exclude_none=True)
+    rebuilt = DatastreamResource.model_validate_json(payload)
+    assert isinstance(rebuilt.record_schema, OMJSONDatastreamRecordSchema)
+    assert rebuilt.record_schema.obs_format in (
+        "application/om+json", "application/json",
+    )
+
+
+def test_controlstream_resource_with_populated_schema_dumps_via_broker_path():
+    """Same broker-path regression for the control-stream side."""
+    cmd_schema = JSONCommandSchema(
+        command_format="application/json",
+        params_schema={
+            "type": "DataRecord",
+            "name": "cmd",
+            "label": "Cmd",
+            "fields": [
+                {"type": "Quantity", "name": "speed", "label": "Speed",
+                 "definition": "http://example.org/speed",
+                 "uom": {"code": "m/s"}},
+            ],
+        },
+    )
+    cs = ControlStreamResource(
+        cs_id="cs-1", name="set-speed",
+        command_schema=cmd_schema,
+    )
+
+    payload = cs.model_dump_json(by_alias=True, exclude_none=True)
+    parsed = json.loads(payload)
+    assert parsed["schema"]["commandFormat"] == "application/json"
+    assert parsed["schema"]["parametersSchema"]["name"] == "cmd"
+
+    rebuilt = ControlStreamResource.model_validate_json(payload)
+    assert isinstance(rebuilt.command_schema, JSONCommandSchema)
+    assert rebuilt.command_schema.command_format == "application/json"
+
+
 # ---------------------------------------------------------------------------
 # Logical schema (OSH's `obsFormat=logical` shape)
 # ---------------------------------------------------------------------------

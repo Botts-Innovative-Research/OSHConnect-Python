@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 from typing import List, TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from shapely import Point
 
 from .api_utils import Link
 from .geometry import Geometry
-from .schema_datamodels import DatastreamRecordSchema, CommandSchema
+from .schema_datamodels import AnyCommandSchema, AnyDatastreamRecordSchema
 from .timemanagement import TimeInstant, TimePeriod
 
 if TYPE_CHECKING:
@@ -227,7 +227,7 @@ class DatastreamResource(BaseModel):
     observed_properties: List[dict] = Field(default_factory=list, alias="observedProperties")
     system_id: str = Field(None, alias="system@id")
     links: List[Link] = Field(None)
-    record_schema: SerializeAsAny[DatastreamRecordSchema] = Field(None, alias="schema")
+    record_schema: AnyDatastreamRecordSchema = Field(None, alias="schema")
 
     @classmethod
     @model_validator(mode="before")
@@ -371,7 +371,7 @@ class ControlStreamResource(BaseModel):
     execution_time: TimePeriod = Field(None, alias="executionTime")
     live: bool = Field(None)
     asynchronous: bool = Field(True, alias="async")
-    command_schema: SerializeAsAny[CommandSchema] = Field(None, alias="schema")
+    command_schema: AnyCommandSchema = Field(None, alias="schema")
     links: List[Link] = Field(None)
 
     def to_csapi_dict(self) -> dict:

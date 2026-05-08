@@ -1173,20 +1173,7 @@ class System(StreamableResource[SystemResource]):
             component requires a name.
         :return:
         """
-        print(f'Adding datastream: {datastream_schema.model_dump_json(exclude_none=True, by_alias=True)}')
-        # Make the request to add the datastream
-        # if successful, add the datastream to the system
-        # datastream_record_schema = SWEDatastreamRecordSchema(record_schema=datastream_schema,
-        #                                                      obs_format='application/swe+json', encoding=JSONEncoding())
-        # datastream_resource = DatastreamResource(ds_id="default", name=datastream_schema.name,
-        #                                          output_name=datastream_schema.name,
-        #                                          record_schema=datastream_record_schema,
-        #                                          valid_time=TimePeriod(start=TimeInstant.now_as_time_instant(),
-        #                                                                end=TimeInstant(utc_time=TimeUtils.to_utc_time(
-        #                                                                    "2026-12-31T00:00:00Z"))))
-
         api = self._parent_node.get_api_helper()
-        # print(f'Attempting to create datastream: {datastream_resource.model_dump(by_alias=True, exclude_none=True)}')
         res = api.create_resource(APIResourceTypes.DATASTREAM,
                                   datastream_schema.model_dump_json(by_alias=True, exclude_none=True),
                                   req_headers={'Content-Type': ContentTypes.JSON.value},
@@ -1194,7 +1181,6 @@ class System(StreamableResource[SystemResource]):
 
         if res.ok:
             datastream_id = res.headers['Location'].split('/')[-1]
-            print(f'Resource Location: {datastream_id}')
             datastream_schema.ds_id = datastream_id
         else:
             raise Exception(
@@ -1714,18 +1700,25 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         return self._outbound_status_deque
 
     def publish_command(self, payload):
-        """Publish ``payload`` to the command MQTT topic. Convenience wrapper for ``publish(payload, 'command')``."""
+        """Publish ``payload`` to the command MQTT topic. Convenience wrapper
+        for ``publish(payload, APIResourceTypes.COMMAND.value)``."""
         self.publish(payload, topic=APIResourceTypes.COMMAND.value)
 
     def publish_status(self, payload):
-        """Publish ``payload`` to the status MQTT topic. Convenience wrapper for ``publish(payload, 'status')``."""
+        """Publish ``payload`` to the status MQTT topic. Convenience wrapper
+        for ``publish(payload, APIResourceTypes.STATUS.value)``."""
         self.publish(payload, topic=APIResourceTypes.STATUS.value)
 
-    def publish(self, payload, topic: str = 'command'):
+    def publish(self, payload, topic: str = APIResourceTypes.COMMAND.value):
         """
         Publishes data to the MQTT topic associated with this control stream resource.
-        :param payload: Data to be published, subclass should determine specifically allowed types
-        :param topic: Specific implementation determines the topic from the provided string
+
+        :param payload: Data to be published; subclass determines specifically allowed types.
+        :param topic: One of ``APIResourceTypes.COMMAND.value`` (``"Command"``,
+            the default) or ``APIResourceTypes.STATUS.value`` (``"Status"``).
+            Pass the enum value rather than a lowercase shorthand — the
+            comparison is case-sensitive against the canonical CS API
+            resource-type strings.
         """
 
         if topic == APIResourceTypes.COMMAND.value:
@@ -1733,14 +1726,22 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         elif topic == APIResourceTypes.STATUS.value:
             self._publish_mqtt(self._status_topic, payload)
         else:
-            raise ValueError(f"Unsupported topic type {topic} for ControlStream publish().")
+            raise ValueError(
+                f"Unsupported topic {topic!r} for ControlStream publish(); "
+                f"expected {APIResourceTypes.COMMAND.value!r} or "
+                f"{APIResourceTypes.STATUS.value!r}."
+            )
 
     def subscribe(self, topic=None, callback=None, qos=0):
         """
         Subscribes to the MQTT topic associated with this control stream resource.
-        :param topic: Specific implementation determines the topic from the provided string
-        :param callback: Optional callback function to handle incoming messages, if None the default handler is used
-        :param qos: Quality of Service level for the subscription, default is 0
+
+        :param topic: ``None`` (defaults to the command topic),
+            ``APIResourceTypes.COMMAND.value`` (``"Command"``), or
+            ``APIResourceTypes.STATUS.value`` (``"Status"``). Comparison is
+            case-sensitive against the canonical CS API resource-type strings.
+        :param callback: Optional callback function to handle incoming messages, if None the default handler is used.
+        :param qos: Quality of Service level for the subscription, default is 0.
         """
 
         t = None
@@ -1750,7 +1751,11 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         elif topic == APIResourceTypes.STATUS.value:
             t = self._status_topic
         else:
-            raise ValueError(f"Invalid topic provided {topic}, must be None or one of 'command' or 'status'.")
+            raise ValueError(
+                f"Invalid topic {topic!r}; must be None, "
+                f"{APIResourceTypes.COMMAND.value!r}, or "
+                f"{APIResourceTypes.STATUS.value!r}."
+            )
 
         if callback is None:
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=self._mqtt_sub_callback)
