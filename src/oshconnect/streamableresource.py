@@ -58,8 +58,6 @@ from multiprocessing.queues import Queue
 from typing import TypeVar, Generic, Union
 from uuid import UUID, uuid4
 
-from pydantic.alias_generators import to_camel
-
 from .csapi4py.constants import APIResourceTypes
 from .csapi4py.constants import ContentTypes
 from .csapi4py.default_api_helpers import APIHelper
@@ -300,7 +298,23 @@ class Node:
         return getattr(self, '_mqtt_client', None)
 
     def discover_systems(self) -> list[System] | None:
-        """GET ``/systems`` and create a `System` for each entry.
+        """GET ``/systems?f=application/sml+json`` and create a `System` for
+        each entry.
+
+        We pin SML+JSON because the GeoJSON listing variant (OSH's default
+        when no format is specified) is a summary that drops SensorML
+        detail — ``identifiers``, ``classifiers``, ``keywords``,
+        ``characteristics``, ``definition``, ``typeOf``, ``configuration``,
+        ``contacts``, ``documentation``, ``inputs``/``outputs``/``parameters``,
+        ``modes``, ``method``, ``featuresOfInterest``. SML+JSON delivers
+        all of those, which cross-node sync and any caller round-tripping
+        ``_underlying_resource`` need.
+
+        ``Accept: application/sml+json`` is ignored by the OSH listing
+        endpoint (still returns GeoJSON), so the format is selected via
+        the ``?f=`` query parameter — the OGC API standard format
+        selector. ``SystemResource.model_validate`` parses both shapes,
+        so the wrapper still copes if a server returns GeoJSON anyway.
 
         The new systems are appended to this node's internal list and also
         returned for convenience.
@@ -308,16 +322,24 @@ class Node:
         :return: List of newly-created `System` objects, or ``None`` if
             the HTTP request failed.
         """
-        result = self._api_helper.retrieve_resource(APIResourceTypes.SYSTEM, req_headers={})
+        result = self._api_helper.get_resource(
+            APIResourceTypes.SYSTEM,
+            params={'f': 'application/sml+json'},
+        )
         if result.ok:
             new_systems = []
             system_objs = result.json()['items']
             for system_json in system_objs:
                 system = SystemResource.model_validate(system_json, by_alias=True)
-                sys_obj = System(label=system.properties['name'],
-                                 name=to_camel(system.properties['name'].replace(" ", "_")),
-                                 urn=system.properties['uid'], parent_node=self, resource_id=system.system_id)
-
+                # Route through the canonical factory so the parsed
+                # `SystemResource` is bound to the wrapper via
+                # `set_system_resource(...)`. The previous manual
+                # `System(label=..., name=..., urn=..., resource_id=...)`
+                # call dropped the parsed resource on the floor —
+                # any caller reaching for `_underlying_resource`
+                # (deep-copy round-trip, cross-node sync, geometry,
+                # validTime, properties) saw only a thin shell.
+                sys_obj = System.from_resource(system, parent_node=self)
                 self._systems.append(sys_obj)
                 new_systems.append(sys_obj)
             return new_systems
@@ -925,7 +947,6 @@ class System(StreamableResource[SystemResource]):
     or `add_insert_datastream` / `add_and_insert_control_stream` to create
     new ones server-side.
     """
-    name: str
     label: str
     datastreams: list[Datastream]
     control_channels: list[ControlStream]
@@ -933,16 +954,39 @@ class System(StreamableResource[SystemResource]):
     urn: str
     _parent_node: Node
 
-    def __init__(self, name: str, label: str, urn: str, parent_node: Node, **kwargs):
+    def __init__(self, label: str = None, urn: str = None, parent_node: Node = None, **kwargs):
         """
-        :param name: The machine-accessible name of the system
-        :param label: The human-readable label of the system
-        :param urn: The URN of the system, typically formed as such: 'urn:general_identifier:specific_identifier:more_specific_identifier'
+        :param label: The display string for the system. Maps to SML's
+            ``label`` and GeoJSON's ``properties.name`` on the wire —
+            the OGC CS API only carries one display string per system.
+        :param urn: The URN of the system, typically formed as such:
+            ``'urn:general_identifier:specific_identifier:…'``.
+        :param parent_node: The `Node` this system attaches to.
         :param kwargs:
             - 'description': A description of the system
+            - 'resource_id': The server-assigned ID once known
+            - 'name': Deprecated alias for ``label``. Emits
+              ``DeprecationWarning``; if ``label`` is also supplied,
+              ``name`` is ignored. Will be removed in a future release.
         """
         super().__init__(node=parent_node)
-        self.name = name
+
+        # Back-compat: `name` was a separate constructor parameter that
+        # always carried the same value as `label` because the wire only
+        # has one display string. Route deprecated callers to `label`.
+        if 'name' in kwargs:
+            import warnings
+            warnings.warn(
+                "`System(name=...)` is deprecated; use `label=` instead. "
+                "The wire-format only carries one display string per "
+                "system and `name` was always populated from the same "
+                "source as `label`.",
+                DeprecationWarning, stacklevel=2,
+            )
+            legacy_name = kwargs.pop('name')
+            if label is None:
+                label = legacy_name
+
         self.label = label
         self.datastreams = []
         self.control_channels = []
@@ -953,6 +997,31 @@ class System(StreamableResource[SystemResource]):
             self.description = kwargs['description']
 
         self._underlying_resource = self.to_system_resource()
+
+    @property
+    def name(self) -> str:
+        """Deprecated alias for `label`. Will be removed in a future release.
+
+        SWE Common 3 / OGC CS API only carry one display string per system
+        (SML's ``label``, GeoJSON's ``properties.name``). The wrapper's
+        prior `name` field was always set to the same value as `label`.
+        Use `self.label` directly going forward.
+        """
+        import warnings
+        warnings.warn(
+            "`System.name` is deprecated; use `.label` instead.",
+            DeprecationWarning, stacklevel=2,
+        )
+        return self.label
+
+    @name.setter
+    def name(self, value: str) -> None:
+        import warnings
+        warnings.warn(
+            "Setting `System.name` is deprecated; set `.label` instead.",
+            DeprecationWarning, stacklevel=2,
+        )
+        self.label = value
 
     def discover_datastreams(self) -> list[Datastream]:
         """GET ``/systems/{id}/datastreams`` and instantiate `Datastream`
@@ -1062,14 +1131,15 @@ class System(StreamableResource[SystemResource]):
         # exclude_none avoids triggering TimePeriod.ser_model on None-valued
         # optional time fields (it does `str(self.start)` unconditionally).
         other_props = system_resource.model_dump(exclude_none=True)
-        # GeoJSON form carries name/uid under properties; SML form has
-        # label/uid directly on the resource.
+        # GeoJSON form carries `properties.name`/`properties.uid`; SML form
+        # has `label`/`uid` directly on the resource. Both wire shapes
+        # carry exactly one display string, mapped to `System.label`.
         if other_props.get('properties'):
             props = other_props['properties']
-            new_system = cls(name=props.get('name'), label=props.get('name'), urn=props.get('uid'),
+            new_system = cls(label=props.get('name'), urn=props.get('uid'),
                              resource_id=system_resource.system_id, parent_node=parent_node)
         else:
-            new_system = cls(name=system_resource.label, label=system_resource.label, urn=system_resource.uid,
+            new_system = cls(label=system_resource.label, urn=system_resource.uid,
                              resource_id=system_resource.system_id, parent_node=parent_node)
 
         new_system.set_system_resource(system_resource)
@@ -1142,10 +1212,10 @@ class System(StreamableResource[SystemResource]):
             # resource on assignment).
             if self.urn and not resource.uid:
                 resource.uid = self.urn
-            if self.name and not resource.label:
-                resource.label = self.name
+            if self.label and not resource.label:
+                resource.label = self.label
         else:
-            resource = SystemResource(uid=self.urn, label=self.name,
+            resource = SystemResource(uid=self.urn, label=self.label,
                                       feature_type='PhysicalSystem')
         if self.datastreams:
             resource.outputs = [ds.get_underlying_resource() for ds in self.datastreams]
@@ -1370,7 +1440,6 @@ class System(StreamableResource[SystemResource]):
         block is the only piece that matches the CS API system shape.
         """
         data = super().to_storage_dict()
-        data["name"] = getattr(self, "name", None)
         data["label"] = getattr(self, "label", None)
         data["urn"] = getattr(self, "urn", None)
         data["description"] = getattr(self, "description", None)
@@ -1403,17 +1472,23 @@ class System(StreamableResource[SystemResource]):
     def from_storage_dict(cls, data: dict, node: 'Node') -> 'System':
         """Build a `System` from a dict produced by `to_storage_dict`.
 
-        Expects ``name``, ``label``, ``urn``, optional ``description`` /
+        Expects ``label``, ``urn``, optional ``description`` /
         ``resource_id``, and optional ``datastreams`` / ``control_channels``
         / ``underlying_resource`` blocks. The embedded
         ``underlying_resource`` is parsed via `SystemResource.model_validate`,
         so that nested block can also be a CS API server response body.
 
+        For backwards compatibility, ``data["name"]`` is accepted as a
+        legacy alias for ``label`` if ``label`` is missing — older
+        snapshots written before the `name`/`label` consolidation
+        still load.
+
         :param data: Source dict.
         :param node: Parent `Node` the rebuilt system attaches to.
         """
+        label = data.get("label") or data.get("name")
         obj = cls(
-            name=data["name"], label=data["label"], urn=data["urn"], parent_node=node,
+            label=label, urn=data["urn"], parent_node=node,
             description=data.get("description"), resource_id=data.get("resource_id"))
         obj._id = uuid.UUID(data["id"])
         obj.datastreams = [Datastream.from_storage_dict(ds, node) for ds in data.get("datastreams", [])]

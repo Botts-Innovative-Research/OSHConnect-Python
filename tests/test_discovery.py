@@ -156,7 +156,7 @@ def test_discover_datastreams_populates_record_schema(node, monkeypatch):
         schema_handler=lambda ds_id: _MockResponse(swe_schema),
     )
 
-    sys = System(name="s", label="S", urn="urn:test:s",
+    sys = System(label="S", urn="urn:test:s",
                  parent_node=node, resource_id="sys-1")
     discovered = sys.discover_datastreams()
 
@@ -189,7 +189,7 @@ def test_discover_datastreams_continues_on_schema_fetch_failure(node, monkeypatc
         schema_handler=schema_handler,
     )
 
-    sys = System(name="s", label="S", urn="urn:test:s",
+    sys = System(label="S", urn="urn:test:s",
                  parent_node=node, resource_id="sys-1")
 
     with pytest.warns(SchemaFetchWarning,
@@ -225,7 +225,7 @@ def test_discover_datastreams_logs_traceback_on_schema_failure(node, monkeypatch
         schema_handler=schema_handler,
     )
 
-    sys = System(name="s", label="S", urn="urn:test:s",
+    sys = System(label="S", urn="urn:test:s",
                  parent_node=node, resource_id="sys-1")
 
     import logging as _logging
@@ -241,3 +241,132 @@ def test_discover_datastreams_logs_traceback_on_schema_failure(node, monkeypatch
     assert any(r.exc_info is not None for r in error_records), (
         "expected at least one ERROR record to carry exc_info (traceback)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Node.discover_systems: parsed SystemResource must be bound to the wrapper
+# ---------------------------------------------------------------------------
+
+def test_discover_systems_pins_sml_json_format(node, monkeypatch):
+    """``Node.discover_systems`` must request the SML+JSON listing
+    explicitly via ``?f=application/sml+json``. Without the pin, OSH
+    returns a summary GeoJSON listing that drops the SensorML detail
+    (``identifiers``, ``characteristics``, ``definition``, etc.) that
+    cross-node sync needs."""
+    captured: dict = {}
+
+    def mock_get(url, params=None, headers=None, auth=None, **kwargs):
+        captured["url"] = str(url)
+        captured["params"] = params
+        return _MockResponse({"items": []})
+
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
+    )
+    node.discover_systems()
+    assert captured["url"].endswith("/systems"), captured["url"]
+    assert captured["params"] == {"f": "application/sml+json"}, captured["params"]
+
+
+def test_discover_systems_binds_full_underlying_resource_from_sml(node, monkeypatch):
+    """Regression on two intertwined bugs:
+
+    (a) ``Node.discover_systems`` previously constructed the wrapper via
+    the bare ``System(label=..., urn=..., resource_id=...)``
+    constructor, which never called ``set_system_resource(...)``. The
+    parsed resource was dropped — any caller reaching for
+    ``_underlying_resource`` (cross-node sync, geometry, validTime,
+    SensorML metadata) saw a thin ``PhysicalSystem`` shell.
+
+    (b) The format was not pinned, so OSH returned a GeoJSON summary
+    listing missing every SensorML field.
+
+    The fix: route through ``System.from_resource(...)`` (which binds the
+    resource) and pin ``?f=application/sml+json`` (which delivers the
+    rich body). This test mirrors the SML+JSON wire shape that
+    ``localhost:8282`` returns when the format is pinned."""
+    listing = {
+        "items": [
+            {
+                "type": "PhysicalSystem",
+                "id": "sys-from-discovery",
+                "uniqueId": "urn:test:rich:001",
+                "definition": "http://www.w3.org/ns/sosa/Sensor",
+                "label": "Rich Test Sensor",
+                "description": "A sensor with all the trimmings",
+                "identifiers": [
+                    {"definition": "http://sensorml.com/ont/swe/property/SerialNumber",
+                     "label": "Serial Number", "value": "0123456879"},
+                ],
+                "validTime": ["2026-04-05T03:54:09.165Z", "now"],
+            }
+        ]
+    }
+
+    def mock_get(url, params=None, headers=None, auth=None, **kwargs):
+        return _MockResponse(listing)
+
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
+    )
+
+    discovered = node.discover_systems()
+    assert discovered is not None
+    assert len(discovered) == 1
+    sys_obj = discovered[0]
+
+    # The wrapper must hold the full parsed resource — not a shell.
+    underlying = sys_obj._underlying_resource
+    assert underlying is not None, (
+        "discover_systems must bind the parsed SystemResource via "
+        "set_system_resource(...). Bare constructor drops it on the floor."
+    )
+    # SML+JSON fields land directly on the resource (no `properties` indirection).
+    assert underlying.system_id == "sys-from-discovery"
+    assert underlying.uid == "urn:test:rich:001"
+    assert underlying.label == "Rich Test Sensor"
+    assert underlying.description == "A sensor with all the trimmings"
+    assert underlying.feature_type == "PhysicalSystem"
+    # SensorML detail that the GeoJSON listing would drop.
+    assert underlying.definition == "http://www.w3.org/ns/sosa/Sensor"
+    assert underlying.identifiers and len(underlying.identifiers) == 1
+    # Wrapper display fields use the raw human-readable label.
+    assert sys_obj.label == "Rich Test Sensor"
+
+
+def test_discover_systems_still_handles_geojson_fallback(node, monkeypatch):
+    """If a non-OSH server (or a future OSH variant) returns GeoJSON
+    despite the SML+JSON format pin, ``SystemResource.model_validate``
+    still parses it and the factory's GeoJSON branch
+    (``_construct_from_resource`` line 1067) routes name/uid through
+    ``properties``. We don't want a server-side format ignore to break
+    discovery silently."""
+    listing = {
+        "items": [
+            {
+                "type": "Feature",
+                "id": "sys-geojson",
+                "geometry": {"type": "Point", "coordinates": [-86.7, 34.8, 0]},
+                "properties": {
+                    "uid": "urn:test:geo:1",
+                    "name": "Fallback GeoJSON Sensor",
+                    "featureType": "http://www.w3.org/ns/sosa/Sensor",
+                },
+            }
+        ]
+    }
+
+    def mock_get(url, params=None, headers=None, auth=None, **kwargs):
+        return _MockResponse(listing)
+
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
+    )
+
+    discovered = node.discover_systems()
+    assert len(discovered) == 1
+    sys_obj = discovered[0]
+    assert sys_obj._underlying_resource is not None
+    assert sys_obj._underlying_resource.system_id == "sys-geojson"
+    assert sys_obj.label == "Fallback GeoJSON Sensor"
+    assert sys_obj.urn == "urn:test:geo:1"

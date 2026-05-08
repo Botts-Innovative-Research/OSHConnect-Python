@@ -42,6 +42,9 @@ from .schema_datamodels import (
     AnyCommandSchema,
 )
 
+# SensorML structured fields (carried by SystemResource)
+from .sensorml import Term, Characteristics, Capabilities
+
 # Event system
 from .events import EventHandler, IEventListener, CallbackListener, DefaultEventTypes, AtomicEventTypes, Event, EventBuilder
 
@@ -88,6 +91,10 @@ __all__ = [
     "JSONCommandSchema",
     "AnyDatastreamRecordSchema",
     "AnyCommandSchema",
+    # SensorML structured fields
+    "Term",
+    "Characteristics",
+    "Capabilities",
     # Event system
     "EventHandler",
     "IEventListener",
