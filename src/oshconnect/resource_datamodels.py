@@ -139,11 +139,19 @@ class SystemResource(BaseModel):
     def to_smljson_dict(self) -> dict:
         """Render this system as an `application/sml+json` dict (SensorML JSON encoding).
 
-        Sets ``feature_type = "PhysicalSystem"`` to match the SML discriminator
-        before dumping. Output keys are camelCase per the CS API wire format.
+        The ``type`` discriminator (``PhysicalSystem``,
+        ``PhysicalComponent``, ``SimpleProcess``, ``AggregateProcess``,
+        etc.) is preserved from ``self.feature_type`` when set —
+        important for cross-node sync, where the source's SML kind
+        determines how OSH surfaces ``featureType`` (e.g. ``Sensor``
+        vs. ``System``). Defaults to ``"PhysicalSystem"`` only when
+        ``feature_type`` is unset, so callers building a bare
+        ``SystemResource`` still get a valid SML body. Does not
+        mutate ``self``.
         """
-        self.feature_type = "PhysicalSystem"
-        return self.model_dump(by_alias=True, exclude_none=True, mode='json')
+        dumped = self.model_dump(by_alias=True, exclude_none=True, mode='json')
+        dumped.setdefault("type", "PhysicalSystem")
+        return dumped
 
     def to_smljson(self) -> str:
         """JSON-string variant of `to_smljson_dict`."""
@@ -152,12 +160,14 @@ class SystemResource(BaseModel):
     def to_geojson_dict(self) -> dict:
         """Render this system as an `application/geo+json` dict.
 
-        Sets ``feature_type = "Feature"`` to match the GeoJSON discriminator
-        before dumping. Useful when posting to endpoints that expect the
-        GeoJSON Feature shape.
+        The ``type`` field is always set to ``"Feature"`` per the
+        GeoJSON spec, regardless of ``self.feature_type`` — that's the
+        whole point of this rendering variant. Does not mutate
+        ``self``.
         """
-        self.feature_type = "Feature"
-        return self.model_dump(by_alias=True, exclude_none=True, mode='json')
+        dumped = self.model_dump(by_alias=True, exclude_none=True, mode='json')
+        dumped["type"] = "Feature"
+        return dumped
 
     def to_geojson(self) -> str:
         """JSON-string variant of `to_geojson_dict`."""
