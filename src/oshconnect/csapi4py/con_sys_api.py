@@ -6,29 +6,106 @@ from .endpoints import Endpoint
 from .request_wrappers import post_request, put_request, get_request, delete_request
 
 
+class APIRequest(BaseModel):
+    """Base for per-verb request classes.
+
+    Holds the fields every HTTP method shares: ``url`` (required),
+    ``headers``, ``auth``. Subclasses (`GetRequest`, `PostRequest`,
+    `PutRequest`, `DeleteRequest`) extend with verb-specific fields —
+    ``params`` for GET/DELETE, ``body`` for POST/PUT — so the type
+    system rejects incoherent shapes (e.g. a GET carrying a body) at
+    construction time instead of silently sending them.
+
+    Subclasses implement ``execute()`` to dispatch through the
+    matching ``request_wrappers`` function.
+    """
+    url: HttpUrl = Field(...)
+    headers: Union[dict, None] = Field(None)
+    auth: Union[tuple, None] = Field(None)
+
+    def execute(self):
+        raise NotImplementedError("APIRequest subclasses must implement execute().")
+
+
+class GetRequest(APIRequest):
+    """GET — query parameters only; no body."""
+    params: Union[dict, None] = Field(None)
+
+    def execute(self):
+        return get_request(self.url, self.params, self.headers, self.auth)
+
+
+class PostRequest(APIRequest):
+    """POST — body, optional. ``dict`` lands in ``json``, ``str`` in ``data``."""
+    body: Union[dict, str, None] = Field(None)
+
+    def execute(self):
+        return post_request(self.url, self.body, self.headers, self.auth)
+
+
+class PutRequest(APIRequest):
+    """PUT — body, optional. Same body routing as POST."""
+    body: Union[dict, str, None] = Field(None)
+
+    def execute(self):
+        return put_request(self.url, self.body, self.headers, self.auth)
+
+
+class DeleteRequest(APIRequest):
+    """DELETE — query parameters only. HTTP allows a body but the
+    project's wrapper doesn't pass one, so we don't model it here."""
+    params: Union[dict, None] = Field(None)
+
+    def execute(self):
+        return delete_request(self.url, self.params, self.headers, self.auth)
+
+
 class ConnectedSystemAPIRequest(BaseModel):
-    url: HttpUrl = Field(None)
-    body: Union[dict, str] = Field(None)
-    params: dict = Field(None)
+    """Legacy single-class request shape used by the fluent
+    ``ConnectedSystemsRequestBuilder`` and the free helper functions
+    in ``oshconnect.api_helpers``. New code in ``APIHelper`` uses the
+    per-verb subclasses above.
+    """
+    url: Union[HttpUrl, None] = Field(None)
+    body: Union[dict, str, None] = Field(None)
+    params: Union[dict, None] = Field(None)
     request_method: str = Field('GET')
-    headers: dict = Field(None)
+    headers: Union[dict, None] = Field(None)
     auth: Union[tuple, None] = Field(None)
 
     def make_request(self):
+        self._validate_for_send()
         match self.request_method:
             case 'GET':
                 return get_request(self.url, self.params, self.headers, self.auth)
             case 'POST':
-                print(f'POST request: {self}')
                 return post_request(self.url, self.body, self.headers, self.auth)
             case 'PUT':
-                print(f'PUT request: {self}')
                 return put_request(self.url, self.body, self.headers, self.auth)
             case 'DELETE':
-                print(f'DELETE request: {self}')
                 return delete_request(self.url, self.params, self.headers, self.auth)
             case _:
-                raise ValueError('Invalid request method')
+                raise ValueError(f'Invalid request method: {self.request_method!r}')
+
+    def _validate_for_send(self):
+        """Final coherence check before dispatch.
+
+        ``url`` may be ``None`` during builder-style construction, but
+        an unset URL at send time is a programming error. ``GET`` with
+        a body is well-formed at the HTTP level but most servers ignore
+        the body — we reject it so the caller doesn't silently send
+        data that goes nowhere. ``POST``/``PUT`` bodies are optional;
+        ``DELETE`` with a body is allowed by HTTP and accepted here.
+        """
+        if self.url is None:
+            raise ValueError(
+                "ConnectedSystemAPIRequest cannot be sent: 'url' is not set."
+            )
+        if self.request_method == 'GET' and self.body is not None:
+            raise ValueError(
+                "GET requests must not carry a body; pass query parameters "
+                "via 'params' instead."
+            )
 
 
 class ConnectedSystemsRequestBuilder(BaseModel):

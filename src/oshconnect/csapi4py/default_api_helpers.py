@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from .con_sys_api import ConnectedSystemAPIRequest
+from .con_sys_api import DeleteRequest, GetRequest, PostRequest, PutRequest
 from .constants import APIResourceTypes, ContentTypes, APITerms
 
 
@@ -122,10 +122,9 @@ class APIHelper(ABC):
         if url_endpoint is None:
             url = self.resource_url_resolver(res_type, None, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='POST', auth=self.get_helper_auth(),
-                                                body=json_data, headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return PostRequest(url=url, body=json_data, headers=req_headers,
+                           auth=self.get_helper_auth()).execute()
 
     def retrieve_resource(self, res_type: APIResourceTypes, res_id: str = None, parent_res_id: str = None,
                           from_collection: bool = False,
@@ -145,10 +144,9 @@ class APIHelper(ABC):
         if url_endpoint is None:
             url = self.resource_url_resolver(res_type, res_id, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='GET', auth=self.get_helper_auth(),
-                                                headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return GetRequest(url=url, headers=req_headers,
+                          auth=self.get_helper_auth()).execute()
 
     def get_resource(self, resource_type: APIResourceTypes, resource_id: str = None,
                      subresource_type: APIResourceTypes = None,
@@ -171,11 +169,8 @@ class APIHelper(ABC):
         res_id_str = f'/{resource_id}' if resource_id else ""
         sub_res_type_str = f'/{resource_type_to_endpoint(subresource_type)}' if subresource_type else ""
         complete_url = f'{base_api_url}/{resource_type_str}{res_id_str}{sub_res_type_str}'
-        api_request = ConnectedSystemAPIRequest(url=complete_url, request_method='GET', auth=self.get_helper_auth(),
-                                                headers=req_headers)
-        if params is not None:
-            api_request.params = params
-        return api_request.make_request()
+        return GetRequest(url=complete_url, params=params, headers=req_headers,
+                          auth=self.get_helper_auth()).execute()
 
     def update_resource(self, res_type: APIResourceTypes, res_id: str, json_data: any, parent_res_id: str = None,
                         from_collection: bool = False, url_endpoint: str = None, req_headers: dict = None):
@@ -192,12 +187,11 @@ class APIHelper(ABC):
         :return:
         """
         if url_endpoint is None:
-            url = self.resource_url_resolver(res_type, None, parent_res_id, from_collection)
+            url = self.resource_url_resolver(res_type, res_id, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='PUT', auth=self.get_helper_auth(),
-                                                body=json_data, headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return PutRequest(url=url, body=json_data, headers=req_headers,
+                          auth=self.get_helper_auth()).execute()
 
     def delete_resource(self, res_type: APIResourceTypes, res_id: str, parent_res_id: str = None,
                         from_collection: bool = False, url_endpoint: str = None, req_headers: dict = None):
@@ -213,12 +207,11 @@ class APIHelper(ABC):
         :return:
         """
         if url_endpoint is None:
-            url = self.resource_url_resolver(res_type, None, parent_res_id, from_collection)
+            url = self.resource_url_resolver(res_type, res_id, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='DELETE', auth=self.get_helper_auth(),
-                                                headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return DeleteRequest(url=url, headers=req_headers,
+                             auth=self.get_helper_auth()).execute()
 
     # Helpers
     def resource_url_resolver(self, subresource_type: APIResourceTypes, subresource_id: str = None,
