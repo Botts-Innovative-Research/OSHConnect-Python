@@ -75,6 +75,21 @@ from .swe_components import DataRecordSchema
 from .timemanagement import TimeInstant, TimePeriod, TimeUtils
 
 
+class SchemaFetchWarning(UserWarning):
+    """A datastream/control-stream schema fetch or parse failed during
+    `Node.discover_systems` / `System.discover_datastreams` /
+    `System.discover_controlstreams`.
+
+    Discovery deliberately does not raise on per-resource schema failures —
+    one broken schema would otherwise poison the entire listing. The
+    matching wrapper is still appended (with `record_schema` / `command_schema`
+    left as ``None``), but the original exception is surfaced both here
+    (via ``warnings.warn``) and in the root logger at ERROR level (with a
+    full traceback via ``exc_info=True``). Filter or capture this category
+    if you want to react programmatically.
+    """
+
+
 @dataclass(kw_only=True)
 class Endpoints:
     """Default URL path segments for an OSH server's REST APIs."""
@@ -976,11 +991,12 @@ class System(StreamableResource[SystemResource]):
                     SWEDatastreamRecordSchema.from_swejson_dict(schema_resp.json())
                 )
             except Exception as e:
-                warnings.warn(
+                msg = (
                     f"Failed to fetch SWE+JSON schema for datastream "
-                    f"{datastream_objs.ds_id}: {e}",
-                    stacklevel=2,
+                    f"{datastream_objs.ds_id}: {type(e).__name__}: {e}"
                 )
+                logging.error(msg, exc_info=True)
+                warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             datastreams.append(new_ds)
 
             if not [ds.get_underlying_resource() != datastream_objs for ds in self.datastreams]:
@@ -1027,11 +1043,12 @@ class System(StreamableResource[SystemResource]):
                     JSONCommandSchema.from_json_dict(schema_resp.json())
                 )
             except Exception as e:
-                warnings.warn(
+                msg = (
                     f"Failed to fetch command schema for control stream "
-                    f"{controlstream_objs.cs_id}: {e}",
-                    stacklevel=2,
+                    f"{controlstream_objs.cs_id}: {type(e).__name__}: {e}"
                 )
+                logging.error(msg, exc_info=True)
+                warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             controlstreams.append(new_cs)
 
             if not [cs.get_underlying_resource() != controlstream_objs for cs in self.control_channels]:
