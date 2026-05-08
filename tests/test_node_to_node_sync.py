@@ -89,7 +89,6 @@ def _ensure_dest_system(node: Node) -> tuple[System, bool]:
     if systems:
         return systems[0], False
     sys = System(
-        name="SyncTarget",
         label="Sync Target System",
         urn=f"urn:test:cross-node-sync:{uuid.uuid4().hex[:8]}",
         parent_node=node,

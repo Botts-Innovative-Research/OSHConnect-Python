@@ -125,7 +125,7 @@ def test_system_from_resource_handles_geojson_shape(node):
     )
     sys = System.from_resource(res, node)
     assert sys.urn == "urn:test:geo"
-    assert sys.name == "GeoSys"
+    assert sys.label == "GeoSys"
 
 
 def test_system_full_chain_smljson_dict_to_resource_to_wrapper(node):
@@ -146,7 +146,7 @@ def test_system_full_chain_geojson_dict_to_resource_to_wrapper(node):
     res = SystemResource.from_geojson_dict(raw)
     sys = System.from_resource(res, node)
     assert sys.urn == "urn:test:geo:2"
-    assert sys.name == "GeoSys2"
+    assert sys.label == "GeoSys2"
 
 
 # ---------------------------------------------------------------------------
@@ -229,11 +229,45 @@ def test_to_system_resource_thin_shell_for_freshly_constructed(node):
     produces a sensible thin shell with default ``PhysicalSystem``
     type — backward-compat with code that doesn't go through
     discovery."""
-    sys = System(name="Fresh", label="Fresh", urn="urn:test:fresh:1",
+    sys = System(label="Fresh", urn="urn:test:fresh:1",
                  parent_node=node)
     rendered = sys.to_system_resource()
     assert rendered.feature_type == "PhysicalSystem"
     assert rendered.uid == "urn:test:fresh:1"
+
+
+def test_system_name_property_is_deprecated_alias_for_label(node):
+    """The wrapper-level `name` field was always populated from the
+    same wire string as `label` — the OGC CS API only carries one
+    display string per system. `System.name` is now a deprecated
+    alias for `.label`; reading or writing it emits
+    ``DeprecationWarning`` but still works for one-release back-compat.
+    """
+    sys = System(label="Original", urn="urn:test:dep:1", parent_node=node)
+
+    # Reading: returns label, emits deprecation warning.
+    with pytest.warns(DeprecationWarning, match=r"System\.name.*deprecated"):
+        assert sys.name == "Original"
+
+    # Writing: sets label, emits deprecation warning.
+    with pytest.warns(DeprecationWarning, match=r"System\.name.*deprecated"):
+        sys.name = "Renamed"
+    assert sys.label == "Renamed"
+
+
+def test_system_init_with_name_kwarg_routes_to_label_with_warning(node):
+    """Passing the deprecated `name=` kwarg to `System(...)` populates
+    `label` (when `label` is not also given) and emits a deprecation
+    warning. When both are provided, `label` wins and `name` is dropped.
+    """
+    with pytest.warns(DeprecationWarning, match=r"System\(name=\.\.\.\)"):
+        sys = System(name="LegacyOnly", urn="urn:test:dep:2", parent_node=node)
+    assert sys.label == "LegacyOnly"
+
+    with pytest.warns(DeprecationWarning):
+        sys2 = System(label="Wins", name="Loses",
+                      urn="urn:test:dep:3", parent_node=node)
+    assert sys2.label == "Wins"
 
 
 # ---------------------------------------------------------------------------

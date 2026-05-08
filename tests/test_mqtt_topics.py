@@ -63,7 +63,7 @@ def make_controlstream(node=None):
 def make_system(node=None):
     if node is None:
         node = make_mock_node()
-    sys = System(name="test_system", label="Test System", urn="urn:test:system", parent_node=node,
+    sys = System(label="Test System", urn="urn:test:system", parent_node=node,
                  resource_id=SYS_ID)
     return sys
 

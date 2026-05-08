@@ -67,7 +67,7 @@ def system(monkeypatch) -> System:
     `_resource_id` is populated for the controlstream POST."""
     node = Node(protocol="http", address="localhost", port=8585)
     sys = System(
-        name="TestSys", label="Test System", urn="urn:test:sys:1",
+        label="Test System", urn="urn:test:sys:1",
         parent_node=node, resource_id="sys-1",
     )
     return sys

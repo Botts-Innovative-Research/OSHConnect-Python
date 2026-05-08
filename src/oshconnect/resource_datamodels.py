@@ -15,6 +15,7 @@ from shapely import Point
 from .api_utils import Link
 from .geometry import Geometry
 from .schema_datamodels import AnyCommandSchema, AnyDatastreamRecordSchema
+from .sensorml import Capabilities, Characteristics, Term
 from .timemanagement import TimeInstant, TimePeriod
 
 if TYPE_CHECKING:
@@ -36,60 +37,14 @@ class BoundingBox(BaseModel):
     #     return self
 
 
-class SecurityConstraints:
-    constraints: list
-
-
-class LegalConstraints:
-    constraints: list
-
-
-class Characteristics:
-    characteristics: list
-
-
-class Capabilities:
-    capabilities: list
-
-
-class Contact:
-    contact: list
-
-
-class Documentation:
-    documentation: list
-
-
-class HistoryEvent:
-    history_event: list
-
-
-class ConfigurationSettings:
-    settings: list
-
-
-class FeatureOfInterest:
-    feature: list
-
-
-class Input:
-    input: list
-
-
-class Output:
-    output: list
-
-
-class Parameter:
-    parameter: list
-
-
-class Mode:
-    mode: list
-
-
-class ProcessMethod:
-    method: list
+# SensorML structured fields below (identifiers, characteristics,
+# capabilities, contacts, etc.) carry rich SWE Common / SensorML Term
+# trees on the wire. They were previously typed against bare-class
+# placeholders here, which made every SML+JSON server response fail to
+# parse (`dict is not instance of Characteristics`). Until we model
+# these properly as pydantic types, we accept them as raw `dict` /
+# `list[dict]` so cross-node sync round-trips them losslessly. See
+# ROADMAP.md.
 
 
 class BaseResource(BaseModel):
@@ -103,7 +58,11 @@ class BaseResource(BaseModel):
 
 
 class SystemResource(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
+    # `extra='allow'` lets unmodeled SensorML fields (e.g. ``position``
+    # in the SML+JSON listing) round-trip through the model rather than
+    # being silently dropped on parse — important for cross-node sync.
+    model_config = ConfigDict(arbitrary_types_allowed=True,
+                              populate_by_name=True, extra='allow')
 
     feature_type: str = Field(None, alias="type")
     system_id: str = Field(None, alias="id")
@@ -116,25 +75,28 @@ class SystemResource(BaseModel):
     label: str = Field(None)
     lang: str = Field(None)
     keywords: List[str] = Field(None)
-    identifiers: List[str] = Field(None)
-    classifiers: List[str] = Field(None)
+    # SensorML Term objects (`{definition, label, value}`).
+    identifiers: list[Term] = Field(None)
+    classifiers: list[Term] = Field(None)
     valid_time: TimePeriod = Field(None, alias="validTime")
-    security_constraints: List[SecurityConstraints] = Field(None, alias="securityConstraints")
-    legal_constraints: List[LegalConstraints] = Field(None, alias="legalConstraints")
-    characteristics: List[Characteristics] = Field(None)
-    capabilities: List[Capabilities] = Field(None)
-    contacts: List[Contact] = Field(None)
-    documentation: List[Documentation] = Field(None)
-    history: List[HistoryEvent] = Field(None)
+    security_constraints: list[dict] = Field(None, alias="securityConstraints")
+    legal_constraints: list[dict] = Field(None, alias="legalConstraints")
+    # SensorML CharacteristicList / CapabilityList — each carries inner
+    # SWE Common components routed via `AnyComponent`'s `type` discriminator.
+    characteristics: list[Characteristics] = Field(None)
+    capabilities: list[Capabilities] = Field(None)
+    contacts: list[dict] = Field(None)
+    documentation: list[dict] = Field(None)
+    history: list[dict] = Field(None)
     definition: str = Field(None)
     type_of: str = Field(None, alias="typeOf")
-    configuration: ConfigurationSettings = Field(None)
-    features_of_interest: List[FeatureOfInterest] = Field(None, alias="featuresOfInterest")
-    inputs: List[Input] = Field(None)
-    outputs: List[Output] = Field(None)
-    parameters: List[Parameter] = Field(None)
-    modes: List[Mode] = Field(None)
-    method: ProcessMethod = Field(None)
+    configuration: dict = Field(None)
+    features_of_interest: list[dict] = Field(None, alias="featuresOfInterest")
+    inputs: list[dict] = Field(None)
+    outputs: list[dict] = Field(None)
+    parameters: list[dict] = Field(None)
+    modes: list[dict] = Field(None)
+    method: dict = Field(None)
 
     def to_smljson_dict(self) -> dict:
         """Render this system as an `application/sml+json` dict (SensorML JSON encoding).
