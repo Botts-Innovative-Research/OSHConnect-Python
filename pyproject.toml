@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.5.1a3"
+version = "0.5.1a5"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations. Implements OGC CS API Part 3 (Pub/Sub) MQTT topic conventions including :data topics and resource event topics."
 readme = "README.md"
 authors = [
