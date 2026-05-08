@@ -311,31 +311,32 @@ class Node:
         else:
             return None
 
-    def add_new_system(self, system: System):
-        """Attach a system to this node without inserting it server-side.
-
-        Use `add_system(system, insert_resource=True)` if you also want to
-        POST it to the server.
-        """
-        system.set_parent_node(self)
-        self._systems.append(system)
-
     def get_api_helper(self) -> APIHelper:
         """Return the `APIHelper` this node uses for HTTP calls."""
         return self._api_helper
 
     # System Management
 
-    def add_system(self, system: System, insert_resource: bool = False):
-        """
-        Add a system to the target node.
-        :param system: System object
-        :param insert_resource: Whether to insert the system into the target node's server, default is False
-        :return:
+    def add_system(self, system: System, insert_resource: bool = False) -> System:
+        """Attach a system to this node.
+
+        When ``insert_resource=True``, the system is first POSTed to the
+        server via ``system.insert_self()`` (which populates its
+        server-assigned resource id), then attached locally — so the
+        system enters this node's collection already carrying its real
+        id. With ``insert_resource=False`` the system is attached
+        in-memory only; useful when reconstructing state from a
+        datastore or staging a system before a deferred POST.
+
+        :param system: ``System`` object to attach.
+        :param insert_resource: Whether to POST the system to the
+            server before attaching it locally.
+        :return: The same ``System`` (now parented to this node and
+            tracked in ``self.systems()``).
         """
         if insert_resource:
             system.insert_self()
-        self.add_new_system(system)
+        system.set_parent_node(self)
         self._systems.append(system)
         return system
 
@@ -1103,10 +1104,35 @@ class System(StreamableResource[SystemResource]):
 
     def to_system_resource(self) -> SystemResource:
         """Render this `System` as a `SystemResource` pydantic model
-        suitable for POSTing to the server. Wrapper-specific: assembles
-        attached datastreams into the resource's ``outputs`` list.
+        suitable for POSTing to the server.
+
+        When this wrapper already carries an ``_underlying_resource``
+        (e.g. populated by ``from_csapi_dict``, ``set_system_resource``,
+        or a prior ``retrieve_resource`` call), all of its fields are
+        preserved into a deep copy — so cross-node sync, partial
+        updates, and re-POSTs round-trip everything the source carried,
+        not just ``uniqueId`` / ``label`` / a hardcoded
+        ``PhysicalSystem`` type. Currently-attached datastreams are
+        always reflected into ``outputs`` so newly-added children come
+        along.
+
+        When no underlying resource is present (i.e. during this
+        wrapper's own ``__init__``), a thin shell is built from
+        wrapper attrs and the SML type defaults to ``PhysicalSystem``.
         """
-        resource = SystemResource(uid=self.urn, label=self.name, feature_type='PhysicalSystem')
+        underlying = getattr(self, '_underlying_resource', None)
+        if underlying is not None:
+            resource = underlying.model_copy(deep=True)
+            # Pick up any wrapper-side updates the user made directly
+            # on the System (the wrapper doesn't proxy these into the
+            # resource on assignment).
+            if self.urn and not resource.uid:
+                resource.uid = self.urn
+            if self.name and not resource.label:
+                resource.label = self.name
+        else:
+            resource = SystemResource(uid=self.urn, label=self.name,
+                                      feature_type='PhysicalSystem')
         if self.datastreams:
             resource.outputs = [ds.get_underlying_resource() for ds in self.datastreams]
         return resource
@@ -1300,16 +1326,26 @@ class System(StreamableResource[SystemResource]):
         """POST this system to the server (Content-Type
         ``application/sml+json``) and capture the new resource ID from
         the ``Location`` response header.
+
+        Server-assigned fields (``id``, ``links``) are stripped from
+        the body before POST so a re-POSTed (e.g. cross-node-synced)
+        system doesn't leak the source server's identifier or links to
+        the destination — the destination assigns its own.
         """
+        body_resource = self.to_system_resource().model_copy(deep=True)
+        body_resource.system_id = None
+        body_resource.links = None
         res = self._parent_node.get_api_helper().create_resource(
             APIResourceTypes.SYSTEM,
-            self.to_system_resource().model_dump_json(by_alias=True, exclude_none=True),
+            body_resource.model_dump_json(by_alias=True, exclude_none=True),
             req_headers={'Content-Type': 'application/sml+json'})
 
         if res.ok:
             location = res.headers['Location']
             sys_id = location.split('/')[-1]
             self._resource_id = sys_id
+            if self._underlying_resource is not None:
+                self._underlying_resource.system_id = sys_id
             print(f'Created system: {self._resource_id}')
 
     def retrieve_resource(self):

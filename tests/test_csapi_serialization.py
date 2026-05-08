@@ -149,6 +149,151 @@ def test_system_full_chain_geojson_dict_to_resource_to_wrapper(node):
     assert sys.name == "GeoSys2"
 
 
+# ---------------------------------------------------------------------------
+# SML type preservation and non-mutation
+# ---------------------------------------------------------------------------
+
+def test_to_smljson_preserves_non_default_feature_type():
+    """A source whose SML type is ``PhysicalComponent`` (which OSH
+    surfaces as ``featureType: Sensor``) must round-trip through
+    ``to_smljson_dict`` without being collapsed back to
+    ``PhysicalSystem``. Regression guard for cross-node sync."""
+    src = SystemResource(uid="urn:test:s1", label="S1",
+                         feature_type="PhysicalComponent")
+    dumped = src.to_smljson_dict()
+    assert dumped["type"] == "PhysicalComponent"
+
+
+def test_to_smljson_defaults_to_physical_system_when_unset():
+    """When ``feature_type`` is unset, the SML body still gets a
+    sensible default so callers building a bare SystemResource
+    continue to produce a valid SML body."""
+    src = SystemResource(uid="urn:test:s1", label="S1")
+    dumped = src.to_smljson_dict()
+    assert dumped["type"] == "PhysicalSystem"
+
+
+def test_to_smljson_does_not_mutate_feature_type():
+    """Pre-fix, ``to_smljson_dict`` set ``self.feature_type`` as a
+    side effect, which clobbered the source's SML kind. After the
+    fix, the model is untouched."""
+    src = SystemResource(uid="urn:test:s1", label="S1",
+                         feature_type="PhysicalComponent")
+    src.to_smljson_dict()
+    assert src.feature_type == "PhysicalComponent"
+
+
+def test_to_geojson_always_emits_feature_without_mutating():
+    """GeoJSON form requires ``type: Feature`` per spec, regardless
+    of ``feature_type`` on the model. The model itself stays
+    unmutated."""
+    src = SystemResource(uid="urn:test:s1", label="S1",
+                         feature_type="PhysicalComponent")
+    dumped = src.to_geojson_dict()
+    assert dumped["type"] == "Feature"
+    assert src.feature_type == "PhysicalComponent"
+
+
+# ---------------------------------------------------------------------------
+# System.to_system_resource preserves _underlying_resource
+# ---------------------------------------------------------------------------
+
+def test_to_system_resource_preserves_full_underlying(node):
+    """When the wrapper carries a full ``_underlying_resource`` (e.g.,
+    populated by discovery / ``from_csapi_dict``), the resource
+    rendered for POST keeps every field — not just uid/label/type."""
+    raw = {
+        "type": "PhysicalComponent",
+        "id": "src-server-id-abc",
+        "uniqueId": "urn:test:source:1",
+        "label": "Source Sensor",
+        "description": "Original description",
+        "definition": "http://www.opengis.net/def/system",
+        "keywords": ["thermal", "imaging"],
+    }
+    res = SystemResource.from_smljson_dict(raw)
+    sys = System.from_resource(res, node)
+
+    rendered = sys.to_system_resource()
+
+    # Type preserved (was hardcoded to PhysicalSystem pre-fix).
+    assert rendered.feature_type == "PhysicalComponent"
+    # Other fields preserved (were silently dropped pre-fix).
+    assert rendered.description == "Original description"
+    assert rendered.definition == "http://www.opengis.net/def/system"
+    assert rendered.keywords == ["thermal", "imaging"]
+
+
+def test_to_system_resource_thin_shell_for_freshly_constructed(node):
+    """A System constructed from scratch (no parsed resource) still
+    produces a sensible thin shell with default ``PhysicalSystem``
+    type — backward-compat with code that doesn't go through
+    discovery."""
+    sys = System(name="Fresh", label="Fresh", urn="urn:test:fresh:1",
+                 parent_node=node)
+    rendered = sys.to_system_resource()
+    assert rendered.feature_type == "PhysicalSystem"
+    assert rendered.uid == "urn:test:fresh:1"
+
+
+# ---------------------------------------------------------------------------
+# insert_self strips server-assigned fields from the POST body
+# ---------------------------------------------------------------------------
+
+class _MockResponse:
+    status_code = 201
+    ok = True
+    text = ""
+    headers = {"Location": "http://localhost:8282/sensorhub/api/systems/dest-id-xyz"}
+
+
+def _capture_post(into: dict):
+    def _f(url, params=None, headers=None, auth=None, data=None, json=None, **kwargs):
+        into["url"] = str(url)
+        into["data"] = data
+        into["json"] = json
+        return _MockResponse()
+    return _f
+
+
+def test_insert_self_strips_id_and_links_from_body(node, monkeypatch):
+    """When re-POSTing a discovered system to a destination node, the
+    source's server-assigned ``id`` and ``links`` must not leak into
+    the body — the destination assigns its own. Regression guard for
+    cross-node sync."""
+    raw = {
+        "type": "PhysicalComponent",
+        "id": "source-side-id",
+        "uniqueId": "urn:test:source:1",
+        "label": "Source Sensor",
+        "links": [{"href": "http://source.example/extra", "rel": "alternate"}],
+    }
+    res = SystemResource.from_smljson_dict(raw)
+    sys = System.from_resource(res, node)
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.post",
+        _capture_post(captured),
+    )
+
+    sys.insert_self()
+
+    body = json.loads(captured["data"])
+    # Source-assigned identifiers must NOT be present in the POST body.
+    assert "id" not in body, (
+        "POST body must not carry source's server-assigned id"
+    )
+    assert "links" not in body, (
+        "POST body must not carry source's server-assigned links"
+    )
+    # But the SML kind from the source IS preserved.
+    assert body["type"] == "PhysicalComponent"
+    assert body["uniqueId"] == "urn:test:source:1"
+    # Wrapper picked up the destination's id from the Location header.
+    assert sys._resource_id == "dest-id-xyz"
+
+
 # ===========================================================================
 # Datastream: resource representation, schema document, observations
 # ===========================================================================

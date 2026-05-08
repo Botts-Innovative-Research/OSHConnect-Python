@@ -255,7 +255,7 @@ class TestBulkOperations:
         sm = SessionManager()
         node = make_node(sm)
         system = make_system(node)
-        node.add_new_system(system)
+        node.add_system(system)
 
         store.save_all([node])
         nodes = store.load_all(session_manager=sm)

@@ -237,7 +237,7 @@ with open('my_app_config.json') as f:
 node = Node.from_storage_dict(cfg['nodes'][0])
 for sys_dict in cfg['systems']:
     sys = System.from_storage_dict(sys_dict, node)
-    node.add_new_system(sys)
+    node.add_system(sys)
 ```
 
 ## What about new datastreams/controlstreams without going through System?
