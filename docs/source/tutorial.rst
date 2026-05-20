@@ -260,6 +260,215 @@ Build a schema using SWE Common component classes, then attach it to a system:
    A ``TimeSchema`` must be the first field in the ``DataRecordSchema`` when targeting OpenSensorHub.
 
 
+Working with SWE+Binary Datastreams
+-----------------------------------
+Some datastreams ship payloads that don't fit a JSON envelope — H.264 video
+frames, JPEG snapshots, dense fixed-width records. For these the OGC CS API
+defines ``application/swe+binary``: each observation is a packed byte
+sequence whose layout is described by the datastream's ``recordEncoding``
+(a SWE Common ``BinaryEncoding``).
+
+OSHConnect parses these schemas automatically. When you call
+``System.discover_datastreams()``, the SDK picks the schema obsFormat from
+each datastream's advertised ``formats``:
+
+* ``application/swe+json`` if available (parsed as
+  ``SWEDatastreamRecordSchema``)
+* otherwise ``application/swe+binary`` (parsed as
+  ``SWEBinaryDatastreamRecordSchema``)
+
+Decoding observations
+~~~~~~~~~~~~~~~~~~~~~
+
+For an existing binary datastream, ``Datastream.decode_observation(raw)``
+returns a dict keyed by field name. Block members (e.g. an H.264 frame)
+come back as ``bytes`` — the SDK does not demux video codecs.
+
+.. code-block:: python
+
+   # Assume `ds` is a Datastream whose schema is application/swe+binary,
+   # e.g. an Axis camera's `video1` output.
+   raw = bytes(ds._inbound_deque.popleft())   # one MQTT message
+   record = ds.decode_observation(raw)
+   ts = record['time']                        # float — Unix epoch s
+   nal = record['img']                        # bytes — opaque H.264 NAL unit
+
+Publishing binary observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a binary datastream, ``Datastream.insert(...)`` dispatches through
+``SWEBinaryCodec``, so you pass a dict keyed by field name (or a positional
+sequence in declared member order) and the SDK packs it for you:
+
+.. code-block:: python
+
+   # Pan/tilt record (fixed-width: [ts: double][f32][f32][f32])
+   ds.insert({'time': time.time(),
+              'pan': -6.7, 'tilt': 0.0, 'zoomFactor': 1.0})
+
+   # Video frame (variable-size block: [ts: double][size: uint32][N bytes])
+   nal_bytes = grab_h264_nal_unit()           # your codec, opaque to OSHConnect
+   ds.insert({'time': time.time(), 'img': nal_bytes})
+
+You can also bypass the codec entirely by passing pre-encoded ``bytes`` —
+useful when another component has already framed the record:
+
+.. code-block:: python
+
+   from oshconnect.swe_binary import encode_swe_binary_blob
+   pre_framed = encode_swe_binary_blob(nal_bytes)
+   ds.insert(pre_framed)                       # passes through unchanged
+
+Building a binary datastream from scratch
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When registering a new binary datastream against an OSH node, build the
+schema with ``SWEBinaryDatastreamRecordSchema`` and a ``BinaryEncoding``
+whose ``members`` list maps each record field to a wire shape:
+
+.. code-block:: python
+
+   from oshconnect import DataRecordSchema, TimeSchema, QuantitySchema
+   from oshconnect.api_utils import URI, UCUMCode
+   from oshconnect.encoding import (
+       BinaryComponentMember, BinaryEncoding,
+   )
+   from oshconnect.schema_datamodels import SWEBinaryDatastreamRecordSchema
+
+   record = DataRecordSchema(
+       name='ptz', label='PTZ Snapshot',
+       definition='http://example.org/ptz',
+       fields=[
+           TimeSchema(name='time', label='Timestamp',
+                      definition='http://www.opengis.net/def/property/OGC/0/SamplingTime',
+                      uom=URI(href='http://www.opengis.net/def/uom/ISO-8601/0/Gregorian')),
+           QuantitySchema(name='pan', label='Pan',
+                          definition='http://example.org/pan',
+                          uom=UCUMCode(code='deg', label='degrees')),
+       ],
+   )
+   encoding = BinaryEncoding(
+       byte_order='bigEndian', byte_encoding='raw',
+       members=[
+           BinaryComponentMember(
+               ref='/time',
+               data_type='http://www.opengis.net/def/dataType/OGC/0/double'),
+           BinaryComponentMember(
+               ref='/pan',
+               data_type='http://www.opengis.net/def/dataType/OGC/0/float32'),
+       ],
+   )
+   schema = SWEBinaryDatastreamRecordSchema(
+       obs_format='application/swe+binary',
+       record_schema=record,
+       record_encoding=encoding,
+   )
+
+Block payloads (H.264, JPEG, etc.) are declared with
+``BinaryBlockMember``; the ``compression`` attribute is metadata for
+downstream consumers and is **not** acted on by the codec.
+
+
+Working with SWE+Protobuf and SWE+FlatBuffers Datastreams
+---------------------------------------------------------
+``application/swe+proto`` ships observations as Protocol Buffers
+messages serialized against the SWE Common 3 schemas in the
+`BinaryEncodings project <https://github.com/tipatterson-dev/BinaryEncodings>`_.
+``application/swe+flatbuffers`` is the FlatBuffers analogue.
+
+Why a separate encoding family from SWE+Binary?
+
+* **SWE+Binary** is a packed wire format for known-shape records (declared
+  per-field by `BinaryEncoding.members`). It's compact and demands no
+  schema-side runtime; it's also rigid — fields must be fixed-width or
+  size-prefixed blocks.
+* **SWE+Protobuf** is self-describing tag-length-value bytes interpreted
+  through a code-generated schema (the ``sweCommon3_pb2`` module). It
+  handles nested records, choice variants, variable-length lists, and
+  field evolution naturally. The trade-off is the runtime dependency on
+  the generated bindings and slightly larger wire size for trivial records.
+
+Install requirements
+~~~~~~~~~~~~~~~~~~~~
+
+Install the optional extra and generate the bindings from BinaryEncodings:
+
+.. code-block:: bash
+
+   pip install "oshconnect[protobuf]"
+   git clone https://github.com/tipatterson-dev/BinaryEncodings
+   cd BinaryEncodings && make protobuf PROTO_LANG=python
+   export PYTHONPATH="$PWD/gen/protobuf:$PYTHONPATH"
+
+The bindings are looked up via the standard Python import path — the
+codec imports ``sweCommon3_pb2`` lazily on first use and raises a
+descriptive ``ImportError`` (including the install hint) if they're
+not available.
+
+Encoding and decoding observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Datastream.insert(...)`` and ``decode_observation(...)`` dispatch on
+the schema's ``obs_format`` exactly as they do for SWE+Binary:
+
+.. code-block:: python
+
+   from oshconnect import (
+       DataRecordSchema, TimeSchema, QuantitySchema, CountSchema,
+       BooleanSchema, TextSchema,
+       SWEProtobufDatastreamRecordSchema,
+   )
+   from oshconnect.api_utils import URI, UCUMCode
+
+   record = DataRecordSchema(
+       name='weather', label='Weather',
+       definition='http://example.org/weather',
+       fields=[
+           TimeSchema(name='time', label='Time',
+                      definition='http://www.opengis.net/def/property/OGC/0/SamplingTime',
+                      uom=URI(href='http://www.opengis.net/def/uom/ISO-8601/0/Gregorian')),
+           QuantitySchema(name='temp', label='Temperature',
+                          definition='http://example.org/temp',
+                          uom=UCUMCode(code='Cel', label='Celsius')),
+       ],
+   )
+   schema = SWEProtobufDatastreamRecordSchema(record_schema=record)
+   ds_resource.record_schema = schema   # attach to a DatastreamResource
+   # Now `Datastream.insert({...})` packs values via SWEProtobufCodec
+   # and `Datastream.decode_observation(raw)` reverses it.
+
+Supported SWE Common 3 component types: ``Boolean``, ``Count``,
+``Quantity``, ``Time``, ``Category``, ``Text``, ``DataRecord``
+(including nested), ``Vector``, ``DataChoice``, and ``DataArray``
+of scalar element types (Quantity, Count, Boolean, Time).
+
+DataArray wire format mirrors the OpenSensorHub reference
+implementation (``BinaryDataWriter`` in
+``lib-ogc/swe-common-core``): element values are packed tightly
+back-to-back as SWE BinaryEncoding bytes (via
+``oshconnect.swe_binary.encode_swe_binary_scalar_array``) and stuffed
+in ``EncodedValues.inline_data``; the accompanying
+``encoding.binary_encoding`` carries the dataType URI so the wire is
+self-describing. Decoders can therefore read messages produced by any
+SWE Common 3 implementation without needing the Python-side schema.
+
+``Matrix``, ``Geometry``, the ``*Range`` variants, and arrays of
+records/vectors are not yet wired through the codec — using them
+raises ``TypeError`` so the gap is explicit; extension is
+straightforward via the dispatch table in ``oshconnect.swe_protobuf``.
+
+FlatBuffers status
+~~~~~~~~~~~~~~~~~~
+
+``application/swe+flatbuffers`` is wired through the same machinery
+(`SWEFlatBuffersDatastreamRecordSchema` parses cleanly, the format
+picker advertises the obsFormat, and ``Datastream.insert`` /
+``decode_observation`` route to ``SWEFlatBuffersCodec``), but the codec
+itself raises ``NotImplementedError`` until the FlatBuffers compiler
+adds Python support for vectors of unions. See
+``docs/osh_spec_deviations.md`` (``flatc-python-vector-of-union``).
+
+
 Inserting a New Control Stream
 ------------------------------
 A control stream is the input counterpart to a datastream — it accepts

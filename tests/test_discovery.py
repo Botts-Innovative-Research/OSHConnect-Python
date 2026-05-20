@@ -193,7 +193,7 @@ def test_discover_datastreams_continues_on_schema_fetch_failure(node, monkeypatc
                  parent_node=node, resource_id="sys-1")
 
     with pytest.warns(SchemaFetchWarning,
-                      match=r"Failed to fetch SWE\+JSON schema"):
+                      match=r"Failed to fetch application/swe\+json schema"):
         discovered = sys.discover_datastreams()
 
     assert len(discovered) == 2

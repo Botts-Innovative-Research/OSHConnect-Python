@@ -12,7 +12,7 @@ from typing import Annotated, Union, List, Literal
 from pydantic import BaseModel, Field, model_validator, HttpUrl, ConfigDict
 
 from .api_utils import Link, URI
-from .encoding import JSONEncoding
+from .encoding import BinaryEncoding, FlatBuffersEncoding, JSONEncoding, ProtobufEncoding
 from .geometry import Geometry
 from .swe_components import AnyComponent, check_named
 from .timemanagement import TimeInstant
@@ -149,11 +149,15 @@ class SWEDatastreamRecordSchema(DatastreamRecordSchema):
     model_config = ConfigDict(populate_by_name=True)
     # Multi-Literal acts as the discriminator value(s) for AnyDatastreamRecordSchema
     # below. Replaces the previous runtime field_validator.
+    #
+    # Note: `application/swe+binary` is NOT included here — it has a distinct
+    # `encoding` shape (`BinaryEncoding`, not `JSONEncoding`) and gets its own
+    # class (`SWEBinaryDatastreamRecordSchema`) so the discriminated union can
+    # dispatch on `obsFormat` without runtime branching on the encoding type.
     obs_format: Literal[
         "application/swe+json",
         "application/swe+csv",
         "application/swe+text",
-        "application/swe+binary",
     ] = Field(..., alias='obsFormat')
     encoding: JSONEncoding = Field(None)
     record_schema: AnyComponent = Field(..., alias='recordSchema')
@@ -171,6 +175,129 @@ class SWEDatastreamRecordSchema(DatastreamRecordSchema):
     def from_swejson_dict(cls, data: dict) -> "SWEDatastreamRecordSchema":
         """Build from an `application/swe+json` datastream-schema dict
         (e.g., a CS API ``/datastreams/{id}/schema`` response in SWE form)."""
+        return cls.model_validate(data, by_alias=True)
+
+
+class SWEBinaryDatastreamRecordSchema(DatastreamRecordSchema):
+    """Datastream observation schema for `application/swe+binary`.
+
+    Split from `SWEDatastreamRecordSchema` because the encoding block is a
+    `BinaryEncoding` (with a `members` list mapping component refs to
+    `dataType` / `compression`), not a `JSONEncoding`. The `recordSchema`
+    side mirrors the SWE+JSON form — it describes the *semantic* shape
+    of the record. The `recordEncoding` side describes the *wire* shape,
+    overriding the semantic shape where needed (e.g. a `DataArray` in
+    the recordSchema may be replaced by a single `Block` member with
+    ``compression="H264"`` on the wire, as Axis cameras do for video).
+
+    Use ``oshconnect.swe_binary.SWEBinaryCodec(schema)`` to encode dicts
+    to bytes and decode bytes back to dicts.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    obs_format: Literal["application/swe+binary"] = Field(
+        "application/swe+binary", alias='obsFormat')
+    record_schema: AnyComponent = Field(..., alias='recordSchema')
+    # OSH emits ``recordEncoding`` for the binary variant; the JSON-family
+    # variant calls the same slot ``encoding``. Accept either via alias.
+    record_encoding: BinaryEncoding = Field(..., alias='recordEncoding')
+
+    @model_validator(mode="after")
+    def _root_record_schema_requires_name(self):
+        check_named(self.record_schema, "SWEBinaryDatastreamRecordSchema.recordSchema")
+        return self
+
+    def to_swebinary_dict(self) -> dict:
+        """Render as an `application/swe+binary` datastream-schema document."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_swebinary_dict(cls, data: dict) -> "SWEBinaryDatastreamRecordSchema":
+        """Build from an `application/swe+binary` datastream-schema dict
+        (a CS API ``/datastreams/{id}/schema?obsFormat=application/swe+binary``
+        response body)."""
+        return cls.model_validate(data, by_alias=True)
+
+
+class SWEProtobufDatastreamRecordSchema(DatastreamRecordSchema):
+    """Datastream observation schema for ``application/swe+proto``.
+
+    The on-wire bytes are a Protobuf-serialized SWE Common 3 message,
+    using the schemas from
+    https://github.com/tipatterson-dev/BinaryEncodings. Like the SWE+JSON
+    and SWE+Binary variants, the SDK still carries the `recordSchema`
+    (a SWE Common `AnyComponent` tree) so callers can introspect the
+    field structure without parsing the protobuf descriptor.
+
+    The codec lives in ``oshconnect.swe_protobuf.SWEProtobufCodec``. It
+    walks the `recordSchema` tree at runtime to translate between
+    `dict` records (the OSHConnect-side representation) and a populated
+    `DataRecord` protobuf message (the wire representation).
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    obs_format: Literal["application/swe+proto"] = Field(
+        "application/swe+proto", alias='obsFormat')
+    record_schema: AnyComponent = Field(..., alias='recordSchema')
+    # `recordEncoding` is optional: the wire layout is fully defined by the
+    # protobuf descriptor, so the marker mostly carries `type` for downstream
+    # tooling that wants to dump the schema round-trippable.
+    record_encoding: ProtobufEncoding = Field(
+        default_factory=ProtobufEncoding, alias='recordEncoding')
+
+    @model_validator(mode="after")
+    def _root_record_schema_requires_name(self):
+        check_named(self.record_schema, "SWEProtobufDatastreamRecordSchema.recordSchema")
+        return self
+
+    def to_sweproto_dict(self) -> dict:
+        """Render as an `application/swe+proto` datastream-schema document."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_sweproto_dict(cls, data: dict) -> "SWEProtobufDatastreamRecordSchema":
+        """Build from an `application/swe+proto` datastream-schema dict."""
+        return cls.model_validate(data, by_alias=True)
+
+
+class SWEFlatBuffersDatastreamRecordSchema(DatastreamRecordSchema):
+    """Datastream observation schema for ``application/swe+flatbuffers``.
+
+    Mirrors `SWEProtobufDatastreamRecordSchema`. The wire format is a
+    FlatBuffers-serialized SWE Common 3 message; the codec lives in
+    ``oshconnect.swe_flatbuffers.SWEFlatBuffersCodec``.
+
+    .. warning::
+
+        The FlatBuffers codec is not currently functional — `flatc
+        --python` does not yet support vectors-of-unions, which the
+        SWE Common 3 schema uses for `BinaryEncoding.members`. The
+        schema class is provided so the SDK can already parse and
+        round-trip schemas that name this format; calling
+        ``SWEFlatBuffersCodec.encode``/``decode`` raises
+        `NotImplementedError`. See
+        ``docs/osh_spec_deviations.md`` (flatc-python-vector-of-union).
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    obs_format: Literal["application/swe+flatbuffers"] = Field(
+        "application/swe+flatbuffers", alias='obsFormat')
+    record_schema: AnyComponent = Field(..., alias='recordSchema')
+    record_encoding: FlatBuffersEncoding = Field(
+        default_factory=FlatBuffersEncoding, alias='recordEncoding')
+
+    @model_validator(mode="after")
+    def _root_record_schema_requires_name(self):
+        check_named(self.record_schema, "SWEFlatBuffersDatastreamRecordSchema.recordSchema")
+        return self
+
+    def to_sweflatbuffers_dict(self) -> dict:
+        """Render as an `application/swe+flatbuffers` datastream-schema document."""
+        return _dump_csapi(self)
+
+    @classmethod
+    def from_sweflatbuffers_dict(cls, data: dict) -> "SWEFlatBuffersDatastreamRecordSchema":
+        """Build from an `application/swe+flatbuffers` datastream-schema dict."""
         return cls.model_validate(data, by_alias=True)
 
 
@@ -348,7 +475,13 @@ class SystemHistoryProperties(BaseModel):
 # discriminator field — `obsFormat` / `commandFormat` — so validate and
 # dump round-trip without polymorphism quirks.
 AnyDatastreamRecordSchema = Annotated[
-    Union[SWEDatastreamRecordSchema, OMJSONDatastreamRecordSchema],
+    Union[
+        SWEDatastreamRecordSchema,
+        SWEBinaryDatastreamRecordSchema,
+        SWEProtobufDatastreamRecordSchema,
+        SWEFlatBuffersDatastreamRecordSchema,
+        OMJSONDatastreamRecordSchema,
+    ],
     Field(discriminator='obs_format'),
 ]
 """Public alias for `DatastreamResource.record_schema`. Discriminator: `obs_format`."""
@@ -367,4 +500,7 @@ AnyCommandSchema = Annotated[
 SWEJSONCommandSchema.model_rebuild(force=True)
 JSONCommandSchema.model_rebuild(force=True)
 SWEDatastreamRecordSchema.model_rebuild(force=True)
+SWEBinaryDatastreamRecordSchema.model_rebuild(force=True)
+SWEProtobufDatastreamRecordSchema.model_rebuild(force=True)
+SWEFlatBuffersDatastreamRecordSchema.model_rebuild(force=True)
 OMJSONDatastreamRecordSchema.model_rebuild(force=True)

@@ -95,7 +95,12 @@ class DataArraySchema(AnyComponentSchema):
     type: Literal["DataArray"] = "DataArray"
     element_count: dict | str | CountSchema = Field(..., alias='elementCount')  # Should type of Count
     element_type: "AnyComponent" = Field(..., alias='elementType')
-    encoding: str = Field(...)  # TODO: implement an encodings class
+    # Optional in practice: when the parent schema carries a BinaryEncoding
+    # whose `members` reference this DataArray via a Block (e.g. an H.264
+    # video frame), the record-level encoding overrides the array's wire
+    # shape and OSH omits this inner `encoding` field. See
+    # docs/osh_spec_deviations.md (dataarray-encoding-omitted-when-block-overridden).
+    encoding: str = Field(None)  # TODO: implement an encodings class
     values: list = Field(None)
 
     @model_validator(mode="after")
@@ -110,7 +115,9 @@ class MatrixSchema(AnyComponentSchema):
     # TODO: spec defines Matrix.elementType as a single component (allOf SoftNamedProperty + AnyComponent),
     # not a list. Cardinality fix is out of scope for the name-validator change.
     element_type: list["AnyComponent"] = Field(..., alias='elementType')
-    encoding: str = Field(...)  # TODO: implement an encodings class
+    # Optional for the same reason as `DataArraySchema.encoding` — see that
+    # field's docstring and docs/osh_spec_deviations.md.
+    encoding: str = Field(None)  # TODO: implement an encodings class
     values: list = Field(None)
     reference_frame: str = Field(None)
     local_frame: str = Field(None)

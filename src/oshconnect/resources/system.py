@@ -22,7 +22,11 @@ from typing import TYPE_CHECKING
 from ..csapi4py.constants import APIResourceTypes, ContentTypes
 from ..encoding import JSONEncoding
 from ..resource_datamodels import ControlStreamResource, DatastreamResource, SystemResource
-from ..schema_datamodels import JSONCommandSchema, SWEDatastreamRecordSchema, SWEJSONCommandSchema
+from ..schema_datamodels import (
+    JSONCommandSchema, SWEBinaryDatastreamRecordSchema,
+    SWEDatastreamRecordSchema, SWEFlatBuffersDatastreamRecordSchema,
+    SWEJSONCommandSchema, SWEProtobufDatastreamRecordSchema,
+)
 from ..swe_components import DataRecordSchema
 from ..timemanagement import TimeInstant, TimePeriod, TimeUtils
 from .base import SchemaFetchWarning, StreamableResource
@@ -119,19 +123,52 @@ class System(StreamableResource[SystemResource]):
         )
         self.label = value
 
+    @staticmethod
+    def _pick_datastream_schema_format(formats: list[str]):
+        """Choose an ``obsFormat`` for the schema fetch, plus the parser
+        that knows how to validate the response.
+
+        Preference order: SWE+JSON (textual, easiest to inspect) →
+        SWE+binary (the only choice for video/blob datastreams that
+        don't advertise SWE+JSON, e.g. Axis cameras' ``video1``). Returns
+        ``(None, None)`` if neither is advertised, so the caller can
+        skip the fetch with a warning instead of crashing.
+        """
+        if formats is None:
+            return None, None
+        if "application/swe+json" in formats:
+            return ("application/swe+json",
+                    SWEDatastreamRecordSchema.from_swejson_dict)
+        if "application/swe+proto" in formats:
+            return ("application/swe+proto",
+                    SWEProtobufDatastreamRecordSchema.from_sweproto_dict)
+        if "application/swe+flatbuffers" in formats:
+            return ("application/swe+flatbuffers",
+                    SWEFlatBuffersDatastreamRecordSchema.from_sweflatbuffers_dict)
+        if "application/swe+binary" in formats:
+            return ("application/swe+binary",
+                    SWEBinaryDatastreamRecordSchema.from_swebinary_dict)
+        return None, None
+
     def discover_datastreams(self) -> list[Datastream]:
         """GET ``/systems/{id}/datastreams`` and instantiate `Datastream`
         objects for every entry. New datastreams are appended to
         ``self.datastreams`` and also returned.
 
-        For each discovered datastream we additionally fetch the SWE+JSON
-        record schema (``GET /datastreams/{id}/schema?obsFormat=application/swe+json``)
-        and cache it on ``_underlying_resource.record_schema``. The CS API
-        listing endpoint omits the inner schema, so without this step every
-        discovered datastream would be missing the schema callers need for
-        observation construction or cross-node sync. A failure on a single
-        datastream's schema fetch is downgraded to a warning so it doesn't
-        poison the whole call.
+        For each discovered datastream we additionally fetch its record
+        schema (``GET /datastreams/{id}/schema?obsFormat=…``) and cache it
+        on ``_underlying_resource.record_schema``. The schema variant is
+        chosen from the datastream's advertised ``formats`` list:
+        ``application/swe+json`` is preferred when available (parsed as
+        `SWEDatastreamRecordSchema`); otherwise ``application/swe+binary``
+        is used (parsed as `SWEBinaryDatastreamRecordSchema`). Datastreams
+        like Axis camera ``video1`` outputs advertise *only* the binary
+        variant — without this fallback every video datastream would land
+        without a schema. The CS API listing endpoint omits the inner
+        schema, so without this step every discovered datastream would be
+        missing the schema callers need for observation construction or
+        cross-node sync. A failure on a single datastream's schema fetch
+        is downgraded to a warning so it doesn't poison the whole call.
         """
         api = self._parent_node.get_api_helper()
         res = api.get_resource(APIResourceTypes.SYSTEM, self._resource_id,
@@ -142,23 +179,32 @@ class System(StreamableResource[SystemResource]):
         for ds in datastream_json:
             datastream_objs = DatastreamResource.model_validate(ds, by_alias=True)
             new_ds = Datastream(self._parent_node, datastream_objs)
-            try:
-                schema_resp = api.get_resource(
-                    APIResourceTypes.DATASTREAM, datastream_objs.ds_id,
-                    APIResourceTypes.SCHEMA,
-                    params={'obsFormat': 'application/swe+json'},
-                )
-                schema_resp.raise_for_status()
-                new_ds._underlying_resource.record_schema = (
-                    SWEDatastreamRecordSchema.from_swejson_dict(schema_resp.json())
-                )
-            except Exception as e:
+            obs_format, parser = self._pick_datastream_schema_format(
+                datastream_objs.formats)
+            if obs_format is None:
                 msg = (
-                    f"Failed to fetch SWE+JSON schema for datastream "
-                    f"{datastream_objs.ds_id}: {type(e).__name__}: {e}"
+                    f"Datastream {datastream_objs.ds_id} advertises no "
+                    f"supported schema format (have: {datastream_objs.formats}); "
+                    "skipping schema fetch."
                 )
-                logging.error(msg, exc_info=True)
+                logging.warning(msg)
                 warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
+            else:
+                try:
+                    schema_resp = api.get_resource(
+                        APIResourceTypes.DATASTREAM, datastream_objs.ds_id,
+                        APIResourceTypes.SCHEMA,
+                        params={'obsFormat': obs_format},
+                    )
+                    schema_resp.raise_for_status()
+                    new_ds._underlying_resource.record_schema = parser(schema_resp.json())
+                except Exception as e:
+                    msg = (
+                        f"Failed to fetch {obs_format} schema for datastream "
+                        f"{datastream_objs.ds_id}: {type(e).__name__}: {e}"
+                    )
+                    logging.error(msg, exc_info=True)
+                    warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             datastreams.append(new_ds)
 
             if not [ds.get_underlying_resource() != datastream_objs for ds in self.datastreams]:
