@@ -25,6 +25,12 @@ from ..csapi4py.constants import APIResourceTypes
 from ..events import DefaultEventTypes, EventHandler
 from ..events.builder import EventBuilder
 from ..resource_datamodels import DatastreamResource, ObservationResource
+from ..schema_datamodels import (
+    SWEBinaryDatastreamRecordSchema,
+    SWEFlatBuffersDatastreamRecordSchema,
+    SWEProtobufDatastreamRecordSchema,
+)
+from ..swe_binary import SWEBinaryCodec
 from ..timemanagement import TimeInstant
 from .base import StreamableModes, StreamableResource
 
@@ -142,12 +148,78 @@ class Datastream(StreamableResource[DatastreamResource]):
     def _queue_pop(self):
         return self._msg_reader_queue.get_nowait()
 
-    def insert(self, data: dict):
-        """Encode ``data`` as JSON and publish it to this datastream's
-        observation MQTT topic. Bypasses the outbound deque."""
-        # self._queue_push(data)
-        encoded = json.dumps(data).encode('utf-8')
+    def insert(self, data):
+        """Encode ``data`` and publish it to this datastream's observation
+        MQTT topic. Bypasses the outbound deque.
+
+        Encoding is chosen from the datastream's record schema:
+
+        * ``application/swe+binary`` → uses `SWEBinaryCodec` to pack a
+          dict (or `Sequence` in declared member order) into the binary
+          wire form. Raw ``bytes``/``bytearray``/``memoryview`` payloads
+          are passed through verbatim — useful when the caller has
+          already framed a record (e.g. a pre-encoded H.264 NAL unit
+          with the standard ``[ts][size][bytes]`` blob framing from
+          ``oshconnect.swe_binary.encode_swe_binary_blob``).
+        * everything else (incl. ``application/swe+json``,
+          ``application/om+json``) → ``json.dumps`` of a dict.
+        """
+        encoded = self._encode_for_wire(data)
         self._publish_mqtt(self._topic, encoded)
+
+    def _encode_for_wire(self, data) -> bytes:
+        """Encode ``data`` for publish over this datastream's wire format.
+
+        Single source of truth used by both `insert` (MQTT bypass) and
+        ``base.StreamableResource.insert_data`` (deque-routed) via the
+        ``_streamable_encode_payload`` hook on `StreamableResource`.
+        Keeping the dispatch here means changing the encoding policy
+        does not require touching both call sites.
+        """
+        # Already-encoded bytes pass through. Lets callers ship a
+        # pre-framed binary blob (or a hand-built JSON dict) without
+        # going through the codec.
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            return bytes(data)
+        schema = getattr(self._underlying_resource, "record_schema", None)
+        if isinstance(schema, SWEBinaryDatastreamRecordSchema):
+            return SWEBinaryCodec(schema).encode(data)
+        if isinstance(schema, SWEProtobufDatastreamRecordSchema):
+            from ..swe_protobuf import SWEProtobufCodec  # lazy: optional dep
+            return SWEProtobufCodec(schema).encode(data)
+        if isinstance(schema, SWEFlatBuffersDatastreamRecordSchema):
+            from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: stub
+            return SWEFlatBuffersCodec(schema).encode(data)
+        # JSON-family fallback (om+json, swe+json, swe+csv-handed-a-dict).
+        return json.dumps(data).encode("utf-8")
+
+    def decode_observation(self, raw: bytes) -> dict:
+        """Decode one observation off the wire using this datastream's schema.
+
+        For ``application/swe+binary`` datastreams: walks the record
+        encoding's members and returns a dict keyed by field name. Block
+        members come back as ``bytes`` (opaque — the codec does not
+        demux H.264 / JPEG / etc.).
+
+        For JSON-family datastreams: returns ``json.loads(raw)``.
+
+        :raises ValueError: if no schema has been fetched.
+        """
+        schema = getattr(self._underlying_resource, "record_schema", None)
+        if schema is None:
+            raise ValueError(
+                "Cannot decode observation: no record_schema on this "
+                "datastream. Call System.discover_datastreams() first, "
+                "or set record_schema manually.")
+        if isinstance(schema, SWEBinaryDatastreamRecordSchema):
+            return SWEBinaryCodec(schema).decode(raw)
+        if isinstance(schema, SWEProtobufDatastreamRecordSchema):
+            from ..swe_protobuf import SWEProtobufCodec  # lazy: optional dep
+            return SWEProtobufCodec(schema).decode(raw)
+        if isinstance(schema, SWEFlatBuffersDatastreamRecordSchema):
+            from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: stub
+            return SWEFlatBuffersCodec(schema).decode(raw)
+        return json.loads(raw)
 
     def to_storage_dict(self) -> dict:
         """Return a JSON-safe snapshot of this datastream — local identity,

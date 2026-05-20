@@ -384,13 +384,25 @@ class StreamableResource(Generic[T], ABC):
         """Return the local UUID. Alias for `get_streamable_id`."""
         return self._id
 
-    def insert_data(self, data: dict):
-        """ Naively inserts data into the message writer queue to be sent over the WebSocket connection.
-            No Checks are performed to ensure the data is valid for the underlying resource.
-            :param data: Data to be sent, typically bytes or str
+    def insert_data(self, data):
+        """ Inserts data into the message writer queue to be sent over the WebSocket / MQTT connection.
+            Encoding is delegated to `_encode_for_wire`, which subclasses can override to honour
+            their datastream's wire format (e.g. `Datastream` routes through `SWEBinaryCodec` when
+            its schema is `application/swe+binary`). No semantic validation is performed.
+            :param data: Data to be sent (dict, sequence, or bytes-like).
         """
-        data_bytes = json.dumps(data).encode("utf-8") if isinstance(data, dict) else data
-        self._msg_writer_queue.put_nowait(data_bytes)
+        self._msg_writer_queue.put_nowait(self._encode_for_wire(data))
+
+    def _encode_for_wire(self, data) -> bytes:
+        """Default wire encoding: pass `bytes`-likes through, else `json.dumps`.
+
+        Subclasses with format-specific codecs (see `Datastream._encode_for_wire`)
+        override this. Single hook so changing the encoding policy on one path
+        does not silently leave the other path producing stale bytes.
+        """
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            return bytes(data)
+        return json.dumps(data).encode("utf-8")
 
     def subscribe_mqtt(self, topic: str, qos: int = 0):
         """Subscribe to an arbitrary MQTT ``topic`` using the default callback

@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.5.1a19"
+version = "0.5.1a22"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations. Implements OGC CS API Part 3 (Pub/Sub) MQTT topic conventions including :data topics and resource event topics."
 readme = "README.md"
 authors = [
@@ -22,6 +22,19 @@ dependencies = [
     "urllib3>=2.7.0",         # transitive via requests; explicit floor pins the patched version
 ]
 [project.optional-dependencies]
+# Binary encoding extras. The bindings these depend on are generated from the
+# SWE Common 3 schemas in https://github.com/tipatterson-dev/BinaryEncodings —
+# until that project publishes a pip-installable package, generate the Python
+# bindings yourself (``make protobuf PROTO_LANG=python``) and place them on
+# PYTHONPATH. See docs/source/tutorial.rst "SWE Protobuf Encoding".
+protobuf = ["protobuf>=7.35.0"]
+flatbuffers = ["flatbuffers>=24.0"]
+# Optional H.264 frame decoding for the Axis-camera demo
+# (examples/axis_video_frame.py). PyAV is heavy because it wraps FFmpeg;
+# Pillow handles the PNG write step. Both are unused outside the demo
+# and only loaded with `try: import` — installing the library without
+# this extra works fine and the demo just skips PNG generation.
+av = ["av>=15.0.0", "pillow>=11.0.0"]
 dev = [
     "flake8>=7.3.0",
     # pytest 9.x is the validated target. The suite uses no APIs that

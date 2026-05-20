@@ -164,3 +164,6 @@ cython_debug/
 .python-version
 
 poetry.lock
+
+# Demo-script artifacts (examples/axis_video_frame.py writes here)
+examples/_out/
