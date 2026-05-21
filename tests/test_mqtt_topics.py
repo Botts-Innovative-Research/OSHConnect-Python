@@ -108,9 +108,11 @@ class TestControlStreamTopics:
         assert topic == f"api/controlstreams/{CS_ID}/status:data"
 
     def test_status_topic_set_on_init(self):
-        """_status_topic is assigned in __init__ before any explicit init_mqtt call."""
+        """_status_topic is assigned in __init__ before any explicit
+        init_mqtt call. Status payloads are always JSON, so the topic
+        carries the ``/json`` format subtopic."""
         cs = make_controlstream()
-        assert cs._status_topic == f"api/controlstreams/{CS_ID}/status:data"
+        assert cs._status_topic == f"api/controlstreams/{CS_ID}/status:data/json"
 
     def test_init_mqtt_sets_command_topic(self):
         node = make_mock_node()
@@ -156,7 +158,7 @@ class TestControlStreamTopics:
         cs.publish("payload", topic=APIResourceTypes.STATUS.value)
 
         mock_mqtt.publish.assert_called_once_with(
-            f"api/controlstreams/{CS_ID}/status:data", "payload", qos=0
+            f"api/controlstreams/{CS_ID}/status:data/json", "payload", qos=0
         )
 
     def test_publish_default_topic_routes_to_command_topic(self):
@@ -310,3 +312,159 @@ class TestIndependentMqttTopicRoot:
         node = self.make_node()
         assert node.get_api_helper().api_root == self.HTTP_ROOT
         assert node.get_api_helper().get_mqtt_root() == self.MQTT_ROOT
+
+
+class TestDataTopicFormatSubtopic:
+    """CS API Part 3 §Resource Data Messages Content Negotiation — the
+    optional ``:data/<token>`` subtopic selects the wire format. Mirrors
+    the Java reference ``ConSysTopicValidator.FORMAT_SUBTOPICS``."""
+
+    @pytest.mark.parametrize("content_type,token", [
+        ("application/json",       "json"),
+        ("application/swe+json",   "swe-json"),
+        ("application/swe+binary", "swe-binary"),
+        ("application/swe+csv",    "swe-csv"),
+        ("application/om+json",    "om-json"),
+        ("application/sml+json",   "sml-json"),
+    ])
+    def test_format_token_mapping(self, content_type, token):
+        from src.oshconnect.csapi4py.mqtt import mqtt_topic_format_token
+        assert mqtt_topic_format_token(content_type) == token
+
+    def test_unknown_format_raises_value_error(self):
+        from src.oshconnect.csapi4py.mqtt import mqtt_topic_format_token
+        with pytest.raises(ValueError, match="No MQTT topic-format token"):
+            mqtt_topic_format_token("application/swe+protobuf")
+
+    def test_get_mqtt_topic_omits_format_when_none(self):
+        """``format=None`` (default) emits bare ``:data`` so the server's
+        default format applies. Preserves prior behavior for any callers
+        that don't know the wire format."""
+        helper = make_mock_node().get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.DATASTREAM,
+            subresource_type=APIResourceTypes.OBSERVATION,
+            resource_id=DS_ID,
+            data_topic=True,
+        )
+        assert topic == f"api/datastreams/{DS_ID}/observations:data"
+
+    def test_get_mqtt_topic_appends_format_when_provided(self):
+        helper = make_mock_node().get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.DATASTREAM,
+            subresource_type=APIResourceTypes.OBSERVATION,
+            resource_id=DS_ID,
+            data_topic=True,
+            format="application/swe+binary",
+        )
+        assert topic == f"api/datastreams/{DS_ID}/observations:data/swe-binary"
+
+    def test_get_mqtt_topic_raises_for_unknown_format(self):
+        helper = make_mock_node().get_api_helper()
+        with pytest.raises(ValueError, match="No MQTT topic-format token"):
+            helper.get_mqtt_topic(
+                resource_type=APIResourceTypes.DATASTREAM,
+                subresource_type=APIResourceTypes.OBSERVATION,
+                resource_id=DS_ID,
+                data_topic=True,
+                format="application/swe+protobuf",
+            )
+
+    def test_get_mqtt_topic_ignores_format_on_event_topic(self):
+        """Event topics (no ``:data`` suffix) never carry a format
+        subtopic — the format param is silently ignored."""
+        helper = make_mock_node().get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.SYSTEM,
+            subresource_type=APIResourceTypes.DATASTREAM,
+            resource_id=SYS_ID,
+            data_topic=False,
+            format="application/swe+binary",
+        )
+        assert topic == f"api/systems/{SYS_ID}/datastreams"
+
+    def test_datastream_init_mqtt_with_swe_binary_schema_appends_token(self):
+        """When a Datastream carries a swe+binary record_schema,
+        init_mqtt() builds a topic with the matching format subtopic."""
+        from src.oshconnect.schema_datamodels import SWEBinaryDatastreamRecordSchema
+        node = make_mock_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        ds = make_datastream(node)
+        ds._underlying_resource.record_schema = (
+            SWEBinaryDatastreamRecordSchema.model_construct(
+                obs_format="application/swe+binary",
+            )
+        )
+        ds.init_mqtt()
+        assert ds._topic == f"api/datastreams/{DS_ID}/observations:data/swe-binary"
+
+    def test_datastream_init_mqtt_with_swe_json_schema_appends_token(self):
+        from src.oshconnect.schema_datamodels import SWEDatastreamRecordSchema
+        node = make_mock_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        ds = make_datastream(node)
+        ds._underlying_resource.record_schema = (
+            SWEDatastreamRecordSchema.model_construct(
+                obs_format="application/swe+json",
+            )
+        )
+        ds.init_mqtt()
+        assert ds._topic == f"api/datastreams/{DS_ID}/observations:data/swe-json"
+
+    def test_datastream_init_mqtt_without_schema_stays_bare(self):
+        """No record_schema → no known format → bare ``:data`` topic so
+        the server's default applies."""
+        node = make_mock_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        ds = make_datastream(node)
+        assert ds._underlying_resource.record_schema is None
+        ds.init_mqtt()
+        assert ds._topic == f"api/datastreams/{DS_ID}/observations:data"
+
+    def test_controlstream_init_mqtt_with_swe_json_schema_appends_token(self):
+        from src.oshconnect.schema_datamodels import SWEJSONCommandSchema
+        node = make_mock_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        cs = make_controlstream(node)
+        cs._underlying_resource.command_schema = (
+            SWEJSONCommandSchema.model_construct(
+                command_format="application/swe+json",
+            )
+        )
+        cs.init_mqtt()
+        assert cs._topic == f"api/controlstreams/{CS_ID}/commands:data/swe-json"
+
+    def test_controlstream_init_mqtt_with_json_command_schema_appends_token(self):
+        from src.oshconnect.schema_datamodels import JSONCommandSchema
+        node = make_mock_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        cs = make_controlstream(node)
+        cs._underlying_resource.command_schema = (
+            JSONCommandSchema.model_construct(
+                command_format="application/json",
+            )
+        )
+        cs.init_mqtt()
+        assert cs._topic == f"api/controlstreams/{CS_ID}/commands:data/json"
+
+    def test_controlstream_status_topic_always_uses_json_token(self):
+        """Status payloads are always JSON regardless of the command
+        format, so the status topic is always suffixed with ``/json``."""
+        cs = make_controlstream()
+        assert cs._status_topic == f"api/controlstreams/{CS_ID}/status:data/json"
+
+    def test_custom_mqtt_topic_root_preserved_with_format(self):
+        """Format subtopic stacks correctly when a custom mqtt_topic_root
+        is in play — the suffix is appended after ``:data``, not after
+        the topic root."""
+        node = make_mock_node(api_root="api", mqtt_topic_root="osh/mqtt")
+        helper = node.get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.DATASTREAM,
+            subresource_type=APIResourceTypes.OBSERVATION,
+            resource_id=DS_ID,
+            data_topic=True,
+            format="application/swe+binary",
+        )
+        assert topic == f"osh/mqtt/datastreams/{DS_ID}/observations:data/swe-binary"
