@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from .con_sys_api import DeleteRequest, GetRequest, PostRequest, PutRequest
 from .constants import APIResourceTypes, ContentTypes, APITerms
+from .mqtt import mqtt_topic_format_token
 
 
 # TODO: rework to make the first resource in the endpoint the primary key for URL construction, currently, the implementation is a bit on the confusing side with what is being generated and why.
@@ -291,7 +292,7 @@ class APIHelper(ABC):
 
     # TODO: add validity checking for resource type combinations
     def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None,
-                       data_topic: bool = True):
+                       data_topic: bool = True, format: str | None = None):
         """
         Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
         :param resource_type: The API resource type of the resource that comes first in the URL, cannot be None
@@ -303,9 +304,15 @@ class APIHelper(ABC):
         the given type.
         :param data_topic: If True (default), appends ':data' to the subresource collection endpoint per CS API Part 3
         spec for Resource Data Topics. Set to False for Resource Event Topics (no suffix).
+        :param format: Optional MIME content-type that selects the ``:data/<token>`` format subtopic per CS API Part 3
+        §Resource Data Messages Content Negotiation. ``None`` (default) emits a bare ``:data`` topic so the server's
+        default format applies. Ignored when ``data_topic=False``. Raises ``ValueError`` for unmapped MIME types — see
+        :func:`oshconnect.csapi4py.mqtt.mqtt_topic_format_token`.
         :return:
         """
         data_suffix = ':data' if data_topic else ''
+        if data_topic and format is not None:
+            data_suffix = f'{data_suffix}/{mqtt_topic_format_token(format)}'
         subresource_endpoint = f'/{resource_type_to_endpoint(subresource_type)}'
         resource_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
         resource_ident = "" if resource_id is None else f'/{resource_id}'

@@ -217,13 +217,16 @@ class StreamableResource(Generic[T], ABC):
     def _default_on_subscribe(self, client, userdata, mid, granted_qos, properties):
         logging.debug("OSH Subscribed: mid=%s granted_qos=%s", mid, granted_qos)
 
-    def get_mqtt_topic(self, subresource: APIResourceTypes | None = None, data_topic: bool = True):
+    def get_mqtt_topic(self, subresource: APIResourceTypes | None = None, data_topic: bool = True,
+                       format: str | None = None):
         """
         Retrieves the MQTT topic for this streamable resource based on its underlying resource type. By default,
         returns a Resource Data Topic (`:data` suffix per CS API Part 3).
         :param subresource: Optional subresource type to get the topic for, defaults to None
         :param data_topic: If True (default), produces a Resource Data Topic with ':data' suffix. Set False for
         Resource Event Topics.
+        :param format: Optional MIME content-type for the ``:data/<token>`` format subtopic. ``None`` (default) emits
+        bare ``:data`` so the server's default format applies. Ignored when ``data_topic=False``.
         """
         resource_type = None
         parent_res_type = None
@@ -262,7 +265,8 @@ class StreamableResource(Generic[T], ABC):
                     raise ValueError(f"Unsupported subresource type {subresource} for SystemResource.")
 
         topic = self._parent_node.get_api_helper().get_mqtt_topic(subresource_type=resource_type, resource_id=parent_id,
-                                                                  resource_type=parent_res_type, data_topic=data_topic)
+                                                                  resource_type=parent_res_type, data_topic=data_topic,
+                                                                  format=format)
         return topic
 
     def get_event_topic(self) -> str:

@@ -4,6 +4,43 @@ import paho.mqtt.client as mqtt
 logger = logging.getLogger(__name__)
 
 
+# CS API Part 3 Resource Data Topic format subtopic.
+#
+# Mirrors `FORMAT_SUBTOPICS` in the Java reference:
+#   sensorhub-service-consys-mqtt/.../ConSysTopicValidator.java
+#
+# Tokens use '-' instead of '+' because MQTT reserves '+' as a single-level
+# wildcard and Kafka disallows '+' in topic names. A topic of the form
+# `…:data/<token>` selects the wire format for both subscribe and publish.
+MQTT_TOPIC_FORMAT_TOKENS = {
+    "application/json":       "json",
+    "application/swe+json":   "swe-json",
+    "application/swe+binary": "swe-binary",
+    "application/swe+csv":    "swe-csv",
+    "application/om+json":    "om-json",
+    "application/sml+json":   "sml-json",
+}
+
+
+def mqtt_topic_format_token(content_type: str) -> str:
+    """Return the hyphen-token for a CS API Part 3 ``:data/<token>`` subtopic.
+
+    :param content_type: MIME type string, e.g. ``"application/swe+binary"``.
+    :raises ValueError: if ``content_type`` is not in
+        :data:`MQTT_TOPIC_FORMAT_TOKENS`. Callers must register a token for
+        every format they intend to stream — the server raises
+        ``InvalidTopicException`` on unknown subtopic tokens.
+    """
+    try:
+        return MQTT_TOPIC_FORMAT_TOKENS[content_type]
+    except KeyError:
+        raise ValueError(
+            f"No MQTT topic-format token registered for content-type "
+            f"{content_type!r}. Known content-types: "
+            f"{sorted(MQTT_TOPIC_FORMAT_TOKENS)}"
+        )
+
+
 class MQTTCommClient:
     def __init__(self, url, port=1883, username=None, password=None, path='mqtt', client_id_suffix="",
                  transport='tcp', use_tls=False, reconnect_delay=5):

@@ -133,9 +133,16 @@ class Datastream(StreamableResource[DatastreamResource]):
 
     def init_mqtt(self):
         """Set ``self._topic`` to the datastream's observation data topic
-        (CS API Part 3 ``:data`` suffix)."""
+        (CS API Part 3 ``:data`` suffix). When this datastream has a
+        ``record_schema`` the topic is suffixed with the matching format
+        subtopic (e.g. ``…/observations:data/swe-binary``); otherwise a
+        bare ``:data`` topic is used and the server's default format
+        applies."""
         super().init_mqtt()
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
+        schema = getattr(self._underlying_resource, "record_schema", None)
+        obs_format = getattr(schema, "obs_format", None) if schema is not None else None
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION,
+                                          data_topic=True, format=obs_format)
 
     def _emit_inbound_event(self, msg):
         evt = (EventBuilder().with_type(DefaultEventTypes.NEW_OBSERVATION).with_topic(msg.topic).with_data(

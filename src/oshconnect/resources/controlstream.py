@@ -66,13 +66,23 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         return self._underlying_resource.cs_id
 
     def init_mqtt(self):
-        """Set ``self._topic`` to the control stream's command data topic."""
+        """Set ``self._topic`` to the control stream's command data topic.
+        When this control stream has a ``command_schema`` the topic is
+        suffixed with the matching format subtopic (e.g.
+        ``…/commands:data/swe-json``); otherwise a bare ``:data`` topic is
+        used and the server's default format applies."""
         super().init_mqtt()
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND, data_topic=True)
+        schema = getattr(self._underlying_resource, "command_schema", None)
+        cmd_format = getattr(schema, "command_format", None) if schema is not None else None
+        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND,
+                                          data_topic=True, format=cmd_format)
 
     def get_mqtt_status_topic(self) -> str:
-        """Return the MQTT topic for command status updates (``:status``)."""
-        return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS, data_topic=True)
+        """Return the MQTT topic for command status updates. Status payloads
+        are always ``application/json``, so the topic is suffixed with the
+        ``json`` format subtopic (``…/status:data/json``)."""
+        return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS,
+                                   data_topic=True, format="application/json")
 
     def _emit_inbound_event(self, msg):
         evt_type = (DefaultEventTypes.NEW_COMMAND if msg.topic == self._topic else DefaultEventTypes.NEW_COMMAND_STATUS)
