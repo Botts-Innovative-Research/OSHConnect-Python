@@ -9,7 +9,8 @@ It supports Parts 1, 2, and 3 (Pub/Sub) of the OGC Connected Systems API,
 including:
 
 - System, Datastream, and ControlStream discovery and management
-- Real-time MQTT streaming using CS API Part 3 ``:data`` topic conventions
+- Real-time MQTT streaming using CS API Part 3 ``:data/<format>`` topic conventions
+  (``swe-binary``, ``swe-json``, ``json``, …)
 - Resource event topic subscriptions (CloudEvents lifecycle notifications)
 - Batch retrieval and archival stream playback
 - Configuration persistence (JSON save / load)

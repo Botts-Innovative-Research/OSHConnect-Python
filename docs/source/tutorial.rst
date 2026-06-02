@@ -161,6 +161,47 @@ its ``items`` (for ``DataChoice``) or ``fields`` (for ``DataRecord``)
 list the parameters the stream accepts.
 
 
+MQTT Topic Conventions
+----------------------
+OSHConnect speaks the CS API Part 3 pub/sub conventions, including the
+optional **format subtopic** that selects the wire format for each
+Resource Data Topic. A subscription path looks like::
+
+   {mqtt_root}/datastreams/{ds_id}/observations:data/<format-token>
+   {mqtt_root}/controlstreams/{cs_id}/commands:data/<format-token>
+   {mqtt_root}/controlstreams/{cs_id}/status:data/json
+
+The trailing ``<format-token>`` is the hyphen-substituted MIME subtype
+(``+`` is reserved as an MQTT wildcard and is disallowed in Kafka topic
+names, so the server uses ``-`` instead):
+
+============================  ======================
+Content-type                  Topic token
+============================  ======================
+``application/json``          ``json``
+``application/swe+json``      ``swe-json``
+``application/swe+binary``    ``swe-binary``
+``application/swe+csv``       ``swe-csv``
+``application/om+json``       ``om-json``
+``application/sml+json``      ``sml-json``
+============================  ======================
+
+The Python client picks the right token for you. ``Datastream.init_mqtt``
+reads the discovered ``record_schema.obs_format`` (e.g.
+``application/swe+binary`` for video datastreams) and appends
+``/swe-binary`` to the data topic. ``ControlStream.init_mqtt`` does the
+same with ``command_schema.command_format``, and the status topic is
+always suffixed with ``/json`` since status payloads are JSON by
+convention. If you build a topic manually via
+``APIHelper.get_mqtt_topic`` you can pass ``format=...`` explicitly; an
+unknown MIME type raises ``ValueError`` from
+``oshconnect.csapi4py.mqtt.mqtt_topic_format_token`` so the client never
+sends a token the server can't parse.
+
+Older servers that don't recognise the format subtopic still accept the
+bare ``:data`` form — that's what ``init_mqtt`` produces when a
+datastream has no fetched schema (the server's default format applies).
+
 Streaming Observations (MQTT)
 ------------------------------
 Once a node is configured with MQTT and datastreams are discovered, start receiving
@@ -593,9 +634,10 @@ section) to see whether the system accepted and executed it.
 
 Subscribing to Command Status
 -----------------------------
-Control streams emit two MQTT topics: ``:commands`` (input) and ``:status``
-(output, where the system reports execution results). Subscribe to status
-updates:
+Each control stream exposes two MQTT topics: ``/commands:data/<format>``
+(input — the operator publishes here) and ``/status:data/json`` (output —
+the system reports execution results here). See *MQTT topic conventions*
+above for the format-token table. Subscribe to status updates:
 
 .. code-block:: python
 
