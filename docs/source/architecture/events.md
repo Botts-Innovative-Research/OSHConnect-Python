@@ -3,8 +3,13 @@
 OSHConnect has two pub/sub layers and they're easy to confuse:
 
 - **MQTT pub/sub** — across the network. Datastreams subscribe to
-  `:data` topics on the OSH server's MQTT broker; ControlStreams publish
-  commands. Implemented via `paho-mqtt` in `csapi4py/mqtt.py`.
+  `:data/<format>` topics on the OSH server's MQTT broker (e.g.
+  `…/observations:data/swe-binary`); ControlStreams publish commands to
+  the matching `…/commands:data/<format>` topic and receive status on
+  `…/status:data/json`. The hyphen-token format subtopic per CS API
+  Part 3 §"Resource Data Messages Content Negotiation" — see the
+  tutorial's *MQTT topic conventions* section for the full mapping.
+  Implemented via `paho-mqtt` in `csapi4py/mqtt.py`.
 - **In-process EventHandler** — within the Python process. A singleton
   pub/sub bus that fans out `Event` objects to in-app listeners (e.g. a
   visualization widget that wants to know whenever a new observation
