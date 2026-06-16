@@ -41,6 +41,7 @@ from oshconnect.swe_binary import (
     encode_swe_binary_blob,
     encode_swe_binary_record,
 )
+from tests.helpers import osh_node_reachable
 
 
 # ---------------------------------------------------------------------------
@@ -465,31 +466,28 @@ def test_datastream_decode_observation_without_schema_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_pick_schema_format_prefers_swe_json():
+@pytest.mark.parametrize("available, expected_fmt, expected_parser", [
+    # swe+json wins whenever advertised
+    (["application/om+json", "application/swe+json", "application/swe+binary"],
+     "application/swe+json", SWEDatastreamRecordSchema.from_swejson_dict),
+    # falls back to swe+binary
+    (["application/om+json", "application/swe+binary"],
+     "application/swe+binary",
+     SWEBinaryDatastreamRecordSchema.from_swebinary_dict),
+    # nothing supported → (None, None)
+    (["application/om+json", "application/swe+csv"], None, None),
+])
+def test_pick_schema_format_prefers_best_supported(available, expected_fmt,
+                                                   expected_parser):
     from oshconnect.resources.system import System
-    obs_fmt, parser = System._pick_datastream_schema_format([
-        "application/om+json", "application/swe+json", "application/swe+binary",
-    ])
-    assert obs_fmt == "application/swe+json"
-    # Bound classmethods aren't identity-equal across accesses; compare by name.
-    assert parser.__func__ is SWEDatastreamRecordSchema.from_swejson_dict.__func__
-
-
-def test_pick_schema_format_falls_back_to_binary():
-    from oshconnect.resources.system import System
-    obs_fmt, parser = System._pick_datastream_schema_format([
-        "application/om+json", "application/swe+binary",
-    ])
-    assert obs_fmt == "application/swe+binary"
-    assert parser.__func__ is SWEBinaryDatastreamRecordSchema.from_swebinary_dict.__func__
-
-
-def test_pick_schema_format_returns_none_when_nothing_supported():
-    from oshconnect.resources.system import System
-    obs_fmt, parser = System._pick_datastream_schema_format([
-        "application/om+json", "application/swe+csv",
-    ])
-    assert obs_fmt is None and parser is None
+    obs_fmt, parser = System._pick_datastream_schema_format(available)
+    assert obs_fmt == expected_fmt
+    if expected_parser is None:
+        assert parser is None
+    else:
+        # Bound classmethods aren't identity-equal across accesses;
+        # compare the underlying functions.
+        assert parser.__func__ is expected_parser.__func__
 
 
 # ---------------------------------------------------------------------------
@@ -501,16 +499,9 @@ AXIS_PORT = os.environ.get("OSHC_AXIS_PORT", "9191")
 AXIS_BASE = f"http://localhost:{AXIS_PORT}/sensorhub/api"
 
 
-def _axis_node_reachable() -> bool:
-    try:
-        r = requests.get(f"{AXIS_BASE}/systems", timeout=2)
-        return r.ok
-    except Exception:
-        return False
-
-
 pytestmark_network_axis = pytest.mark.skipif(
-    not _axis_node_reachable(),
+    not osh_node_reachable(int(AXIS_PORT), path="/sensorhub/api/systems",
+                           auth=None),
     reason=f"Axis OSH node not reachable at {AXIS_BASE}",
 )
 

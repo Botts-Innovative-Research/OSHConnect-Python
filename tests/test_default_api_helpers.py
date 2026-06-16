@@ -3,10 +3,9 @@
 Covers the two module-level helpers (``determine_parent_type``,
 ``resource_type_to_endpoint``) and every public method on the
 ``APIHelper`` dataclass. HTTP methods are exercised with
-``monkeypatch`` against ``requests.{get,post,put,delete}`` (same
-pattern as ``tests/test_controlstream_insert_schema.py``) so the
-constructed URL, body, headers, and auth tuple can be inspected
-without standing up a server.
+``tests.helpers.capture_request`` so the constructed URL, body,
+headers, and auth tuple can be inspected without standing up a
+server.
 
 The ``update_resource`` and ``delete_resource`` tests specifically
 pin the resource ID into the URL — regression lock-in for the bug
@@ -22,6 +21,7 @@ from oshconnect.csapi4py.default_api_helpers import (
     determine_parent_type,
     resource_type_to_endpoint,
 )
+from tests.helpers import capture_request
 
 
 # ---------------------------------------------------------------------------
@@ -315,38 +315,12 @@ class TestGetMQTTTopic:
 
 
 # ---------------------------------------------------------------------------
-# APIHelper HTTP methods (monkeypatch requests.{verb})
+# APIHelper HTTP methods (capture_request patches requests.{verb})
 # ---------------------------------------------------------------------------
-
-class _MockResponse:
-    status_code = 200
-    ok = True
-    text = ""
-    headers = {"Location": "http://localhost:8282/sensorhub/api/systems/new-id"}
-
-
-def _capture(into: dict):
-    """Returns a callable usable for monkeypatching ``requests.<verb>``;
-    captures every kwarg the wrapper passes through and returns a
-    successful response."""
-    def _f(url, params=None, headers=None, auth=None, data=None, json=None, **kwargs):
-        into["url"] = str(url)
-        into["params"] = params
-        into["headers"] = headers
-        into["auth"] = auth
-        into["data"] = data
-        into["json"] = json
-        return _MockResponse()
-    return _f
-
 
 class TestCreateResource:
     def test_top_level_post_url_and_body(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         helper = _make_helper(username="u", password="p", user_auth=True)
         helper.create_resource(APIResourceTypes.SYSTEM, '{"name": "x"}')
         assert captured["url"] == "http://localhost:8282/sensorhub/api/systems"
@@ -354,11 +328,7 @@ class TestCreateResource:
         assert captured["auth"] == ("u", "p")
 
     def test_subresource_post_threads_parent_id(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         helper = _make_helper()
         helper.create_resource(
             APIResourceTypes.DATASTREAM, '{"name": "x"}',
@@ -373,11 +343,7 @@ class TestCreateResource:
         """When url_endpoint is supplied, the URL is built off the full
         API root (protocol + port + server_root + api_root) — not just
         ``server_url/api_root`` (which would drop the scheme)."""
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         helper = _make_helper()
         helper.create_resource(
             APIResourceTypes.SYSTEM, '{}', url_endpoint="custom/path",
@@ -390,11 +356,7 @@ class TestCreateResource:
 
 class TestRetrieveResource:
     def test_retrieve_with_id(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         helper = _make_helper()
         helper.retrieve_resource(APIResourceTypes.SYSTEM, res_id="sys-1")
         assert (
@@ -403,11 +365,7 @@ class TestRetrieveResource:
         )
 
     def test_retrieve_collection_when_id_omitted(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         helper = _make_helper()
         helper.retrieve_resource(APIResourceTypes.SYSTEM)
         assert captured["url"].endswith("/systems")
@@ -415,21 +373,13 @@ class TestRetrieveResource:
 
 class TestGetResource:
     def test_resource_type_only(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         helper = _make_helper()
         helper.get_resource(APIResourceTypes.SYSTEM)
         assert captured["url"].endswith("/systems")
 
     def test_resource_with_id_and_subresource(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         helper = _make_helper()
         helper.get_resource(
             APIResourceTypes.DATASTREAM,
@@ -439,11 +389,7 @@ class TestGetResource:
         assert captured["url"].endswith("/datastreams/ds-1/schema")
 
     def test_get_resource_threads_query_params(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         helper = _make_helper()
         helper.get_resource(
             APIResourceTypes.CONTROL_CHANNEL,
@@ -458,11 +404,7 @@ class TestUpdateResource:
     """Regression lock-in: the URL must include ``res_id`` (was None pre-fix)."""
 
     def test_top_level_put_includes_res_id(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.put",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "put")
         helper = _make_helper()
         helper.update_resource(
             APIResourceTypes.SYSTEM, "sys-1", '{"name": "renamed"}',
@@ -474,11 +416,7 @@ class TestUpdateResource:
         assert captured["data"] == '{"name": "renamed"}'
 
     def test_subresource_put_includes_both_ids(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.put",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "put")
         helper = _make_helper()
         helper.update_resource(
             APIResourceTypes.DATASTREAM, "ds-1", "{}",
@@ -491,11 +429,7 @@ class TestDeleteResource:
     """Regression lock-in: the URL must include ``res_id`` (was None pre-fix)."""
 
     def test_top_level_delete_includes_res_id(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.delete",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "delete")
         helper = _make_helper()
         helper.delete_resource(APIResourceTypes.SYSTEM, "sys-1")
         assert (
@@ -504,11 +438,7 @@ class TestDeleteResource:
         ), "DELETE URL must include the resource id; pre-fix it was /systems"
 
     def test_subresource_delete_includes_both_ids(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.delete",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "delete")
         helper = _make_helper()
         helper.delete_resource(
             APIResourceTypes.DATASTREAM, "ds-1", parent_res_id="sys-1",
@@ -516,11 +446,7 @@ class TestDeleteResource:
         assert captured["url"].endswith("/systems/sys-1/datastreams/ds-1")
 
     def test_delete_threads_auth_when_user_auth_enabled(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.delete",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "delete")
         helper = _make_helper(username="admin", password="s3cret", user_auth=True)
         helper.delete_resource(APIResourceTypes.SYSTEM, "sys-1")
         assert captured["auth"] == ("admin", "s3cret")

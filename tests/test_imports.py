@@ -26,6 +26,10 @@ EXPECTED_REEXPORTS = [
                              "ConnectedSystemAPIRequest"]),
     ("oshconnect.csapi4py", ["MQTTCommClient"]),
     ("oshconnect.csapi4py", ["APIHelper"]),
+    # Back-compat shim — all event symbols now live in oshconnect.events.
+    ("oshconnect.eventbus", ["EventHandler", "Event", "EventBuilder",
+                             "IEventListener", "CallbackListener",
+                             "DefaultEventTypes", "AtomicEventTypes"]),
 ]
 
 

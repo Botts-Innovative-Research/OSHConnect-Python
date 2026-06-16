@@ -12,10 +12,9 @@ Event topic format (Resource Event Topic):
 import pytest
 from unittest.mock import MagicMock
 
-from src.oshconnect.csapi4py.constants import APIResourceTypes
-from src.oshconnect.csapi4py.default_api_helpers import APIHelper
-from src.oshconnect.resource_datamodels import DatastreamResource, ControlStreamResource, SystemResource
-from src.oshconnect.streamableresource import Datastream, ControlStream, System
+from oshconnect.csapi4py.constants import APIResourceTypes
+from oshconnect.csapi4py.default_api_helpers import APIHelper
+from tests import helpers
 
 DS_ID = "ds_test_001"
 CS_ID = "cs_test_001"
@@ -39,33 +38,19 @@ def make_mock_node(api_root="api", mqtt_topic_root=None):
     return node
 
 
+# Thin wrappers over the shared factories in ``tests.helpers`` that fill in
+# this module's mock node and topic-id constants.
+
 def make_datastream(node=None):
-    if node is None:
-        node = make_mock_node()
-    ds_resource = DatastreamResource.model_validate({
-        "id": DS_ID,
-        "name": "Test Datastream",
-        "validTime": ["2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"],
-    })
-    return Datastream(parent_node=node, datastream_resource=ds_resource)
+    return helpers.make_datastream(node or make_mock_node(), ds_id=DS_ID)
 
 
 def make_controlstream(node=None):
-    if node is None:
-        node = make_mock_node()
-    cs_resource = ControlStreamResource.model_validate({
-        "id": CS_ID,
-        "name": "Test ControlStream",
-    })
-    return ControlStream(node=node, controlstream_resource=cs_resource)
+    return helpers.make_controlstream(node or make_mock_node(), cs_id=CS_ID)
 
 
 def make_system(node=None):
-    if node is None:
-        node = make_mock_node()
-    sys = System(label="Test System", urn="urn:test:system", parent_node=node,
-                 resource_id=SYS_ID)
-    return sys
+    return helpers.make_system(node or make_mock_node(), resource_id=SYS_ID)
 
 
 class TestDatastreamTopics:
@@ -324,15 +309,16 @@ class TestDataTopicFormatSubtopic:
         ("application/swe+json",   "swe-json"),
         ("application/swe+binary", "swe-binary"),
         ("application/swe+csv",    "swe-csv"),
+        ("application/swe+proto",  "swe-proto"),
         ("application/om+json",    "om-json"),
         ("application/sml+json",   "sml-json"),
     ])
     def test_format_token_mapping(self, content_type, token):
-        from src.oshconnect.csapi4py.mqtt import mqtt_topic_format_token
+        from oshconnect.csapi4py.mqtt import mqtt_topic_format_token
         assert mqtt_topic_format_token(content_type) == token
 
     def test_unknown_format_raises_value_error(self):
-        from src.oshconnect.csapi4py.mqtt import mqtt_topic_format_token
+        from oshconnect.csapi4py.mqtt import mqtt_topic_format_token
         with pytest.raises(ValueError, match="No MQTT topic-format token"):
             mqtt_topic_format_token("application/swe+protobuf")
 
@@ -387,7 +373,7 @@ class TestDataTopicFormatSubtopic:
     def test_datastream_init_mqtt_with_swe_binary_schema_appends_token(self):
         """When a Datastream carries a swe+binary record_schema,
         init_mqtt() builds a topic with the matching format subtopic."""
-        from src.oshconnect.schema_datamodels import SWEBinaryDatastreamRecordSchema
+        from oshconnect.schema_datamodels import SWEBinaryDatastreamRecordSchema
         node = make_mock_node()
         node.get_mqtt_client.return_value = MagicMock()
         ds = make_datastream(node)
@@ -400,7 +386,7 @@ class TestDataTopicFormatSubtopic:
         assert ds._topic == f"api/datastreams/{DS_ID}/observations:data/swe-binary"
 
     def test_datastream_init_mqtt_with_swe_json_schema_appends_token(self):
-        from src.oshconnect.schema_datamodels import SWEDatastreamRecordSchema
+        from oshconnect.schema_datamodels import SWEDatastreamRecordSchema
         node = make_mock_node()
         node.get_mqtt_client.return_value = MagicMock()
         ds = make_datastream(node)
@@ -423,7 +409,7 @@ class TestDataTopicFormatSubtopic:
         assert ds._topic == f"api/datastreams/{DS_ID}/observations:data"
 
     def test_controlstream_init_mqtt_with_swe_json_schema_appends_token(self):
-        from src.oshconnect.schema_datamodels import SWEJSONCommandSchema
+        from oshconnect.schema_datamodels import SWEJSONCommandSchema
         node = make_mock_node()
         node.get_mqtt_client.return_value = MagicMock()
         cs = make_controlstream(node)
@@ -436,7 +422,7 @@ class TestDataTopicFormatSubtopic:
         assert cs._topic == f"api/controlstreams/{CS_ID}/commands:data/swe-json"
 
     def test_controlstream_init_mqtt_with_json_command_schema_appends_token(self):
-        from src.oshconnect.schema_datamodels import JSONCommandSchema
+        from oshconnect.schema_datamodels import JSONCommandSchema
         node = make_mock_node()
         node.get_mqtt_client.return_value = MagicMock()
         cs = make_controlstream(node)

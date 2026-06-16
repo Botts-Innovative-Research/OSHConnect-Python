@@ -3,9 +3,8 @@
 Covers ``ConnectedSystemAPIRequest`` (construction + ``make_request``
 dispatch) and ``ConnectedSystemsRequestBuilder`` (the fluent chain
 used by the free helpers in ``api_helpers.py``). HTTP wrappers are
-intercepted with ``monkeypatch.setattr`` against
-``requests.{get,post,put,delete}`` so we exercise the dispatch
-without standing up a server.
+intercepted with ``tests.helpers.capture_request`` so we exercise the
+dispatch without standing up a server.
 
 Auth-handling on the builder gets dedicated coverage because the
 ``with_auth`` ↔ ``with_basic_auth`` interplay has a non-obvious
@@ -24,32 +23,7 @@ from oshconnect.csapi4py.con_sys_api import (
     PostRequest,
     PutRequest,
 )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-class _MockResponse:
-    status_code = 200
-    ok = True
-    text = ""
-    headers = {}
-
-
-def _capture(into: dict):
-    """Returns a ``requests.<verb>``-shaped callable that records every
-    kwarg the wrapper passes through."""
-    def _f(url, params=None, headers=None, auth=None, data=None, json=None, **kwargs):
-        into["called"] = True
-        into["url"] = str(url)
-        into["params"] = params
-        into["headers"] = headers
-        into["auth"] = auth
-        into["data"] = data
-        into["json"] = json
-        return _MockResponse()
-    return _f
+from tests.helpers import capture_request
 
 
 # ---------------------------------------------------------------------------
@@ -91,11 +65,7 @@ class TestMakeRequestDispatch:
     """Each method routes to its matching ``requests.<verb>`` wrapper."""
 
     def test_get_routes_to_requests_get(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         ConnectedSystemAPIRequest(
             url="http://localhost:8282/sensorhub/api/systems",
             request_method="GET",
@@ -110,11 +80,7 @@ class TestMakeRequestDispatch:
         assert captured["auth"] == ("u", "p")
 
     def test_post_routes_to_requests_post_with_body(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         ConnectedSystemAPIRequest(
             url="http://localhost:8282/sensorhub/api/systems",
             request_method="POST",
@@ -127,11 +93,7 @@ class TestMakeRequestDispatch:
         assert captured["json"] is None
 
     def test_post_routes_dict_body_to_json(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         ConnectedSystemAPIRequest(
             url="http://localhost:8282/sensorhub/api/systems",
             request_method="POST",
@@ -141,11 +103,7 @@ class TestMakeRequestDispatch:
         assert captured["data"] is None
 
     def test_put_routes_to_requests_put(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.put",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "put")
         ConnectedSystemAPIRequest(
             url="http://localhost:8282/sensorhub/api/systems/sys-1",
             request_method="PUT",
@@ -155,11 +113,7 @@ class TestMakeRequestDispatch:
         assert captured["data"] == '{"name": "renamed"}'
 
     def test_delete_routes_to_requests_delete(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.delete",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "delete")
         ConnectedSystemAPIRequest(
             url="http://localhost:8282/sensorhub/api/systems/sys-1",
             request_method="DELETE",
@@ -201,11 +155,7 @@ class TestSendTimeValidation:
             req.make_request()
 
     def test_get_without_body_dispatches(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         ConnectedSystemAPIRequest(
             url="http://localhost/api/systems",
             request_method="GET",
@@ -214,11 +164,7 @@ class TestSendTimeValidation:
 
     def test_post_without_body_dispatches(self, monkeypatch):
         """Bodyless POST is permitted (e.g., trigger-style endpoints)."""
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         ConnectedSystemAPIRequest(
             url="http://localhost/api/systems/sys-1/actions/reset",
             request_method="POST",
@@ -228,11 +174,7 @@ class TestSendTimeValidation:
         assert captured["data"] is None
 
     def test_post_with_body_dispatches(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         ConnectedSystemAPIRequest(
             url="http://localhost/api/systems",
             request_method="POST",
@@ -241,11 +183,7 @@ class TestSendTimeValidation:
         assert captured["json"] == {"name": "x"}
 
     def test_put_with_body_dispatches(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.put",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "put")
         ConnectedSystemAPIRequest(
             url="http://localhost/api/systems/sys-1",
             request_method="PUT",
@@ -254,11 +192,7 @@ class TestSendTimeValidation:
         assert captured["data"] == '{"name": "renamed"}'
 
     def test_delete_without_body_dispatches(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.delete",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "delete")
         ConnectedSystemAPIRequest(
             url="http://localhost/api/systems/sys-1",
             request_method="DELETE",
@@ -268,11 +202,7 @@ class TestSendTimeValidation:
     def test_delete_with_body_is_tolerated(self, monkeypatch):
         """HTTP allows DELETE with a body (some APIs use it). We don't
         enforce against it — just ensure dispatch still happens."""
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.delete",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "delete")
         ConnectedSystemAPIRequest(
             url="http://localhost/api/systems/sys-1",
             request_method="DELETE",
@@ -466,11 +396,7 @@ class TestGetRequest:
         assert "body" not in GetRequest.model_fields
 
     def test_execute_dispatches_to_get_request(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.get",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "get")
         GetRequest(
             url="http://localhost/api/systems",
             params={"f": "json"},
@@ -494,11 +420,7 @@ class TestPostRequest:
         assert "params" not in PostRequest.model_fields
 
     def test_execute_with_str_body_routes_to_data(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         PostRequest(
             url="http://localhost/api/systems",
             body='{"name": "x"}',
@@ -507,11 +429,7 @@ class TestPostRequest:
         assert captured["json"] is None
 
     def test_execute_with_dict_body_routes_to_json(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         PostRequest(
             url="http://localhost/api/systems",
             body={"name": "x"},
@@ -520,11 +438,7 @@ class TestPostRequest:
         assert captured["data"] is None
 
     def test_execute_without_body_dispatches(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.post",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "post")
         PostRequest(url="http://localhost/api/x/actions/reset").execute()
         assert captured["called"] is True
 
@@ -538,11 +452,7 @@ class TestPutRequest:
         assert "params" not in PutRequest.model_fields
 
     def test_execute_with_body(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.put",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "put")
         PutRequest(
             url="http://localhost/api/systems/sys-1",
             body='{"name": "renamed"}',
@@ -561,11 +471,7 @@ class TestDeleteRequest:
         assert "body" not in DeleteRequest.model_fields
 
     def test_execute_dispatches_to_delete_request(self, monkeypatch):
-        captured: dict = {}
-        monkeypatch.setattr(
-            "oshconnect.csapi4py.request_wrappers.requests.delete",
-            _capture(captured),
-        )
+        captured = capture_request(monkeypatch, "delete")
         DeleteRequest(
             url="http://localhost/api/systems/sys-1",
             auth=("u", "p"),

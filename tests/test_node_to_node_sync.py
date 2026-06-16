@@ -22,31 +22,18 @@ import requests
 
 from oshconnect import Node, System
 from oshconnect.csapi4py.constants import APIResourceTypes
-from oshconnect.encoding import JSONEncoding
 from oshconnect.resource_datamodels import ControlStreamResource, DatastreamResource
 from oshconnect.schema_datamodels import (
     CommandJSON,
+    JSONCommandSchema,
     SWEDatastreamRecordSchema,
-    SWEJSONCommandSchema,
 )
 from oshconnect.timemanagement import TimeInstant, TimePeriod, TimeUtils
+from tests.helpers import osh_node_reachable
 
 SRC_PORT = int(os.environ.get("OSHC_SRC_PORT", "8282"))
 DEST_PORT = int(os.environ.get("OSHC_DEST_PORT", "8382"))
 NODE_TIMEOUT = 2.0
-
-
-def _node_reachable(port: int) -> bool:
-    """True if HTTP root responds with anything in [200, 400)."""
-    try:
-        r = requests.get(
-            f"http://localhost:{port}/sensorhub/api/",
-            timeout=NODE_TIMEOUT,
-            auth=("admin", "admin"),
-        )
-        return 200 <= r.status_code < 400
-    except (requests.RequestException, OSError):
-        return False
 
 
 def _make_node(port: int) -> Node:
@@ -58,14 +45,14 @@ def _make_node(port: int) -> Node:
 
 @pytest.fixture
 def src_node():
-    if not _node_reachable(SRC_PORT):
+    if not osh_node_reachable(SRC_PORT):
         pytest.skip(f"src OSH node not reachable at localhost:{SRC_PORT}")
     return _make_node(SRC_PORT)
 
 
 @pytest.fixture
 def dest_node():
-    if not _node_reachable(DEST_PORT):
+    if not osh_node_reachable(DEST_PORT):
         pytest.skip(f"dest OSH node not reachable at localhost:{DEST_PORT}")
     return _make_node(DEST_PORT)
 

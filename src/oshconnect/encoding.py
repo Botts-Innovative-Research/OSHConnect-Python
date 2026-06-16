@@ -110,14 +110,14 @@ class ProtobufEncoding(Encoding):
     """SWE-side Encoding marker for ``application/swe+proto``.
 
     Carries no member list — the wire layout is fully described by the
-    accompanying SWE Common 3 Protobuf schema (a generated ``sweCommon3_pb2``
-    module produced from
-    https://github.com/tipatterson-dev/BinaryEncodings).
-    The Python-side codec lives in ``oshconnect.swe_protobuf``.
+    per-datastream Protobuf descriptor that the
+    `SWEProtobufDatastreamRecordSchema` carries (a serialized
+    ``google.protobuf.FileDescriptorSet``). The Python-side codec lives in
+    ``oshconnect.swe_protobuf``.
 
     Why no `members`: unlike SWE BinaryEncoding (which has to declare a wire
     layout for opaque-bytes payloads), the Protobuf encoding's wire shape is
-    a self-describing tag-length-value stream defined by the .proto schema.
+    a tag-length-value stream fully defined by the delivered descriptor.
     There is nothing to declare at the SDK level beyond "use the protobuf
     codec."
     """

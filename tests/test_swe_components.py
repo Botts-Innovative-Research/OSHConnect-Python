@@ -322,9 +322,12 @@ def test_swe_datastream_root_invalid_name_pattern_raises():
 # here would break record-schema parsing during discovery.
 
 
-def test_quantity_requires_uom():
-    with pytest.raises(ValidationError, match="uom"):
-        QuantitySchema(label="X", definition="http://example.org/x")
+@pytest.mark.parametrize("missing", ["uom", "definition"])
+def test_quantity_required_fields(missing):
+    base = dict(label="X", definition="http://example.org/x", uom={"code": "m"})
+    kwargs = {k: v for k, v in base.items() if k != missing}
+    with pytest.raises(ValidationError, match=missing):
+        QuantitySchema(**kwargs)
 
 
 def test_quantity_label_is_optional():
@@ -332,21 +335,11 @@ def test_quantity_label_is_optional():
     assert q.label is None
 
 
-def test_quantity_requires_definition():
+@pytest.mark.parametrize("cls", [BooleanSchema, TextSchema])
+def test_label_optional_definition_required(cls):
+    cls(definition="http://example.org/x")  # no label — OK
     with pytest.raises(ValidationError, match="definition"):
-        QuantitySchema(label="X", uom={"code": "m"})
-
-
-def test_boolean_label_optional_definition_required():
-    BooleanSchema(definition="http://example.org/b")  # no label — OK
-    with pytest.raises(ValidationError, match="definition"):
-        BooleanSchema(label="X")
-
-
-def test_text_label_optional_definition_required():
-    TextSchema(definition="http://example.org/t")  # no label — OK
-    with pytest.raises(ValidationError, match="definition"):
-        TextSchema(label="X")
+        cls(label="X")
 
 
 def test_vector_requires_definition_referenceframe_coordinates():
@@ -548,27 +541,18 @@ def test_anycomponent_round_trip_through_typeadapter():
 
 # --- B.5 Vector.coordinates element-type restriction -----------------------
 
-def test_vector_rejects_boolean_in_coordinates():
+@pytest.mark.parametrize("coordinate", [
+    pytest.param({"type": "Boolean", "name": "flag", "label": "F",
+                  "definition": "http://example.org/f"}, id="boolean"),
+    pytest.param({"type": "DataRecord", "name": "inner",
+                  "fields": [_quantity_field("a")]}, id="datarecord"),
+])
+def test_vector_rejects_non_scalar_numeric_coordinates(coordinate):
     with pytest.raises(ValidationError):
         VectorSchema.model_validate({
             "label": "V", "definition": "http://example.org/v",
             "referenceFrame": "http://example.org/frames/ENU",
-            "coordinates": [{
-                "type": "Boolean", "name": "flag", "label": "F",
-                "definition": "http://example.org/f",
-            }],
-        })
-
-
-def test_vector_rejects_record_in_coordinates():
-    with pytest.raises(ValidationError):
-        VectorSchema.model_validate({
-            "label": "V", "definition": "http://example.org/v",
-            "referenceFrame": "http://example.org/frames/ENU",
-            "coordinates": [{
-                "type": "DataRecord", "name": "inner",
-                "fields": [_quantity_field("a")],
-            }],
+            "coordinates": [coordinate],
         })
 
 

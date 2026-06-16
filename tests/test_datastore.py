@@ -9,19 +9,10 @@ All tests use SQLiteDataStore(":memory:") so there is no file I/O.
 
 import pytest
 
-from src.oshconnect import OSHConnect
-from src.oshconnect.datastores import SQLiteDataStore
-from src.oshconnect.resource_datamodels import (
-    ControlStreamResource,
-    DatastreamResource,
-)
-from src.oshconnect.streamableresource import (
-    ControlStream,
-    Datastream,
-    Node,
-    SessionManager,
-    System,
-)
+from oshconnect import OSHConnect
+from oshconnect.datastores import SQLiteDataStore
+from oshconnect.streamableresource import Node, SessionManager, System
+from tests.helpers import make_controlstream, make_datastream, make_system
 
 
 # ---------------------------------------------------------------------------
@@ -43,37 +34,19 @@ def make_node(sm: SessionManager = None) -> Node:
     return node
 
 
-def make_system(node: Node) -> System:
-    return System(
-        label="Test System",
-        urn="urn:test:sensors:sys1",
-        parent_node=node,
-        resource_id="sys001",
-    )
-
-
-def make_datastream(node: Node) -> Datastream:
-    ds_resource = DatastreamResource.model_validate({
-        "id": "ds001",
-        "name": "Test Datastream",
-        "validTime": ["2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"],
-    })
-    return Datastream(parent_node=node, datastream_resource=ds_resource)
-
-
-def make_controlstream(node: Node) -> ControlStream:
-    cs_resource = ControlStreamResource.model_validate({
-        "id": "cs001",
-        "name": "Test ControlStream",
-    })
-    return ControlStream(node=node, controlstream_resource=cs_resource)
-
-
 # ---------------------------------------------------------------------------
 # Node round-trip
 # ---------------------------------------------------------------------------
 
 class TestNodeRoundTrip:
+    def test_node_password_round_trips_through_storage_dict(self):
+        node = Node(protocol='http', address='localhost', port=8080,
+                    username='user', password='pass')
+        stored = node.to_storage_dict()
+        assert stored['password'] == 'pass'
+        rehydrated = Node.from_storage_dict(stored)
+        assert rehydrated._api_helper.password == 'pass'
+
     def test_save_and_load_node(self):
         store = SQLiteDataStore(":memory:")
         sm = SessionManager()

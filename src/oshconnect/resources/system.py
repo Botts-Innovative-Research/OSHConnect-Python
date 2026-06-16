@@ -207,7 +207,11 @@ class System(StreamableResource[SystemResource]):
                     warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             datastreams.append(new_ds)
 
-            if not [ds.get_underlying_resource() != datastream_objs for ds in self.datastreams]:
+            # Dedup by server-side id so a re-discovery refreshes nothing
+            # but also duplicates nothing. (A previous expression here
+            # evaluated truthiness of a list comprehension, which only
+            # ever admitted the first datastream.)
+            if all(ds.get_id() != datastream_objs.ds_id for ds in self.datastreams):
                 self.datastreams.append(new_ds)
 
         return datastreams
@@ -259,7 +263,9 @@ class System(StreamableResource[SystemResource]):
                 warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             controlstreams.append(new_cs)
 
-            if not [cs.get_underlying_resource() != controlstream_objs for cs in self.control_channels]:
+            # Same id-based dedup as discover_datastreams (the previous
+            # list-truthiness expression only ever admitted the first one).
+            if all(cs.get_id() != controlstream_objs.cs_id for cs in self.control_channels):
                 self.control_channels.append(new_cs)
 
         return controlstreams

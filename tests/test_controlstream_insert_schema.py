@@ -20,23 +20,17 @@ import pytest
 from oshconnect import Node, System
 from oshconnect.api_utils import URI, UCUMCode
 from oshconnect.swe_components import DataRecordSchema, QuantitySchema, TimeSchema
+from tests.helpers import MockResponse, capture_request
 
 
-class _MockResponse:
-    status_code = 201
-    ok = True
-    text = ""
-    headers = {"Location": "http://localhost:8585/sensorhub/api/controlstreams/cs-new"}
-
-
-def _capture_post(into: dict):
-    def _f(url, params=None, headers=None, auth=None, data=None, json=None, **kwargs):
-        into["url"] = str(url)
-        into["headers"] = headers
-        into["data"] = data
-        into["json"] = json
-        return _MockResponse()
-    return _f
+def _capture_insert_post(monkeypatch) -> dict:
+    """Intercept the controlstream POST with a 201 + ``Location`` response
+    (``insert`` paths read the new resource id off that header)."""
+    return capture_request(monkeypatch, "post", response=MockResponse(
+        status=201,
+        headers={"Location":
+                 "http://localhost:8585/sensorhub/api/controlstreams/cs-new"},
+    ))
 
 
 def _record_schema() -> DataRecordSchema:
@@ -88,10 +82,7 @@ def test_json_default_emits_parametersschema_no_encoding(system, monkeypatch):
     """Default ``command_format='application/json'`` must produce the JSON
     wire form: ``commandFormat: application/json`` plus ``parametersSchema``.
     NOT ``recordSchema`` and NOT ``encoding``."""
-    captured: dict = {}
-    monkeypatch.setattr(
-        "oshconnect.csapi4py.request_wrappers.requests.post", _capture_post(captured),
-    )
+    captured = _capture_insert_post(monkeypatch)
 
     system.add_and_insert_control_stream(_record_schema())
 
@@ -111,10 +102,7 @@ def test_swejson_emits_recordschema_and_encoding(system, monkeypatch):
     """`command_format='application/swe+json'` must produce the
     spec-canonical wire form: ``commandFormat: application/swe+json`` plus
     ``recordSchema`` plus ``encoding`` (JSONEncoding). NOT ``parametersSchema``."""
-    captured: dict = {}
-    monkeypatch.setattr(
-        "oshconnect.csapi4py.request_wrappers.requests.post", _capture_post(captured),
-    )
+    captured = _capture_insert_post(monkeypatch)
 
     system.add_and_insert_control_stream(
         _record_schema(), command_format="application/swe+json",

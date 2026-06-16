@@ -25,6 +25,7 @@ from oshconnect.resource_datamodels import DatastreamResource
 from oshconnect.schema_datamodels import SWEDatastreamRecordSchema
 from oshconnect.streamableresource import SchemaFetchWarning
 from oshconnect.timemanagement import TimePeriod
+from tests.helpers import MockResponse
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -103,30 +104,13 @@ def _listing_payload(*ds_ids: str) -> dict:
     }
 
 
-class _MockResponse:
-    def __init__(self, payload: dict, status: int = 200):
-        self._payload = payload
-        self.status_code = status
-        self.ok = 200 <= status < 300
-        self.headers = {}
-        self.text = json.dumps(payload)
-
-    def raise_for_status(self):
-        if not self.ok:
-            from requests import HTTPError
-            raise HTTPError(f"{self.status_code} for url")
-
-    def json(self):
-        return self._payload
-
-
 def _install_dispatching_get(monkeypatch, listing_payload, schema_handler):
     """Patch ``requests.get`` at the single point both discovery calls
     funnel through (``oshconnect.csapi4py.request_wrappers.requests.get``).
     Both the system-scoped listing and the per-datastream schema fetch
     now go through ``APIHelper.get_resource`` → ``make_request``.
 
-    ``schema_handler(ds_id) -> _MockResponse`` is invoked per-datastream
+    ``schema_handler(ds_id) -> MockResponse`` is invoked per-datastream
     so a single test can vary failure modes per ds_id.
     """
     def mock_get(url, params=None, headers=None, auth=None, **kwargs):
@@ -135,7 +119,7 @@ def _install_dispatching_get(monkeypatch, listing_payload, schema_handler):
             ds_id = url_str.rsplit("/", 2)[-2]
             return schema_handler(ds_id)
         # Fallback: the system-scoped listing
-        return _MockResponse(listing_payload)
+        return MockResponse(listing_payload)
 
     monkeypatch.setattr(
         "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
@@ -153,7 +137,7 @@ def test_discover_datastreams_populates_record_schema(node, monkeypatch):
     _install_dispatching_get(
         monkeypatch,
         listing_payload=_listing_payload("ds-1"),
-        schema_handler=lambda ds_id: _MockResponse(swe_schema),
+        schema_handler=lambda ds_id: MockResponse(swe_schema),
     )
 
     sys = System(label="S", urn="urn:test:s",
@@ -180,8 +164,8 @@ def test_discover_datastreams_continues_on_schema_fetch_failure(node, monkeypatc
 
     def schema_handler(ds_id):
         if ds_id == "ds-broken":
-            return _MockResponse({"error": "boom"}, status=500)
-        return _MockResponse(swe_schema)
+            return MockResponse({"error": "boom"}, status=500)
+        return MockResponse(swe_schema)
 
     _install_dispatching_get(
         monkeypatch,
@@ -216,8 +200,8 @@ def test_discover_datastreams_logs_traceback_on_schema_failure(node, monkeypatch
 
     def schema_handler(ds_id):
         if ds_id == "ds-broken":
-            return _MockResponse({"error": "boom"}, status=500)
-        return _MockResponse(swe_schema)
+            return MockResponse({"error": "boom"}, status=500)
+        return MockResponse(swe_schema)
 
     _install_dispatching_get(
         monkeypatch,
@@ -258,7 +242,7 @@ def test_discover_systems_pins_sml_json_format(node, monkeypatch):
     def mock_get(url, params=None, headers=None, auth=None, **kwargs):
         captured["url"] = str(url)
         captured["params"] = params
-        return _MockResponse({"items": []})
+        return MockResponse({"items": []})
 
     monkeypatch.setattr(
         "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
@@ -304,7 +288,7 @@ def test_discover_systems_binds_full_underlying_resource_from_sml(node, monkeypa
     }
 
     def mock_get(url, params=None, headers=None, auth=None, **kwargs):
-        return _MockResponse(listing)
+        return MockResponse(listing)
 
     monkeypatch.setattr(
         "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
@@ -357,7 +341,7 @@ def test_discover_systems_still_handles_geojson_fallback(node, monkeypatch):
     }
 
     def mock_get(url, params=None, headers=None, auth=None, **kwargs):
-        return _MockResponse(listing)
+        return MockResponse(listing)
 
     monkeypatch.setattr(
         "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,

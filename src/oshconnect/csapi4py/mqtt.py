@@ -17,6 +17,7 @@ MQTT_TOPIC_FORMAT_TOKENS = {
     "application/swe+json":   "swe-json",
     "application/swe+binary": "swe-binary",
     "application/swe+csv":    "swe-csv",
+    "application/swe+proto":  "swe-proto",
     "application/om+json":    "om-json",
     "application/sml+json":   "sml-json",
 }

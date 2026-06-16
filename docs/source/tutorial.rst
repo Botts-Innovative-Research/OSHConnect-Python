@@ -413,9 +413,19 @@ downstream consumers and is **not** acted on by the codec.
 Working with SWE+Protobuf and SWE+FlatBuffers Datastreams
 ---------------------------------------------------------
 ``application/swe+proto`` ships observations as Protocol Buffers
-messages serialized against the SWE Common 3 schemas in the
-`BinaryEncodings project <https://github.com/tipatterson-dev/BinaryEncodings>`_.
-``application/swe+flatbuffers`` is the FlatBuffers analogue.
+messages encoded against a **per-datastream descriptor**. Each
+DataStream carries a pre-compiled Protobuf schema — a serialized
+``google.protobuf.FileDescriptorSet`` describing one
+``Observation_<dsId>``-shaped message — and every observation is a
+serialized instance of that message. ``application/swe+flatbuffers`` is
+the FlatBuffers analogue.
+
+The per-datastream message has a fixed envelope at fields 1–5
+(``id``, ``datastream_id``, ``foi_id``, ``phenomenon_time``,
+``result_time`` — the two times are ``google.protobuf.Timestamp``)
+followed by the SWE Common record at fields 6+, one flat field per
+component. SWE semantics (definition, label, unit) travel as field
+options inside the descriptor.
 
 Why a separate encoding family from SWE+Binary?
 
@@ -423,80 +433,144 @@ Why a separate encoding family from SWE+Binary?
   per-field by `BinaryEncoding.members`). It's compact and demands no
   schema-side runtime; it's also rigid — fields must be fixed-width or
   size-prefixed blocks.
-* **SWE+Protobuf** is self-describing tag-length-value bytes interpreted
-  through a code-generated schema (the ``sweCommon3_pb2`` module). It
-  handles nested records, choice variants, variable-length lists, and
-  field evolution naturally. The trade-off is the runtime dependency on
-  the generated bindings and slightly larger wire size for trivial records.
+* **SWE+Protobuf** is a self-describing tag-length-value stream whose
+  layout comes from the delivered descriptor. The receiver registers the
+  ``FileDescriptorSet`` in a ``DescriptorPool`` and builds the message
+  class dynamically — no ``protoc`` and no code-generated bindings.
 
 Install requirements
 ~~~~~~~~~~~~~~~~~~~~
 
-Install the optional extra and generate the bindings from BinaryEncodings:
+Install the optional extra — only the ``protobuf`` runtime is needed
+(the per-datastream message is built dynamically from the descriptor, so
+no generated SWE Common bindings are required):
 
 .. code-block:: bash
 
    pip install "oshconnect[protobuf]"
-   git clone https://github.com/tipatterson-dev/BinaryEncodings
-   cd BinaryEncodings && make protobuf PROTO_LANG=python
-   export PYTHONPATH="$PWD/gen/protobuf:$PYTHONPATH"
 
-The bindings are looked up via the standard Python import path — the
-codec imports ``sweCommon3_pb2`` lazily on first use and raises a
-descriptive ``ImportError`` (including the install hint) if they're
-not available.
+The codec imports the ``protobuf`` runtime lazily on first use and
+raises a descriptive ``ImportError`` (including the install hint) if the
+extra is not installed.
 
 Encoding and decoding observations
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``Datastream.insert(...)`` and ``decode_observation(...)`` dispatch on
-the schema's ``obs_format`` exactly as they do for SWE+Binary:
+the schema's ``obs_format`` exactly as they do for SWE+Binary. The
+schema carries the descriptor; during discovery it is fetched from
+``/datastreams/{id}/schema`` and parsed into a
+`SWEProtobufDatastreamRecordSchema`:
 
 .. code-block:: python
 
-   from oshconnect import (
-       DataRecordSchema, TimeSchema, QuantitySchema, CountSchema,
-       BooleanSchema, TextSchema,
-       SWEProtobufDatastreamRecordSchema,
-   )
-   from oshconnect.api_utils import URI, UCUMCode
+   from oshconnect import SWEProtobufDatastreamRecordSchema, SWEProtobufCodec
 
-   record = DataRecordSchema(
-       name='weather', label='Weather',
-       definition='http://example.org/weather',
-       fields=[
-           TimeSchema(name='time', label='Time',
-                      definition='http://www.opengis.net/def/property/OGC/0/SamplingTime',
-                      uom=URI(href='http://www.opengis.net/def/uom/ISO-8601/0/Gregorian')),
-           QuantitySchema(name='temp', label='Temperature',
-                          definition='http://example.org/temp',
-                          uom=UCUMCode(code='Cel', label='Celsius')),
-       ],
+   # `fds_bytes` is a serialized google.protobuf.FileDescriptorSet for the
+   # per-datastream observation message (delivered by the OSH node, or
+   # compiled from a .proto with `protoc --include_imports
+   # --descriptor_set_out`).
+   schema = SWEProtobufDatastreamRecordSchema(
+       file_descriptor_set=fds_bytes,
+       message_type="org.example.WeatherObservation",  # optional if the set has one message
    )
-   schema = SWEProtobufDatastreamRecordSchema(record_schema=record)
    ds_resource.record_schema = schema   # attach to a DatastreamResource
-   # Now `Datastream.insert({...})` packs values via SWEProtobufCodec
-   # and `Datastream.decode_observation(raw)` reverses it.
+   # Now `Datastream.insert({...})` packs the result record via
+   # SWEProtobufCodec (stamping datastream_id + result_time into the
+   # envelope) and `Datastream.decode_observation(raw)` returns the
+   # result record dict.
 
-Supported SWE Common 3 component types: ``Boolean``, ``Count``,
-``Quantity``, ``Time``, ``Category``, ``Text``, ``DataRecord``
-(including nested), ``Vector``, ``DataChoice``, and ``DataArray``
-of scalar element types (Quantity, Count, Boolean, Time).
+``insert`` / ``decode_observation`` operate on the **result record**
+(fields 6+), keyed by field name — the same dict shape the SWE+Binary
+codec uses and what lands in ``ObservationResource.result``. The
+envelope metadata (ids and the two timestamps) is supplied by the
+``Datastream`` on encode and recoverable on decode via
+``SWEProtobufCodec.decode_with_envelope(raw)``.
 
-DataArray wire format mirrors the OpenSensorHub reference
-implementation (``BinaryDataWriter`` in
-``lib-ogc/swe-common-core``): element values are packed tightly
-back-to-back as SWE BinaryEncoding bytes (via
-``oshconnect.swe_binary.encode_swe_binary_scalar_array``) and stuffed
-in ``EncodedValues.inline_data``; the accompanying
-``encoding.binary_encoding`` carries the dataType URI so the wire is
-self-describing. Decoders can therefore read messages produced by any
-SWE Common 3 implementation without needing the Python-side schema.
+Supported result-field types: Protobuf scalars (numbers, ``bool``,
+``string``, ``bytes``), ``google.protobuf.Timestamp`` (decoded to an ISO
+8601 string), and **nested records and vectors** — these recurse into
+nested dicts (``{"location": {"lat": …, "lon": …}}``); a vector may be
+given as a sequence on encode and comes back as a dict keyed by
+coordinate name. ``DataArray`` (repeated) fields are not yet supported
+and raise ``NotImplementedError``.
 
-``Matrix``, ``Geometry``, the ``*Range`` variants, and arrays of
-records/vectors are not yet wired through the codec — using them
-raises ``TypeError`` so the gap is explicit; extension is
-straightforward via the dispatch table in ``oshconnect.swe_protobuf``.
+Generating a swe+proto schema (create side)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When *producing* a datastream you usually have the record structure in
+SWE Common already (the ``record_schema`` your SWE+JSON or SWE+Binary
+datastream carries). Translate it into a swe+proto schema — the
+descriptor is generated for you (the inverse of OSH's
+``ProtoSchemaWriter``: envelope fields 1–5 plus the record's components
+mapped to flat result fields 6+):
+
+.. code-block:: python
+
+   from oshconnect import SWEProtobufDatastreamRecordSchema
+
+   # From a SWE Common DataRecord directly...
+   proto_schema = SWEProtobufDatastreamRecordSchema.from_record_schema(
+       record, message_name=f"Observation_{ds_id}")
+
+   # ...or from another datastream schema you already hold (its semantic
+   # record_schema is reused, so SWE+JSON / SWE+CSV / SWE+binary all map
+   # to the same descriptor):
+   proto_schema = SWEProtobufDatastreamRecordSchema.from_other_schema(swe_binary_schema)
+
+Editing the schema as ``.proto`` text
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The generated schema is a binary descriptor, but you can translate it to
+editable ``.proto`` **source text** — inspect it, hand-tweak it (rename
+or add fields, change types, add annotations), then compile it back:
+
+.. code-block:: python
+
+   schema = SWEProtobufDatastreamRecordSchema.from_record_schema(record)
+
+   # Render the carried descriptor as .proto source (no protoc needed).
+   # Works for node-delivered schemas too — it renders whatever descriptor
+   # the schema holds.
+   text = schema.to_proto_source()
+
+   # ... edit `text` as needed ...
+
+   # Recompile the edited source back into a schema (requires protoc on PATH;
+   # the from_record_schema path itself needs no protoc).
+   edited = SWEProtobufDatastreamRecordSchema.from_proto_source(text)
+
+``to_proto_source`` is a faithful rendering of the descriptor (not a
+second generator), so the text and the binary descriptor never drift.
+``from_proto_source`` shells out to ``protoc`` and defaults the message
+type to the first message in the compiled file.
+
+Component → field type mapping: Quantity → ``double``, Count →
+``int32``, Boolean → ``bool``, Time → ``google.protobuf.Timestamp``
+(ISO) or ``double`` (numeric), Text → ``string``. A **Category** maps to
+``string`` when unconstrained, or to a proto **enum** (``Enum_<field>``,
+tokens numbered from 0 — matching OSH's convention) when it carries an
+``AllowedTokens`` constraint; encode accepts the token string and decode
+returns it. The component's OGC ``dataType`` selects the numeric width
+(float32 → ``float``, signedLong → ``int64``, …) when known. **Nested
+records and vectors** become nested message types (``Rec<N>`` /
+``Vec<N>``, inner fields numbered from 1), recursed to arbitrary depth. A
+**DataArray** becomes the node's ``Array<N> { repeated <elt> = 1 }``
+wrapper (the element may be a scalar, record, vector, or constrained
+category), round-tripping as ``{array_name: {element_name: [...]}}``.
+Component names that aren't valid proto identifiers (e.g. SWE NameToken
+hyphens) are sanitized to underscores; enum tokens must already be valid
+identifiers (as the node requires). The remaining composites
+(``DataChoice``, ranges, geometry, matrices) are not yet translatable and
+raise ``NotImplementedError``.
+
+.. note::
+
+   The JSON envelope that delivers the descriptor over the schema
+   endpoint is a contract still being finalized with the OSH node side;
+   OSHConnect currently assumes
+   ``{"obsFormat", "messageType", "fileDescriptorSet": <base64>}``. See
+   ``docs/osh_spec_deviations.md`` (``swe-proto-descriptor-format``).
 
 FlatBuffers status
 ~~~~~~~~~~~~~~~~~~

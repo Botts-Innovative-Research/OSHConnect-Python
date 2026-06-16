@@ -193,7 +193,15 @@ class Datastream(StreamableResource[DatastreamResource]):
             return SWEBinaryCodec(schema).encode(data)
         if isinstance(schema, SWEProtobufDatastreamRecordSchema):
             from ..swe_protobuf import SWEProtobufCodec  # lazy: optional dep
-            return SWEProtobufCodec(schema).encode(data)
+            # `data` is the result record (fields 6+); the per-datastream
+            # message also carries envelope metadata (datastream_id + the
+            # observation timestamps) which the Datastream supplies from its
+            # own context rather than from the caller's result dict.
+            envelope = {
+                "datastream_id": self.get_id(),
+                "result_time": TimeInstant.now_as_time_instant(),
+            }
+            return SWEProtobufCodec(schema).encode(data, envelope=envelope)
         if isinstance(schema, SWEFlatBuffersDatastreamRecordSchema):
             from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: stub
             return SWEFlatBuffersCodec(schema).encode(data)

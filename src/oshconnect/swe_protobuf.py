@@ -1,6 +1,6 @@
 #  =============================================================================
 #  Copyright (c) 2026 Georobotix Innovative Research
-#  Date: 2026/5/19
+#  Date: 2026/6/8
 #  Author: Ian Patterson
 #  Contact Email: ian.patterson@georobotix.us
 #  =============================================================================
@@ -9,626 +9,936 @@
 
 Wire model
 ----------
-A single observation is a Protobuf-serialized ``DataRecord`` message from
-the SWE Common 3 schemas in
-https://github.com/tipatterson-dev/BinaryEncodings. The codec walks the
-SWE-side record schema (a pydantic ``AnyComponent`` tree) and, for each
-field, populates the matching variant of the protobuf
-``AnyComponent`` oneof on the wire — for example, a SWE
-``QuantitySchema`` field becomes a ``Quantity`` submessage; a
-``TimeSchema`` field becomes a ``Time`` submessage; nested
-``DataRecord``/``Vector``/``DataChoice``/``DataArray`` are recursive.
+``application/swe+proto`` is the **per-datastream descriptor** Protobuf
+encoding. Each DataStream carries a pre-compiled Protobuf schema — a
+``google.protobuf.FileDescriptorProto`` (delivered as a
+``FileDescriptorSet`` so its imports travel with it) describing a single
+per-datastream observation message of the shape:
 
-Why a runtime codec instead of using ``google.protobuf.json_format``:
-the SWE-side dict uses field *names* as keys and the values are bare
-scalars (e.g. ``{"pan": -6.7}``), but on the wire each scalar lives
-inside a typed protobuf submessage with extra structure (e.g.
-``Quantity.value.number``). The runtime codec is the smallest piece
-that knows both shapes.
+.. code-block:: protobuf
+
+   message Observation_<dsId> {
+     // envelope (1–5) — observation metadata, not result data
+     string id            = 1;
+     string datastream_id = 2;
+     string foi_id        = 3;
+     google.protobuf.Timestamp phenomenon_time = 4;
+     google.protobuf.Timestamp result_time     = 5;
+     // result data (6+) — the SWE Common DataRecord, one field per component
+     float air_temperature = 6;
+     float relative_humidity = 7;
+     ...
+   }
+
+An observation on the wire is a serialized instance of that message.
+Receivers register the descriptor in a ``DescriptorPool`` and build the
+message class dynamically — no ``protoc`` and no generated bindings.
+
+This replaces the earlier self-describing SWE Common 3 ``DataRecord``
+codec: that wire form (every value wrapped in a typed SWE submessage) is
+**not** what ``application/swe+proto`` means anymore. See
+``docs/osh_spec_deviations.md`` (swe-proto-descriptor-format).
+
+Result vs. envelope split
+-------------------------
+The fields **6+** are the SWE Common record — the same dict shape the
+sibling ``application/swe+binary`` codec round-trips and the same thing
+that lands in ``ObservationResource.result``. So :meth:`encode` /
+:meth:`decode` operate on the **result record** keyed by field name; the
+envelope fields (id / datastream_id / foi_id / the two timestamps) are
+observation metadata supplied separately by the producing
+``Datastream`` (on encode) and recoverable via
+:meth:`decode_with_envelope` (on decode). The result dict is never
+flattened together with the envelope, so a node that exposes both a
+binary and a proto datastream yields the same ``result`` dict from
+either.
 
 Bindings dependency
 -------------------
-The generated Python protobuf bindings are not bundled — install them
-with the ``[protobuf]`` extra and produce them from the BinaryEncodings
-repo:
-
-.. code-block:: bash
-
-   pip install "oshconnect[protobuf]"
-   git clone https://github.com/tipatterson-dev/BinaryEncodings
-   cd BinaryEncodings && make protobuf PROTO_LANG=python
-   export PYTHONPATH="$PWD/gen/protobuf:$PYTHONPATH"
-
-The codec imports ``sweCommon3_pb2`` (and ``basic_types_pb2``,
-``scalar_components_pb2``, ``encodings_pb2``) lazily so that
-OSHConnect installs without the extra still work — the missing-import
+Only the ``protobuf`` runtime is required (install via the ``[protobuf]``
+extra). Unlike the previous codec, **no generated BinaryEncodings
+modules are needed** — the per-datastream message is built dynamically
+from the delivered descriptor. ``protobuf`` is imported lazily so
+OSHConnect installs without the extra still work; the missing-import
 error only fires when a swe+proto datastream is actually used.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Union
+import re
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from .schema_datamodels import SWEProtobufDatastreamRecordSchema
-from .swe_binary import (
-    decode_swe_binary_scalar_array, default_datatype_for_schema,
-    encode_swe_binary_scalar_array,
+from .timemanagement import TimeInstant
+
+
+# Envelope fields (per-datastream message field numbers 1–5). These are
+# observation metadata, not result data — kept out of the result record
+# dict so the codec's value shape matches the swe+binary codec and
+# ``ObservationResource.result``.
+ENVELOPE_FIELD_NAMES: Tuple[str, ...] = (
+    "id", "datastream_id", "foi_id", "phenomenon_time", "result_time",
 )
-from .swe_components import (
-    AnyComponentSchema, BooleanSchema, CategorySchema, CountSchema,
-    DataArraySchema, DataChoiceSchema, DataRecordSchema, QuantitySchema,
-    TextSchema, TimeSchema, VectorSchema,
-)
 
+# Keys used by :meth:`decode_with_envelope` for the metadata block — the
+# two timestamps use the CS API JSON spellings so callers can feed them
+# straight into ``ObservationResource``/``ObservationOMJSONInline``.
+_ENVELOPE_OUT_KEYS = {
+    "id": "id",
+    "datastream_id": "datastream@id",
+    "foi_id": "foi@id",
+    "phenomenon_time": "phenomenonTime",
+    "result_time": "resultTime",
+}
 
-# Lazy-imported holders. Each entry is None until `_load_pb_modules` runs.
-_pb: Any = None       # sweCommon3_pb2
-_bt: Any = None       # basic_types_pb2
-_sc: Any = None       # scalar_components_pb2
-
+_TIMESTAMP_FULL_NAME = "google.protobuf.Timestamp"
 
 _INSTALL_HINT = (
-    "Generated SWE Common 3 Protobuf bindings not found. Install with:\n"
-    "  pip install 'oshconnect[protobuf]'\n"
-    "Then generate the bindings from the BinaryEncodings project:\n"
-    "  git clone https://github.com/tipatterson-dev/BinaryEncodings\n"
-    "  cd BinaryEncodings && make protobuf PROTO_LANG=python\n"
-    "  export PYTHONPATH=\"$PWD/gen/protobuf:$PYTHONPATH\""
+    "The 'protobuf' runtime is required for application/swe+proto. "
+    "Install it with:\n  pip install 'oshconnect[protobuf]'"
 )
 
 
-def _load_pb_modules() -> None:
-    """Import the generated protobuf modules on first use.
-
-    Separate function so the import error message can include the
-    install/generation hint instead of a bare ``ModuleNotFoundError``.
-    """
-    global _pb, _bt, _sc
-    if _pb is not None:
-        return
+def _import_protobuf():
+    """Import the protobuf runtime modules, with an install hint on failure."""
     try:
-        import sweCommon3_pb2 as pb
-        import basic_types_pb2 as bt
-        import scalar_components_pb2 as sc
-    except ImportError as exc:
+        from google.protobuf import (  # noqa: F401
+            descriptor_pb2, descriptor_pool, message_factory,
+        )
+    except ImportError as exc:  # pragma: no cover - exercised via install hint
         raise ImportError(f"{_INSTALL_HINT}\nOriginal error: {exc}") from exc
-    _pb, _bt, _sc = pb, bt, sc
+    return descriptor_pb2, descriptor_pool, message_factory
 
 
-# Map a SWE Common component class to the (`AnyComponent` oneof field name,
-# encode_func, decode_func) triple. Populated lazily in `_dispatch_table`
-# because the protobuf modules aren't imported at import time.
-_DISPATCH_TABLE: Dict[type, tuple] = {}
+def wrap_file_descriptor_proto(fdp_bytes: bytes) -> bytes:
+    """Wrap a serialized ``FileDescriptorProto`` in a one-file
+    ``FileDescriptorSet``.
 
-
-def _dispatch_table() -> Dict[type, tuple]:
-    if _DISPATCH_TABLE:
-        return _DISPATCH_TABLE
-    _load_pb_modules()
-    _DISPATCH_TABLE.update({
-        BooleanSchema: ("boolean_component", _encode_boolean, _decode_boolean),
-        CountSchema: ("count_component", _encode_count, _decode_count),
-        QuantitySchema: ("quantity_component", _encode_quantity, _decode_quantity),
-        TimeSchema: ("time_component", _encode_time, _decode_time),
-        CategorySchema: ("category_component", _encode_category, _decode_category),
-        TextSchema: ("text_component", _encode_text, _decode_text),
-        DataRecordSchema: ("data_record", _encode_data_record, _decode_data_record),
-        VectorSchema: ("vector", _encode_vector, _decode_vector),
-        DataChoiceSchema: ("data_choice", _encode_data_choice, _decode_data_choice),
-        # DataArray uses the EncodedValues.inline_data path: pack the
-        # element values as SWE BinaryEncoding bytes (per the OSH
-        # reference impl in BinaryDataWriter.java) and stuff them in
-        # values.inline_data. Decode reads element_count + inline_data
-        # and reverses. Supports arrays of scalars (Quantity, Count,
-        # Boolean, Time); arrays of records/vectors raise.
-        DataArraySchema: ("data_array", _encode_data_array, _decode_data_array),
-    })
-    return _DISPATCH_TABLE
-
-
-# ---------------------------------------------------------------------------
-# Scalar encoders / decoders. Each fills the leaf `value` slot on a freshly
-# created protobuf submessage and returns it; decoders take a submessage and
-# return the Python value.
-# ---------------------------------------------------------------------------
-
-
-def _encode_boolean(_schema: BooleanSchema, value: Any):
-    msg = _sc.Boolean()
-    msg.value = bool(value)
-    return msg
-
-
-def _decode_boolean(msg) -> bool:
-    return bool(msg.value)
-
-
-def _encode_count(_schema: CountSchema, value: Any):
-    msg = _sc.Count()
-    msg.value = int(value)
-    return msg
-
-
-def _decode_count(msg) -> int:
-    return int(msg.value)
-
-
-def _encode_quantity(_schema: QuantitySchema, value: Any):
-    msg = _sc.Quantity()
-    msg.value.number = float(value)
-    return msg
-
-
-def _decode_quantity(msg) -> Union[float, str]:
-    """Decode a `Quantity` value.
-
-    The encoder only writes ``NumberOrSpecial.number``, so messages this
-    SDK produced always come back as `float`. The `special` branch
-    (returning a `SpecialValue` enum name like ``"NA_N"``/``"POS_INFINITY"``
-    as a string) is kept so the codec can also parse messages from other
-    SWE Common 3 implementations that *do* emit the special variants —
-    drop the branch when that interop requirement goes away.
+    Convenience for callers holding a bare ``FileDescriptorProto`` (e.g.
+    a single ``.proto`` with no non-google imports). A descriptor with
+    non-google dependencies must instead ship a full ``FileDescriptorSet``
+    that carries them — otherwise the import won't resolve.
     """
-    if msg.value.WhichOneof("kind") == "number":
-        return msg.value.number
-    return _bt.SpecialValue.Name(msg.value.special)
+    descriptor_pb2, _, _ = _import_protobuf()
+    fdp = descriptor_pb2.FileDescriptorProto()
+    fdp.ParseFromString(fdp_bytes)
+    fds = descriptor_pb2.FileDescriptorSet()
+    fds.file.append(fdp)
+    return fds.SerializeToString()
 
 
-def _encode_time(_schema: TimeSchema, value: Any):
-    msg = _sc.Time()
-    if isinstance(value, str):
-        msg.value.date_time = value
-    elif isinstance(value, (int, float)):
-        msg.value.number = float(value)
-    else:
-        raise TypeError(
-            f"Time value must be ISO 8601 string or numeric epoch seconds, "
-            f"got {type(value).__name__}")
-    return msg
+def _coerce_descriptor_set(raw: bytes):
+    """Parse ``raw`` into a non-empty ``FileDescriptorSet``.
+
+    The delivery contract is a serialized ``FileDescriptorSet`` (it can
+    carry transitive dependencies). A bare ``FileDescriptorProto`` is
+    *not* auto-detected — at the wire level it's ambiguous with a Set, so
+    decoding one as the other yields silent garbage. Wrap a single
+    descriptor with :func:`wrap_file_descriptor_proto` first.
+    """
+    descriptor_pb2, _, _ = _import_protobuf()
+    fds = descriptor_pb2.FileDescriptorSet()
+    fds.ParseFromString(raw)
+    if not fds.file:
+        raise ValueError(
+            "application/swe+proto: expected a serialized FileDescriptorSet "
+            "but parsed zero files. If you have a bare FileDescriptorProto, "
+            "wrap it with oshconnect.swe_protobuf.wrap_file_descriptor_proto().")
+    return fds
 
 
-def _decode_time(msg) -> Union[str, float]:
-    kind = msg.value.WhichOneof("kind")
-    if kind == "date_time":
-        return msg.value.date_time
-    if kind == "number":
-        return msg.value.number
-    return _bt.SpecialValue.Name(msg.value.special)
+def _build_message_class(fds_bytes: bytes, message_type: Optional[str]):
+    """Build a dynamic message class from a serialized ``FileDescriptorSet``.
 
+    Seeds any ``google/protobuf/*`` imports from the default pool (so
+    well-known types like ``Timestamp`` resolve without the caller
+    shipping them), adds the provided files in dependency order, then
+    resolves ``message_type`` (or the sole message if the set has exactly
+    one and no name was given).
 
-def _encode_category(_schema: CategorySchema, value: Any):
-    msg = _sc.Category()
-    msg.value = str(value)
-    return msg
+    :raises ImportError: if a non-google dependency is missing from the set.
+    :raises KeyError: if ``message_type`` is absent / ambiguous.
+    """
+    import importlib
 
+    descriptor_pb2, descriptor_pool, message_factory = _import_protobuf()
+    fds = _coerce_descriptor_set(fds_bytes)
+    pool = descriptor_pool.DescriptorPool()
 
-def _decode_category(msg) -> str:
-    return msg.value
+    available: set = set()
+    provided = {f.name: f for f in fds.file}
 
-
-def _encode_text(_schema: TextSchema, value: Any):
-    msg = _sc.Text()
-    msg.value = str(value)
-    return msg
-
-
-def _decode_text(msg) -> str:
-    return msg.value
-
-
-# ---------------------------------------------------------------------------
-# Composite encoders / decoders. Recurse via `_dispatch_table`.
-# ---------------------------------------------------------------------------
-
-
-def _set_component_value(target_any_component, schema: AnyComponentSchema, value: Any) -> None:
-    """Populate one `AnyComponent` oneof in-place given a SWE schema + value."""
-    table = _dispatch_table()
-    for schema_cls, (oneof_field, encoder, _) in table.items():
-        if isinstance(schema, schema_cls):
-            sub_msg = encoder(schema, value)
-            getattr(target_any_component, oneof_field).CopyFrom(sub_msg)
+    def seed_google(dep: str) -> None:
+        if dep in available or dep in provided:
             return
-    raise TypeError(
-        f"swe_protobuf: unsupported component type {type(schema).__name__} "
-        f"({schema.__class__.__module__}). Supported: "
-        f"{sorted(s.__name__ for s in table)}")
+        if not dep.startswith("google/protobuf/"):
+            return
+        # Well-known types load lazily — importing their generated module
+        # registers the file and gives us its descriptor to copy into our
+        # private pool (the default pool's FindFileByName 404s until then).
+        stem = dep.rsplit("/", 1)[-1][:-len(".proto")]
+        mod = importlib.import_module(f"google.protobuf.{stem}_pb2")
+        proto = descriptor_pb2.FileDescriptorProto()
+        mod.DESCRIPTOR.CopyToProto(proto)
+        for sub in proto.dependency:
+            seed_google(sub)
+        try:
+            pool.Add(proto)
+        except TypeError:  # pragma: no cover - already present
+            pass
+        available.add(dep)
 
+    for f in fds.file:
+        for dep in f.dependency:
+            seed_google(dep)
 
-def _get_component_value(any_component, schema: AnyComponentSchema) -> Any:
-    """Extract the Python value from an `AnyComponent` oneof using its SWE schema."""
-    table = _dispatch_table()
-    oneof_set = any_component.WhichOneof("component")
-    if oneof_set is None:
-        raise ValueError("AnyComponent message is empty (no oneof variant set).")
-    for _, (oneof_field, _, decoder) in table.items():
-        if oneof_field == oneof_set:
-            return decoder(getattr(any_component, oneof_field))
-    raise TypeError(
-        f"swe_protobuf: protobuf carried oneof variant {oneof_set!r} but "
-        f"no decoder is registered for it.")
+    # Topologically add the provided files: only add a file once all of
+    # its dependencies are already in the pool. Tolerant of any ordering
+    # in the delivered set.
+    remaining = list(fds.file)
+    progressed = True
+    while remaining and progressed:
+        progressed = False
+        for f in list(remaining):
+            if all(dep in available for dep in f.dependency):
+                pool.Add(f)
+                available.add(f.name)
+                remaining.remove(f)
+                progressed = True
+    if remaining:
+        missing = sorted({
+            dep for f in remaining for dep in f.dependency if dep not in available
+        })
+        raise ImportError(
+            "application/swe+proto: descriptor set is missing dependencies "
+            f"{missing}. Deliver a FileDescriptorSet that includes all "
+            "transitive imports (e.g. protoc --include_imports "
+            "--descriptor_set_out).")
 
-
-def _encode_data_record(schema: DataRecordSchema, value: Mapping[str, Any]):
-    """Build a protobuf `DataRecord` from a `{name: value}` mapping.
-
-    Field order follows ``schema.fields`` so the wire bytes are deterministic.
-    Each value is encoded into the matching protobuf submessage by recursive
-    dispatch — nested DataRecords therefore work transparently.
-    """
-    if not isinstance(value, Mapping):
-        raise TypeError(
-            f"DataRecord requires a mapping value, got {type(value).__name__}")
-    msg = _pb.DataRecord()
-    for field_schema in schema.fields:
-        if field_schema.name not in value:
+    if not message_type:
+        message_names = [
+            f"{f.package + '.' if f.package else ''}{m.name}"
+            for f in fds.file for m in f.message_type
+        ]
+        if len(message_names) != 1:
             raise KeyError(
-                f"DataRecord field {field_schema.name!r} missing from value mapping. "
-                f"Provided keys: {list(value.keys())}")
-        named = msg.fields.add()
-        named.name = field_schema.name
-        _set_component_value(named.component.inline, field_schema, value[field_schema.name])
-    return msg
+                "application/swe+proto: descriptor set carries "
+                f"{len(message_names)} message types {message_names}; a "
+                "message_type must be specified to disambiguate.")
+        message_type = message_names[0]
+
+    descriptor = pool.FindMessageTypeByName(message_type)
+    return descriptor, message_factory.GetMessageClass(descriptor)
 
 
-def _decode_data_record(msg) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
-    for named in msg.fields:
-        # Re-decoding requires the SWE schema — see SWEProtobufCodec.decode
-        # for the dispatcher that hands the schema back in. The schema-less
-        # path is only used for *nested* records where the parent's
-        # `_decode_*` already pairs each child with its schema. Here we look
-        # up via the inline component's oneof.
-        out[named.name] = _decode_any_component(named.component.inline)
-    return out
+def _set_timestamp(ts_field, value: Any) -> None:
+    """Populate a ``google.protobuf.Timestamp`` submessage from a Python time.
 
-
-def _decode_any_component(any_component) -> Any:
-    """Schema-less decode of an AnyComponent — used for nested records where
-    the parent codec walks both trees in lockstep (see _decode_data_record).
+    Accepts an ISO 8601 string, epoch seconds (int/float), a ``datetime``,
+    or a `TimeInstant`.
     """
-    table = _dispatch_table()
-    oneof = any_component.WhichOneof("component")
-    if oneof is None:
-        return None
-    for _, (oneof_field, _, decoder) in table.items():
-        if oneof_field == oneof:
-            sub = getattr(any_component, oneof_field)
-            return decoder(sub)
-    raise TypeError(f"Unknown AnyComponent oneof variant {oneof!r}.")
-
-
-# `Vector.coordinates[i].coordinate` is a narrower `CoordinateComponent`
-# oneof — not the full `AnyComponent`. Per SWE Common 3, only Count /
-# Quantity / Time are valid vector coordinate types, so we dispatch on a
-# small lookup rather than reusing `_set_component_value`.
-_COORDINATE_ONEOF_MAP: Dict[type, tuple] = {}
-
-
-def _coordinate_oneof_map() -> Dict[type, tuple]:
-    if _COORDINATE_ONEOF_MAP:
-        return _COORDINATE_ONEOF_MAP
-    _load_pb_modules()
-    _COORDINATE_ONEOF_MAP.update({
-        QuantitySchema: ("quantity", _encode_quantity, _decode_quantity),
-        CountSchema: ("count", _encode_count, _decode_count),
-        TimeSchema: ("time", _encode_time, _decode_time),
-    })
-    return _COORDINATE_ONEOF_MAP
-
-
-def _encode_vector(schema: VectorSchema, value: Any):
-    """Build a protobuf `Vector` from a sequence (one entry per coordinate)."""
-    if not isinstance(value, (list, tuple)):
-        raise TypeError(
-            f"Vector requires a list/tuple value, got {type(value).__name__}")
-    if len(value) != len(schema.coordinates):
-        raise ValueError(
-            f"Vector expects {len(schema.coordinates)} coordinates, got {len(value)}.")
-    msg = _pb.Vector()
-    coord_map = _coordinate_oneof_map()
-    for coord_schema, v in zip(schema.coordinates, value):
-        named = msg.coordinates.add()
-        named.name = coord_schema.name
-        entry = next((e for cls, e in coord_map.items()
-                      if isinstance(coord_schema, cls)), None)
-        if entry is None:
-            raise TypeError(
-                f"Vector.coordinates: unsupported coordinate type "
-                f"{type(coord_schema).__name__}; only Quantity, Count, "
-                f"and Time are valid per SWE Common 3.")
-        oneof_field, encoder, _ = entry
-        sub_msg = encoder(coord_schema, v)
-        getattr(named.coordinate, oneof_field).CopyFrom(sub_msg)
-    return msg
-
-
-def _decode_vector(msg) -> list:
-    """Decode a `Vector` into a list — schema-less variant used only when the
-    parent codec has no schema to pair with. Otherwise see
-    `_schema_aware_decode`.
-    """
-    coord_map = _coordinate_oneof_map()
-    out = []
-    for named in msg.coordinates:
-        oneof = named.coordinate.WhichOneof("component")
-        for _, (oneof_field, _, decoder) in coord_map.items():
-            if oneof_field == oneof:
-                out.append(decoder(getattr(named.coordinate, oneof_field)))
-                break
-    return out
-
-
-def _encode_data_choice(schema: DataChoiceSchema, value: Any):
-    """Build a `DataChoice` from a ``(item_name, value)`` tuple or
-    ``{item_name: value}`` single-key mapping. The choice value (the
-    discriminator) goes into ``choice_value``."""
-    if isinstance(value, Mapping):
-        if len(value) != 1:
-            raise ValueError(
-                f"DataChoice mapping must have exactly one key (the selected item), "
-                f"got {len(value)}: {list(value.keys())}")
-        item_name, item_value = next(iter(value.items()))
-    elif isinstance(value, tuple) and len(value) == 2:
-        item_name, item_value = value
+    if isinstance(value, TimeInstant):
+        value = value.get_iso_time()
+    if isinstance(value, str):
+        ts_field.FromJsonString(value)
+    elif isinstance(value, bool):
+        raise TypeError("Timestamp value cannot be a bool.")
+    elif isinstance(value, (int, float)):
+        secs = int(value)
+        ts_field.seconds = secs
+        ts_field.nanos = int(round((value - secs) * 1_000_000_000))
+    elif hasattr(value, "year") and hasattr(value, "month"):  # datetime-like
+        ts_field.FromDatetime(value)
     else:
         raise TypeError(
-            "DataChoice value must be a single-key mapping or (name, value) tuple, "
-            f"got {type(value).__name__}")
-    msg = _pb.DataChoice()
-    # Find the item schema by name
-    item_schemas = getattr(schema, "items", None) or []
-    chosen = next((it for it in item_schemas if getattr(it, "name", None) == item_name), None)
-    if chosen is None:
-        raise KeyError(
-            f"DataChoice item {item_name!r} not found in schema. Available: "
-            f"{[it.name for it in item_schemas]}")
-    msg.choice_value.value = item_name
-    named = msg.items.add()
-    named.name = item_name
-    _set_component_value(named.component.inline, chosen, item_value)
-    return msg
+            "Timestamp value must be an ISO 8601 string, epoch seconds, "
+            f"datetime, or TimeInstant; got {type(value).__name__}.")
 
 
-def _decode_data_choice(msg) -> dict:
-    if not msg.items:
-        return {}
-    # Use the discriminator if present, else fall back to the only item.
-    chosen_name = msg.choice_value.value or msg.items[0].name
-    chosen = next((it for it in msg.items if it.name == chosen_name), msg.items[0])
-    return {chosen.name: _decode_any_component(chosen.component.inline)}
+def _is_timestamp(field_descriptor) -> bool:
+    msg_type = field_descriptor.message_type
+    return msg_type is not None and msg_type.full_name == _TIMESTAMP_FULL_NAME
 
 
-# Mapping of SWE byteOrder string -> protobuf ByteOrder enum value. Set on
-# first use because the enum lives in the lazy-imported encodings module.
-def _pb_byte_order(byte_order: str):
-    import encodings_pb2 as enc
-    return {
-        "bigEndian": enc.ByteOrder.BYTE_ORDER_BIG_ENDIAN,
-        "littleEndian": enc.ByteOrder.BYTE_ORDER_LITTLE_ENDIAN,
-    }[byte_order]
+# ---------------------------------------------------------------------------
+# Schema generation — translate a SWE Common record into a per-datastream
+# observation descriptor (the inverse of OSH's ProtoSchemaWriter).
+# ---------------------------------------------------------------------------
 
 
-def _encode_data_array(schema: DataArraySchema, value: Any):
-    """Build a protobuf `DataArray` from a list of element values.
+def _proto_field_name(name: str) -> str:
+    """Sanitize a SWE component name into a valid proto3 field identifier.
 
-    Ported from OSH's `BinaryDataWriter`: pack element values as SWE
-    BinaryEncoding bytes and stuff them in `values.inline_data`. The
-    accompanying `encoding` field carries the wire spec (byte order,
-    raw vs base64, the members list with one Component per element-type
-    scalar). `element_count.inline.value` carries the array length so
-    decoders don't have to inspect inline_data.
-
-    Currently supports arrays of **one scalar type** — Quantity, Count,
-    Boolean, Time. Arrays of records/vectors are legal SWE Common 3
-    (and OSH supports them) but require walking a per-element member
-    tree; see the follow-up note in `_dispatch_table()`.
+    Non-identifier characters become ``_``; a leading digit is prefixed
+    with ``_``. Names that are already valid identifiers (the common case
+    — ``temp``, ``samples``, ``clear_sky``) pass through unchanged.
     """
-    import encodings_pb2 as enc
-    if not isinstance(value, (list, tuple)):
-        raise TypeError(
-            f"DataArray requires a list/tuple, got {type(value).__name__}")
-    element_schema = schema.element_type
-    try:
-        data_type_uri = default_datatype_for_schema(element_schema)
-    except TypeError as exc:
-        raise TypeError(
-            f"DataArray.element_type {type(element_schema).__name__} is not "
-            "a supported scalar; arrays of records/vectors are not yet "
-            "implemented (only scalar element types — Quantity / Count / "
-            "Boolean / Time)."
-        ) from exc
-
-    msg = _pb.DataArray()
-    msg.element_count.inline.value = len(value)
-    # Represent the element-type as a single NamedComponent — descriptive
-    # only; the actual values are packed into inline_data below.
-    elem_named = msg.element_type
-    elem_named.name = getattr(element_schema, "name", "element")
-    _set_component_value(elem_named.component.inline, element_schema, value[0] if value else 0)
-
-    # Declare the wire spec used to pack inline_data.
-    msg.encoding.binary_encoding.byte_order = _pb_byte_order("bigEndian")
-    msg.encoding.binary_encoding.byte_encoding = enc.ByteEncodingMethod.BYTE_ENCODING_METHOD_RAW
-    member = msg.encoding.binary_encoding.members.add()
-    member.component.ref = f"/{elem_named.name}"
-    member.component.data_type = data_type_uri
-
-    # Pack and stuff. No size prefix in inline_data itself — element_count
-    # carries N at the protobuf level, mirroring OSH's fixed-size layout.
-    msg.values.inline_data = encode_swe_binary_scalar_array(
-        list(value), data_type_uri, byte_order="bigEndian", variable_size=False)
-    return msg
+    if not name:
+        raise ValueError("Cannot generate a proto field from an unnamed component.")
+    sanitized = re.sub(r"[^0-9A-Za-z_]", "_", name)
+    if sanitized[0].isdigit():
+        sanitized = "_" + sanitized
+    return sanitized
 
 
-def _decode_data_array(msg) -> list:
-    """Inverse of `_encode_data_array`.
+_OGC_DATATYPE_BASE = "http://www.opengis.net/def/dataType/OGC/0/"
 
-    Drives off the protobuf message's own `element_count` + `encoding`
-    + `values.inline_data` — *not* the SWE-side schema — so messages
-    produced by other SWE Common 3 implementations decode the same as
-    ones produced by this codec.
-    """
-    n = msg.element_count.inline.value or 0
-    if n == 0:
-        return []
-    members = list(msg.encoding.binary_encoding.members)
-    if not members:
-        raise ValueError(
-            "DataArray.encoding.binary_encoding.members is empty; cannot "
-            "decode inline_data without knowing the element wire type.")
-    # Scalar-only path: expect exactly one Component member.
-    first = members[0]
-    if first.WhichOneof("member") != "component":
+# OGC SWE dataType URI → proto field type, mirroring the node's
+# ProtoSchemaWriter.getDataType (FLOAT→float, DOUBLE→double, signed/unsigned
+# int widths, signedByte→sint32). The descriptor must declare the same wire
+# type the producer encodes, or the bytes won't interoperate — so a float32
+# quantity becomes ``float``, not ``double``.
+_DATATYPE_URI_TO_PROTO: Dict[str, int] = {}
+
+
+def _datatype_uri_to_proto(uri: str) -> int:
+    descriptor_pb2, _, _ = _import_protobuf()
+    if not _DATATYPE_URI_TO_PROTO:
+        T = descriptor_pb2.FieldDescriptorProto
+        b = _OGC_DATATYPE_BASE
+        _DATATYPE_URI_TO_PROTO.update({
+            b + "double": T.TYPE_DOUBLE,
+            b + "float64": T.TYPE_DOUBLE,
+            b + "float32": T.TYPE_FLOAT,
+            b + "signedByte": T.TYPE_SINT32,
+            b + "unsignedByte": T.TYPE_UINT32,
+            b + "signedShort": T.TYPE_INT32,
+            b + "unsignedShort": T.TYPE_UINT32,
+            b + "signedInt": T.TYPE_INT32,
+            b + "unsignedInt": T.TYPE_UINT32,
+            b + "signedLong": T.TYPE_INT64,
+            b + "unsignedLong": T.TYPE_UINT64,
+        })
+    if uri not in _DATATYPE_URI_TO_PROTO:
         raise NotImplementedError(
-            "DataArray decode: only scalar element types are supported; "
-            f"first member is {first.WhichOneof('member')!r}.")
-    data_type_uri = first.component.data_type
-    # Map protobuf ByteOrder enum back to the SWE string.
-    import encodings_pb2 as enc
-    bo = msg.encoding.binary_encoding.byte_order
-    byte_order = ("bigEndian"
-                  if bo == enc.ByteOrder.BYTE_ORDER_BIG_ENDIAN
-                  else "littleEndian")
-    return decode_swe_binary_scalar_array(
-        msg.values.inline_data, data_type_uri,
-        byte_order=byte_order, variable_size=False, element_count=n)
+            f"swe+proto schema generation: dataType {uri!r} has no proto "
+            f"mapping. Known: {sorted(_DATATYPE_URI_TO_PROTO)}")
+    return _DATATYPE_URI_TO_PROTO[uri]
+
+
+def _is_iso_time(component) -> bool:
+    """A Time is ISO (→ Timestamp) when its uom is the ISO-8601 calendar
+    reference; otherwise it's a numeric epoch (→ double), matching the
+    node's ``Time.isIsoTime()``."""
+    uom = getattr(component, "uom", None)
+    href = getattr(uom, "href", None) if uom is not None else None
+    return bool(href and "ISO-8601" in str(href))
+
+
+_PROTO_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _is_proto_ident(name: str) -> bool:
+    return bool(_PROTO_IDENT_RE.match(name))
+
+
+def _allowed_tokens(component) -> Optional[List[str]]:
+    """Return a Category's ``AllowedTokens`` value list, or ``None``.
+
+    A ``Category`` constrained to a fixed token set becomes a proto enum
+    (matching the node's ``writeEnum``); an unconstrained one stays a
+    string. The constraint is loosely typed (``Any``) — accept either an
+    ``AllowedTokens``-shaped dict (``{"values": [...]}``) or an object
+    exposing ``values``. A constraint without a non-empty value list
+    (e.g. pattern-only) returns ``None`` and the component stays a string.
+    """
+    from .swe_components import CategorySchema
+    if not isinstance(component, CategorySchema):
+        return None
+    constraint = getattr(component, "constraint", None)
+    if not constraint:
+        return None
+    if isinstance(constraint, Mapping):
+        values = constraint.get("values")
+    else:
+        values = getattr(constraint, "values", None)
+    if isinstance(values, (list, tuple)) and len(values) > 0:
+        return [str(v) for v in values]
+    return None
+
+
+def _scalar_proto_type(component, data_type: Optional[str] = None) -> Tuple[int, Optional[str]]:
+    """Map a SWE scalar component to a ``(proto field type, type_name)`` pair.
+
+    Faithful to the node's ``ProtoSchemaWriter.getDataType``: the numeric
+    wire type follows the component's OGC ``dataType`` when one is known
+    (``data_type`` arg, or a ``data_type``/``dataType`` attribute on the
+    component) — so float32 → ``float``, signedLong → ``int64``, etc. When
+    no dataType is known the node *defaults* apply (Quantity → double,
+    Count → int32), which match the node's own defaults. Time → ``Timestamp``
+    when ISO (wire-identical to the node's ``Time{seconds,nanos}``) else
+    ``double``; Category/Text → string; Boolean → bool.
+
+    Nested records and vectors are handled by the caller
+    (``build_observation_descriptor_set``) before reaching here, so this
+    only sees leaf components.
+
+    :raises NotImplementedError: for components with no scalar mapping —
+        DataChoice, ranges, geometry, matrices — or an unmapped dataType.
+    """
+    descriptor_pb2, _, _ = _import_protobuf()
+    from .swe_components import (
+        BooleanSchema, CategorySchema, CountSchema, QuantitySchema,
+        TextSchema, TimeSchema,
+    )
+    T = descriptor_pb2.FieldDescriptorProto
+    dt = data_type or getattr(component, "data_type", None) or getattr(component, "dataType", None)
+
+    if isinstance(component, BooleanSchema):
+        return T.TYPE_BOOL, None
+    if isinstance(component, (QuantitySchema, CountSchema)):
+        if dt:
+            return _datatype_uri_to_proto(dt), None
+        # No declared dataType → node defaults (Quantity DOUBLE, Count INT).
+        return (T.TYPE_DOUBLE if isinstance(component, QuantitySchema)
+                else T.TYPE_INT32), None
+    if isinstance(component, TimeSchema):
+        if dt:
+            return _datatype_uri_to_proto(dt), None
+        if _is_iso_time(component):
+            return T.TYPE_MESSAGE, ".google.protobuf.Timestamp"
+        return T.TYPE_DOUBLE, None
+    if isinstance(component, (CategorySchema, TextSchema)):
+        # A constraint-free Category/Text maps to string (matching the node).
+        # A Category *with* an AllowedTokens constraint is handled earlier in
+        # build_observation_descriptor_set (emitted as a proto enum), so it
+        # never reaches here.
+        return T.TYPE_STRING, None
+    raise NotImplementedError(
+        f"swe+proto schema generation: component "
+        f"{type(component).__name__} ({getattr(component, 'name', '?')!r}) is "
+        "not a supported scalar. DataArray/DataChoice, ranges, geometry, "
+        "and matrices are not yet translatable to a per-datastream "
+        "observation message.")
+
+
+def build_observation_descriptor_set(
+    record,
+    *,
+    message_name: str = "Observation",
+    package: str = "oshconnect.sweproto",
+    datatype_by_path: Optional[Mapping[str, str]] = None,
+) -> Tuple[bytes, str]:
+    """Build a per-datastream swe+proto observation descriptor from a SWE record.
+
+    Produces the inverse of OSH's ``ProtoSchemaWriter``: a serialized
+    ``FileDescriptorSet`` for a message with the fixed envelope at fields
+    1–5 (``id``, ``datastream_id``, ``foi_id``, ``phenomenon_time``,
+    ``result_time``) and the record's components mapped to result fields
+    6+ in declaration order. Nested records and vectors become nested
+    ``Rec<N>`` / ``Vec<N>`` message types (inner fields numbered from 1),
+    recursed to arbitrary depth.
+
+    :param record: a SWE ``DataRecordSchema`` (the ``record_schema`` that
+        the SWE+JSON / SWE+Binary datastream schemas carry).
+    :param message_name: the generated message name (e.g.
+        ``"Observation_<dsId>"``).
+    :param package: the proto package for the generated message.
+    :param datatype_by_path: optional ``{json_pointer_ref: dataType_uri}``
+        map giving the OGC dataType of leaf components by their record path
+        (e.g. ``{"/temp": ".../float32", "/pos/x": ".../float32"}``) — the
+        same refs a SWE ``BinaryEncoding`` uses. Lets float32 / int-width
+        components map to the matching proto wire type instead of the
+        defaults. ``SWEProtobufDatastreamRecordSchema.from_other_schema``
+        builds this automatically from a SWE+Binary source.
+    :returns: ``(file_descriptor_set_bytes, fully_qualified_message_type)``.
+    :raises TypeError: if ``record`` is not a ``DataRecordSchema``.
+    :raises NotImplementedError: for components not yet translatable
+        (DataChoice, ranges, geometry, matrices).
+    """
+    descriptor_pb2, _, _ = _import_protobuf()
+    from .swe_components import DataArraySchema, DataRecordSchema, VectorSchema
+    datatypes = dict(datatype_by_path or {})
+
+    if not isinstance(record, DataRecordSchema):
+        raise TypeError(
+            "swe+proto schema generation requires a DataRecordSchema root; "
+            f"got {type(record).__name__}. Wrap scalars/vectors in a "
+            "DataRecord first.")
+
+    T = descriptor_pb2.FieldDescriptorProto
+
+    fdp = descriptor_pb2.FileDescriptorProto()
+    fdp.name = f"{package.replace('.', '/')}/{message_name}.proto"
+    fdp.package = package
+    fdp.syntax = "proto3"
+    fdp.dependency.append("google/protobuf/timestamp.proto")
+
+    # Nested records / vectors become their own message types in the file,
+    # referenced by a message-typed field. Names are cosmetic (the wire is
+    # field-number driven), but we mirror the node's `Rec<N>` / `Vec<N>`
+    # convention; a counter guarantees uniqueness across nesting levels.
+    nested_counter = [0]
+
+    def add_field(msg_proto, name, number, ftype, type_name=None, repeated=False):
+        f = msg_proto.field.add()
+        f.name = name
+        f.number = number
+        f.label = T.LABEL_REPEATED if repeated else T.LABEL_OPTIONAL
+        f.type = ftype
+        if type_name is not None:
+            f.type_name = type_name
+
+    def add_component_field(msg_proto, component, number, path, repeated=False):
+        """Add one field for ``component`` to ``msg_proto``, creating any
+        nested message / enum types it needs. ``repeated`` is set for
+        DataArray elements."""
+        fname = _proto_field_name(component.name)
+        if isinstance(component, DataRecordSchema):
+            nested = make_nested("Rec", component.fields, path)
+            add_field(msg_proto, fname, number, T.TYPE_MESSAGE,
+                      f".{package}.{nested}", repeated)
+        elif isinstance(component, VectorSchema):
+            nested = make_nested("Vec", component.coordinates, path)
+            add_field(msg_proto, fname, number, T.TYPE_MESSAGE,
+                      f".{package}.{nested}", repeated)
+        elif isinstance(component, DataArraySchema):
+            nested = make_array(component.element_type, path)
+            add_field(msg_proto, fname, number, T.TYPE_MESSAGE,
+                      f".{package}.{nested}", repeated)
+        elif _allowed_tokens(component):
+            # Constrained Category → proto enum (matching node writeEnum).
+            enum_name = make_enum(msg_proto, fname, _allowed_tokens(component))
+            add_field(msg_proto, fname, number, T.TYPE_ENUM,
+                      f".{package}.{msg_proto.name}.{enum_name}", repeated)
+        else:
+            ftype, type_name = _scalar_proto_type(
+                component, data_type=datatypes.get(path))
+            add_field(msg_proto, fname, number, ftype, type_name, repeated)
+
+    def populate(msg_proto, components, start_number, used, path):
+        number = start_number
+        for component in components:
+            fname = _proto_field_name(component.name)
+            if fname in used:
+                raise ValueError(
+                    f"swe+proto schema generation: component name "
+                    f"{component.name!r} sanitizes to {fname!r}, which "
+                    "collides with a sibling field. Rename to avoid the clash.")
+            add_component_field(msg_proto, component, number,
+                                f"{path}/{component.name}")
+            used.add(fname)
+            number += 1
+
+    def make_nested(prefix, components, path):
+        """Create a nested message type (inner fields numbered from 1) and
+        return its name."""
+        nested_counter[0] += 1
+        nested_msg = fdp.message_type.add()
+        nested_msg.name = f"{prefix}{nested_counter[0]}"
+        populate(nested_msg, components, 1, set(), path)
+        return nested_msg.name
+
+    def make_array(element_type, path):
+        """Create an ``Array<N>`` wrapper message holding one repeated field
+        for the element (matching the node's ``writeArraySchema``) and return
+        its name. The element may itself be a scalar, record, vector, or
+        constrained category."""
+        nested_counter[0] += 1
+        array_msg = fdp.message_type.add()
+        array_msg.name = f"Array{nested_counter[0]}"
+        add_component_field(array_msg, element_type, 1,
+                            f"{path}/{element_type.name}", repeated=True)
+        return array_msg.name
+
+    def make_enum(msg_proto, field_name, tokens):
+        """Create an enum type (nested in the containing message, values
+        numbered from 0 — matching the node's ``writeEnum``) and return its
+        name. Tokens are used verbatim as enum value identifiers, as the
+        node does; a token that isn't a valid identifier is an error."""
+        enum_proto = msg_proto.enum_type.add()
+        enum_name = f"Enum_{field_name}"
+        enum_proto.name = enum_name
+        for i, token in enumerate(tokens):
+            if not _is_proto_ident(token):
+                raise ValueError(
+                    f"swe+proto schema generation: Category token {token!r} is "
+                    "not a valid proto enum identifier "
+                    "([A-Za-z_][A-Za-z0-9_]*); the node requires enumerable "
+                    "tokens to be valid identifiers.")
+            value = enum_proto.value.add()
+            value.name = token
+            value.number = i
+        return enum_name
+
+    top = fdp.message_type.add()
+    top.name = message_name
+    add_field(top, "id", 1, T.TYPE_STRING)
+    add_field(top, "datastream_id", 2, T.TYPE_STRING)
+    add_field(top, "foi_id", 3, T.TYPE_STRING)
+    add_field(top, "phenomenon_time", 4, T.TYPE_MESSAGE, ".google.protobuf.Timestamp")
+    add_field(top, "result_time", 5, T.TYPE_MESSAGE, ".google.protobuf.Timestamp")
+    populate(top, record.fields, 6, set(ENVELOPE_FIELD_NAMES), "")
+
+    fds = descriptor_pb2.FileDescriptorSet()
+    fds.file.append(fdp)
+    return fds.SerializeToString(), f"{package}.{message_name}"
 
 
 # ---------------------------------------------------------------------------
-# Public codec class
+# .proto source rendering — turn a descriptor into editable text. The text
+# is a faithful rendering of the descriptor (not a second generator), so the
+# two never drift; edit it and recompile with `from_proto_source`.
 # ---------------------------------------------------------------------------
+
+
+def _proto_type_keyword(field_type) -> Optional[str]:
+    descriptor_pb2, _, _ = _import_protobuf()
+    T = descriptor_pb2.FieldDescriptorProto
+    return {
+        T.TYPE_DOUBLE: "double", T.TYPE_FLOAT: "float",
+        T.TYPE_INT64: "int64", T.TYPE_UINT64: "uint64",
+        T.TYPE_INT32: "int32", T.TYPE_UINT32: "uint32",
+        T.TYPE_FIXED64: "fixed64", T.TYPE_FIXED32: "fixed32",
+        T.TYPE_SFIXED64: "sfixed64", T.TYPE_SFIXED32: "sfixed32",
+        T.TYPE_SINT64: "sint64", T.TYPE_SINT32: "sint32",
+        T.TYPE_BOOL: "bool", T.TYPE_STRING: "string", T.TYPE_BYTES: "bytes",
+    }.get(field_type)
+
+
+def _render_enum(enum_proto, indent: int) -> List[str]:
+    pad = "  " * indent
+    out = [f"{pad}enum {enum_proto.name} {{"]
+    for value in enum_proto.value:
+        out.append(f"{pad}  {value.name} = {value.number};")
+    out.append(f"{pad}}}")
+    return out
+
+
+def _render_message(msg_proto, indent: int) -> List[str]:
+    descriptor_pb2, _, _ = _import_protobuf()
+    T = descriptor_pb2.FieldDescriptorProto
+    pad = "  " * indent
+    out = [f"{pad}message {msg_proto.name} {{"]
+    for enum_proto in msg_proto.enum_type:
+        out.extend(_render_enum(enum_proto, indent + 1))
+    for nested in msg_proto.nested_type:
+        out.extend(_render_message(nested, indent + 1))
+    fpad = "  " * (indent + 1)
+    for field in msg_proto.field:
+        label = "repeated " if field.label == T.LABEL_REPEATED else ""
+        if field.type in (T.TYPE_MESSAGE, T.TYPE_ENUM):
+            type_str = field.type_name  # fully-qualified, leading-dot form
+        else:
+            type_str = _proto_type_keyword(field.type)
+        out.append(f"{fpad}{label}{type_str} {field.name} = {field.number};")
+    out.append(f"{pad}}}")
+    return out
+
+
+def render_proto_source(file_descriptor_set: bytes,
+                        message_type: Optional[str] = None) -> str:
+    """Render a ``FileDescriptorSet`` to ``.proto`` source text.
+
+    Renders the file that defines ``message_type`` (or the first
+    non-google file if not given) — the per-datastream schema, not its
+    imported well-known types. The output is editable and recompilable
+    with :meth:`SWEProtobufDatastreamRecordSchema.from_proto_source`.
+    """
+    fds = _coerce_descriptor_set(file_descriptor_set)
+    target = None
+    if message_type:
+        pkg, _, name = message_type.rpartition(".")
+        for f in fds.file:
+            if f.package == pkg and any(m.name == name for m in f.message_type):
+                target = f
+                break
+    if target is None:
+        target = next((f for f in fds.file
+                       if not f.name.startswith("google/protobuf/")), None)
+    if target is None:
+        raise ValueError("render_proto_source: no renderable file in the set.")
+
+    lines = ['syntax = "proto3";', ""]
+    if target.package:
+        lines += [f"package {target.package};", ""]
+    for dep in target.dependency:
+        lines.append(f'import "{dep}";')
+    if target.dependency:
+        lines.append("")
+    for msg_proto in target.message_type:
+        lines += _render_message(msg_proto, 0)
+        lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def compile_proto_source(proto_text: str, *, protoc: str = "protoc") -> bytes:
+    """Compile ``.proto`` source text into a serialized ``FileDescriptorSet``.
+
+    Shells out to ``protoc`` (required — raises if it isn't on PATH). The
+    well-known type imports (``google/protobuf/*``) resolve from protoc's
+    bundled includes; the codec seeds them, so they are not embedded.
+    """
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+
+    if shutil.which(protoc) is None and not os.path.isfile(protoc):
+        raise RuntimeError(
+            f"protoc not found ({protoc!r}). Install the Protocol Buffers "
+            "compiler (or pass protoc=<path>) to compile .proto source. The "
+            "binary-descriptor path (from_record_schema) needs no protoc.")
+    with tempfile.TemporaryDirectory() as work:
+        proto_path = os.path.join(work, "schema.proto")
+        out_path = os.path.join(work, "schema.fds")
+        with open(proto_path, "w", encoding="utf-8") as fh:
+            fh.write(proto_text)
+        result = subprocess.run(
+            [protoc, f"--proto_path={work}",
+             f"--descriptor_set_out={out_path}", proto_path],
+            capture_output=True, text=True)
+        if result.returncode != 0:
+            raise ValueError(
+                f"protoc failed to compile the .proto source:\n{result.stderr}")
+        with open(out_path, "rb") as fh:
+            return fh.read()
+
+
+def primary_message_type(file_descriptor_set: bytes) -> Optional[str]:
+    """Fully-qualified name of the first message in the first non-google file
+    — the per-datastream observation message (the root)."""
+    fds = _coerce_descriptor_set(file_descriptor_set)
+    for f in fds.file:
+        if f.name.startswith("google/protobuf/") or not f.message_type:
+            continue
+        name = f.message_type[0].name
+        return f"{f.package}.{name}" if f.package else name
+    return None
 
 
 class SWEProtobufCodec:
-    """Schema-driven encoder/decoder for ``application/swe+proto``.
+    """Descriptor-driven encoder/decoder for ``application/swe+proto``.
 
-    Construct from a parsed `SWEProtobufDatastreamRecordSchema` (or directly
-    from a SWE Common `AnyComponent` schema tree); call :meth:`encode` /
-    :meth:`decode` to round-trip records.
+    Construct from a parsed ``SWEProtobufDatastreamRecordSchema`` (which
+    carries the serialized ``FileDescriptorSet`` and the fully-qualified
+    per-datastream message type), or directly from
+    ``file_descriptor_set`` bytes + ``message_type``.
 
-    Supported component types: ``Boolean``, ``Count``, ``Quantity``,
-    ``Time``, ``Category``, ``Text``, ``DataRecord`` (incl. nested),
-    ``Vector``, ``DataChoice``, and ``DataArray`` (of scalar element
-    types — Quantity, Count, Boolean, Time). ``Matrix``, ``Geometry``,
-    and the ``*Range`` variants — plus arrays of records/vectors — are
-    not yet implemented; encoding such a record raises ``TypeError``.
+    :meth:`encode` / :meth:`decode` operate on the **result record** — a
+    ``{field_name: value}`` mapping over the per-datastream message's
+    result fields (numbers 6+). The envelope fields (``id``,
+    ``datastream_id``, ``foi_id``, ``phenomenon_time``, ``result_time``)
+    are observation metadata: pass them to :meth:`encode` via
+    ``envelope=`` and read them back with :meth:`decode_with_envelope`.
 
-    DataArray wire format mirrors OSH's `BinaryDataWriter` reference
-    implementation (lib-ogc/swe-common-core): element values are packed
-    tightly back-to-back as SWE BinaryEncoding bytes (see
-    ``oshconnect.swe_binary.encode_swe_binary_scalar_array``) and
-    placed in ``values.inline_data``. The accompanying
-    ``encoding.binary_encoding`` carries the dataType URI used to pack
-    them, so the wire is self-describing.
+    Supported result-field types: protobuf scalars (numbers, bool,
+    string, bytes), ``google.protobuf.Timestamp`` (decoded to an ISO 8601
+    string), **enums** (a constrained ``Category`` — encode accepts the
+    token string, decode returns it), **nested messages** (nested records
+    and vectors recurse into nested dicts; a vector may be given as a
+    sequence on encode and comes back as a dict keyed by coordinate name),
+    and **repeated** fields. A ``DataArray`` is the node's
+    ``Array<N> { repeated <elt> = 1 }`` wrapper, so it round-trips as
+    ``{array_name: {element_name: [...]}}``; the element may itself be a
+    scalar, record, vector, or constrained category.
     """
 
     def __init__(
         self,
-        schema: Union[SWEProtobufDatastreamRecordSchema, AnyComponentSchema],
+        schema: Any = None,
+        *,
+        file_descriptor_set: Optional[bytes] = None,
+        message_type: Optional[str] = None,
     ):
-        _load_pb_modules()
-        if isinstance(schema, SWEProtobufDatastreamRecordSchema):
-            self._root_schema = schema.record_schema
-        elif isinstance(schema, AnyComponentSchema):
-            self._root_schema = schema
+        if schema is not None:
+            file_descriptor_set = getattr(schema, "file_descriptor_set", None)
+            message_type = getattr(schema, "message_type", None)
+        if not file_descriptor_set:
+            raise ValueError(
+                "SWEProtobufCodec requires a FileDescriptorSet — pass a "
+                "SWEProtobufDatastreamRecordSchema or file_descriptor_set bytes.")
+        self._descriptor, self._message_cls = _build_message_class(
+            file_descriptor_set, message_type)
+        # Result fields = everything that isn't an envelope field, in
+        # field-number order (descriptor.fields is number-ordered).
+        self._result_fields = [
+            f for f in self._descriptor.fields
+            if f.name not in ENVELOPE_FIELD_NAMES
+        ]
+        self._fields_by_name = {f.name: f for f in self._descriptor.fields}
+
+    @property
+    def result_field_names(self) -> List[str]:
+        """Names of the per-datastream message's result fields (6+)."""
+        return [f.name for f in self._result_fields]
+
+    # -- encode ------------------------------------------------------------
+
+    def encode(self, record: Mapping[str, Any], *,
+               envelope: Mapping[str, Any] = None) -> bytes:
+        """Encode one observation's result record into wire bytes.
+
+        :param record: ``{field_name: value}`` over the result fields
+            (6+). Keys that name envelope fields are ignored here — pass
+            those via ``envelope`` instead.
+        :param envelope: optional ``{field_name: value}`` for the
+            envelope fields (``id``, ``datastream_id``, ``foi_id``,
+            ``phenomenon_time``, ``result_time``). Timestamp fields accept
+            ISO strings, epoch seconds, ``datetime``, or `TimeInstant`.
+        :raises KeyError: if ``record`` names a field absent from the schema.
+        """
+        if not isinstance(record, Mapping):
+            raise TypeError(
+                f"swe+proto encode expects a mapping result record, got "
+                f"{type(record).__name__}.")
+        msg = self._message_cls()
+        for name, value in record.items():
+            if name in ENVELOPE_FIELD_NAMES:
+                continue
+            field = self._fields_by_name.get(name)
+            if field is None:
+                raise KeyError(
+                    f"swe+proto: result field {name!r} not in message "
+                    f"{self._descriptor.full_name!r}. Known result fields: "
+                    f"{self.result_field_names}")
+            self._set_field(msg, field, value)
+        if envelope:
+            for name, value in envelope.items():
+                if value is None:
+                    continue
+                field = self._fields_by_name.get(name)
+                if field is None:
+                    continue  # envelope key the descriptor doesn't carry
+                self._set_field(msg, field, value)
+        return msg.SerializeToString()
+
+    def _set_field(self, msg, field, value: Any) -> None:
+        if field.is_repeated:
+            # DataArray — the node wraps it as `Array<N> { repeated <elt> = 1 }`,
+            # so the repeated field lives one message-level down; handle every
+            # element kind (scalar / message / enum / timestamp).
+            self._set_repeated(msg, field, value)
+            return
+        if _is_timestamp(field):
+            _set_timestamp(getattr(msg, field.name), value)
+            return
+        if field.message_type is not None:
+            # Nested record / vector — recurse into the submessage. The
+            # node emits these as `Rec<N>` / `Vec<N>` messages; the wire is
+            # driven entirely by field structure, so we walk the descriptor.
+            self._set_message(getattr(msg, field.name), field.message_type, value)
+            return
+        if field.enum_type is not None:
+            # Constrained Category — accept the token string and map it to the
+            # enum number via the descriptor (an int passes through).
+            setattr(msg, field.name, self._enum_number(field, value))
+            return
+        setattr(msg, field.name, value)
+
+    def _enum_number(self, field, value) -> int:
+        if isinstance(value, str):
+            enum_value = field.enum_type.values_by_name.get(value)
+            if enum_value is None:
+                raise KeyError(
+                    f"swe+proto: {value!r} is not an allowed token for enum "
+                    f"field {field.name!r}. Allowed: "
+                    f"{list(field.enum_type.values_by_name)}")
+            return enum_value.number
+        return int(value)
+
+    def _set_repeated(self, msg, field, values) -> None:
+        if not isinstance(values, (list, tuple)):
+            raise TypeError(
+                f"swe+proto: repeated field {field.name!r} requires a "
+                f"list/tuple, got {type(values).__name__}.")
+        container = getattr(msg, field.name)
+        for item in values:
+            if _is_timestamp(field):
+                _set_timestamp(container.add(), item)
+            elif field.message_type is not None:
+                self._set_message(container.add(), field.message_type, item)
+            elif field.enum_type is not None:
+                container.append(self._enum_number(field, item))
+            else:
+                container.append(item)
+
+    def _set_message(self, submsg, descriptor, value: Any) -> None:
+        """Populate a nested message from a mapping (by field name) or a
+        sequence (positionally — e.g. a Vector given as ``[x, y, z]``)."""
+        if isinstance(value, Mapping):
+            by_name = {f.name: f for f in descriptor.fields}
+            for key, sub_value in value.items():
+                sub_field = by_name.get(key)
+                if sub_field is None:
+                    raise KeyError(
+                        f"swe+proto: field {key!r} not in nested message "
+                        f"{descriptor.full_name!r}. Known fields: {list(by_name)}")
+                self._set_field(submsg, sub_field, sub_value)
+        elif isinstance(value, (list, tuple)):
+            fields = list(descriptor.fields)
+            if len(value) != len(fields):
+                raise ValueError(
+                    f"swe+proto: nested message {descriptor.full_name!r} has "
+                    f"{len(fields)} fields but {len(value)} values were given.")
+            for sub_field, sub_value in zip(fields, value):
+                self._set_field(submsg, sub_field, sub_value)
         else:
             raise TypeError(
-                "SWEProtobufCodec expects an SWEProtobufDatastreamRecordSchema "
-                f"or AnyComponent schema, got {type(schema).__name__}.")
+                f"swe+proto: nested message {descriptor.full_name!r} requires a "
+                f"mapping or sequence value, got {type(value).__name__}.")
 
-    def encode(self, value: Any) -> bytes:
-        """Encode a single observation. ``value`` is whatever the root schema
-        expects — a mapping for DataRecord, a sequence for Vector / DataArray,
-        a scalar for a scalar-rooted schema."""
-        table = _dispatch_table()
-        # Find the encoder for the root schema
-        for schema_cls, (_, encoder, _) in table.items():
-            if isinstance(self._root_schema, schema_cls):
-                msg = encoder(self._root_schema, value)
-                return msg.SerializeToString()
-        raise TypeError(
-            f"swe_protobuf: cannot encode root schema of type "
-            f"{type(self._root_schema).__name__}; only DataRecord / Vector / "
-            f"DataChoice / DataArray and scalar types are currently wired up.")
+    # -- decode ------------------------------------------------------------
 
-    def decode(self, buf: bytes) -> Any:
-        """Decode bytes back into a Python value. Inverse of :meth:`encode`."""
-        table = _dispatch_table()
-        # Determine the wire-side message type from the root schema, parse
-        # the bytes into it, then dispatch the schema-aware decoder.
-        for schema_cls, (_, _, decoder) in table.items():
-            if isinstance(self._root_schema, schema_cls):
-                msg_cls = _pb_message_for_schema(schema_cls)
-                msg = msg_cls()
-                msg.ParseFromString(buf)
-                return _schema_aware_decode(self._root_schema, msg)
-        raise TypeError(
-            f"swe_protobuf: cannot decode root schema of type "
-            f"{type(self._root_schema).__name__}.")
+    def decode(self, buf: bytes) -> Dict[str, Any]:
+        """Decode wire bytes into the result record dict (fields 6+).
 
+        Mirrors ``SWEBinaryCodec.decode`` — returns only the result
+        fields, keyed by name, so the dict drops straight into
+        ``ObservationResource.result``. Use :meth:`decode_with_envelope`
+        to also recover the observation metadata.
+        """
+        msg = self._message_cls()
+        msg.ParseFromString(buf)
+        return {f.name: self._get_field(msg, f) for f in self._result_fields}
 
-def _pb_message_for_schema(schema_cls: type) -> type:
-    """Map a SWE schema class to its top-level protobuf message class."""
-    return {
-        BooleanSchema: _sc.Boolean,
-        CountSchema: _sc.Count,
-        QuantitySchema: _sc.Quantity,
-        TimeSchema: _sc.Time,
-        CategorySchema: _sc.Category,
-        TextSchema: _sc.Text,
-        DataRecordSchema: _pb.DataRecord,
-        VectorSchema: _pb.Vector,
-        DataChoiceSchema: _pb.DataChoice,
-        DataArraySchema: _pb.DataArray,
-    }[schema_cls]
+    def decode_with_envelope(self, buf: bytes) -> Dict[str, Any]:
+        """Decode wire bytes into ``{"result": {...}, <metadata>}``.
 
-
-def _schema_aware_decode(schema: AnyComponentSchema, msg) -> Any:
-    """Decode a protobuf submessage using the matching SWE schema.
-
-    Pairs with `_schema_aware_encode` so nested records keep their field
-    *names* (the schema-less decode loses them once you're past one layer).
-    """
-    if isinstance(schema, DataRecordSchema):
-        out: Dict[str, Any] = {}
-        # Pair each named protobuf field with the schema field of the same
-        # name (don't trust positional alignment in case the encoder ever
-        # reorders).
-        by_name = {nf.name: nf for nf in msg.fields}
-        for field_schema in schema.fields:
-            named = by_name.get(field_schema.name)
-            if named is None:
+        The metadata keys use CS API JSON spellings (``datastream@id``,
+        ``phenomenonTime``, ``resultTime``, ``foi@id``) and timestamps
+        come back as ISO 8601 strings, so the block feeds directly into
+        ``ObservationResource`` / ``ObservationOMJSONInline``.
+        """
+        msg = self._message_cls()
+        msg.ParseFromString(buf)
+        out: Dict[str, Any] = {
+            "result": {f.name: self._get_field(msg, f) for f in self._result_fields}
+        }
+        for name in ENVELOPE_FIELD_NAMES:
+            field = self._fields_by_name.get(name)
+            if field is None:
                 continue
-            out[field_schema.name] = _schema_aware_decode(
-                field_schema,
-                getattr(named.component.inline,
-                        _dispatch_table()[type(field_schema)][0]),
-            )
+            out[_ENVELOPE_OUT_KEYS[name]] = self._get_field(msg, field)
         return out
-    table = _dispatch_table()
-    for schema_cls, (_, _, decoder) in table.items():
-        if isinstance(schema, schema_cls) and schema_cls not in (
-                DataRecordSchema, VectorSchema, DataChoiceSchema, DataArraySchema):
-            return decoder(msg)
-    if isinstance(schema, VectorSchema):
-        # Coordinate dispatch is on CoordinateComponent (a narrower oneof
-        # than AnyComponent), so look up via _coordinate_oneof_map.
-        coord_map = _coordinate_oneof_map()
-        out = []
-        for coord_schema, named in zip(schema.coordinates, msg.coordinates):
-            entry = next((e for cls, e in coord_map.items()
-                          if isinstance(coord_schema, cls)), None)
-            if entry is None:
-                raise TypeError(
-                    f"Vector.coordinates carries unsupported type "
-                    f"{type(coord_schema).__name__}.")
-            oneof_field, _, decoder = entry
-            out.append(decoder(getattr(named.coordinate, oneof_field)))
-        return out
-    if isinstance(schema, DataChoiceSchema):
-        return _decode_data_choice(msg)
-    if isinstance(schema, DataArraySchema):
-        return _decode_data_array(msg)
-    raise TypeError(
-        f"_schema_aware_decode: unsupported schema type {type(schema).__name__}.")
+
+    def _get_field(self, msg, field) -> Any:
+        if field.is_repeated:
+            return self._get_repeated(msg, field)
+        if _is_timestamp(field):
+            return getattr(msg, field.name).ToJsonString()
+        if field.message_type is not None:
+            # Nested record / vector — recurse into the submessage and
+            # return a nested dict keyed by field name.
+            sub = getattr(msg, field.name)
+            return {f.name: self._get_field(sub, f) for f in field.message_type.fields}
+        if field.enum_type is not None:
+            # Constrained Category — return the token string (matching the
+            # sibling SWE codecs), falling back to the raw int for an
+            # unknown value (proto3 enums are open).
+            return self._enum_name(field, getattr(msg, field.name))
+        return getattr(msg, field.name)
+
+    def _enum_name(self, field, number):
+        enum_value = field.enum_type.values_by_number.get(number)
+        return enum_value.name if enum_value is not None else number
+
+    def _get_repeated(self, msg, field) -> list:
+        container = getattr(msg, field.name)
+        if _is_timestamp(field):
+            return [ts.ToJsonString() for ts in container]
+        if field.message_type is not None:
+            return [{f.name: self._get_field(item, f)
+                     for f in field.message_type.fields} for item in container]
+        if field.enum_type is not None:
+            return [self._enum_name(field, n) for n in container]
+        return list(container)

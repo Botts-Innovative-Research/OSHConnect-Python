@@ -6,10 +6,14 @@
 #  =============================================================================
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from typing import Annotated, Union, List, Literal
 
-from pydantic import BaseModel, Field, model_validator, HttpUrl, ConfigDict
+from pydantic import (
+    BaseModel, ConfigDict, Field, HttpUrl, field_serializer, field_validator,
+    model_validator,
+)
 
 from .api_utils import Link, URI
 from .encoding import BinaryEncoding, FlatBuffersEncoding, JSONEncoding, ProtobufEncoding
@@ -222,42 +226,166 @@ class SWEBinaryDatastreamRecordSchema(DatastreamRecordSchema):
 class SWEProtobufDatastreamRecordSchema(DatastreamRecordSchema):
     """Datastream observation schema for ``application/swe+proto``.
 
-    The on-wire bytes are a Protobuf-serialized SWE Common 3 message,
-    using the schemas from
-    https://github.com/tipatterson-dev/BinaryEncodings. Like the SWE+JSON
-    and SWE+Binary variants, the SDK still carries the `recordSchema`
-    (a SWE Common `AnyComponent` tree) so callers can introspect the
-    field structure without parsing the protobuf descriptor.
+    ``application/swe+proto`` is the **per-datastream descriptor** Protobuf
+    encoding: each DataStream ships a pre-compiled Protobuf schema (a
+    serialized ``google.protobuf.FileDescriptorSet``) describing one
+    per-datastream observation message — envelope fields 1–5 (id,
+    datastream_id, foi_id, phenomenon/result time) plus the SWE Common
+    record at fields 6+. An observation on the wire is a serialized
+    instance of that message; receivers register the descriptor in a
+    ``DescriptorPool`` and decode dynamically (no ``protoc``).
 
-    The codec lives in ``oshconnect.swe_protobuf.SWEProtobufCodec``. It
-    walks the `recordSchema` tree at runtime to translate between
-    `dict` records (the OSHConnect-side representation) and a populated
-    `DataRecord` protobuf message (the wire representation).
+    This carries the descriptor itself rather than a SWE ``recordSchema``
+    tree — the descriptor is the source of truth for the wire layout, and
+    SWE semantics (uom, definition, …) travel as field options inside it.
+    The codec lives in ``oshconnect.swe_protobuf.SWEProtobufCodec``.
+
+    .. note::
+
+       The JSON envelope that delivers the descriptor over the
+       ``/datastreams/{id}/schema`` endpoint is a "meet in the middle"
+       contract with the OSH node side — currently assumed to be
+       ``{"obsFormat", "messageType", "fileDescriptorSet": <base64>}``.
+       See ``docs/osh_spec_deviations.md`` (swe-proto-descriptor-format).
     """
     model_config = ConfigDict(populate_by_name=True)
 
     obs_format: Literal["application/swe+proto"] = Field(
         "application/swe+proto", alias='obsFormat')
-    record_schema: AnyComponent = Field(..., alias='recordSchema')
-    # `recordEncoding` is optional: the wire layout is fully defined by the
-    # protobuf descriptor, so the marker mostly carries `type` for downstream
-    # tooling that wants to dump the schema round-trippable.
+    # Serialized google.protobuf.FileDescriptorSet (carries the
+    # per-datastream message file plus its transitive imports). Stored as
+    # raw bytes in Python; (de)serialized as base64 in JSON so it survives
+    # the CS API schema document and the discriminated-union round-trip.
+    file_descriptor_set: bytes = Field(..., alias='fileDescriptorSet')
+    # Fully-qualified per-datastream message name (e.g.
+    # "georobotix.csapi....WeatherObservation"). Optional when the
+    # descriptor set carries exactly one message type.
+    message_type: str = Field(None, alias='messageType')
+    # Marker only — the wire layout is fully defined by the descriptor.
     record_encoding: ProtobufEncoding = Field(
         default_factory=ProtobufEncoding, alias='recordEncoding')
 
-    @model_validator(mode="after")
-    def _root_record_schema_requires_name(self):
-        check_named(self.record_schema, "SWEProtobufDatastreamRecordSchema.recordSchema")
-        return self
+    @field_validator('file_descriptor_set', mode='before')
+    @classmethod
+    def _decode_base64_fds(cls, value):
+        """Accept the descriptor as base64 text (JSON wire form) or raw bytes."""
+        if isinstance(value, str):
+            return base64.b64decode(value)
+        return value
+
+    @field_serializer('file_descriptor_set', when_used='json')
+    def _encode_base64_fds(self, value: bytes) -> str:
+        return base64.b64encode(value).decode('ascii')
 
     def to_sweproto_dict(self) -> dict:
-        """Render as an `application/swe+proto` datastream-schema document."""
+        """Render as an `application/swe+proto` datastream-schema document
+        (``fileDescriptorSet`` base64-encoded)."""
         return _dump_csapi(self)
 
     @classmethod
     def from_sweproto_dict(cls, data: dict) -> "SWEProtobufDatastreamRecordSchema":
         """Build from an `application/swe+proto` datastream-schema dict."""
         return cls.model_validate(data, by_alias=True)
+
+    @classmethod
+    def from_record_schema(
+        cls,
+        record: AnyComponent,
+        *,
+        message_name: str = "Observation",
+        package: str = "oshconnect.sweproto",
+        datatype_by_path: dict = None,
+    ) -> "SWEProtobufDatastreamRecordSchema":
+        """Generate a swe+proto schema from a SWE Common ``DataRecord``.
+
+        Builds the per-datastream observation descriptor (envelope fields
+        1–5 + the record's components as result fields 6+, nested records
+        and vectors recursed) — the inverse of OSH's ``ProtoSchemaWriter`` —
+        and wraps it in this schema model. Use this to produce a swe+proto
+        datastream schema from the ``record_schema`` you already hold for a
+        SWE+JSON or SWE+Binary datastream.
+
+        :param record: a ``DataRecordSchema`` describing the observation.
+        :param message_name: generated message name (e.g.
+            ``f"Observation_{ds_id}"``).
+        :param package: proto package for the generated message.
+        :param datatype_by_path: optional ``{ref: dataType_uri}`` map (same
+            refs a ``BinaryEncoding`` uses) so float32 / int-width leaves
+            map to the matching proto wire type instead of the defaults.
+        """
+        from .swe_protobuf import build_observation_descriptor_set
+        fds, message_type = build_observation_descriptor_set(
+            record, message_name=message_name, package=package,
+            datatype_by_path=datatype_by_path)
+        return cls(file_descriptor_set=fds, message_type=message_type)
+
+    @classmethod
+    def from_other_schema(
+        cls,
+        other,
+        *,
+        message_name: str = "Observation",
+        package: str = "oshconnect.sweproto",
+    ) -> "SWEProtobufDatastreamRecordSchema":
+        """Translate another datastream schema into swe+proto.
+
+        Accepts any record-bearing datastream schema (``SWEDatastreamRecordSchema``,
+        ``SWEBinaryDatastreamRecordSchema``, …) — pulling its
+        ``record_schema`` — or a bare ``DataRecordSchema``. When the source
+        is SWE+Binary, the ``recordEncoding`` members are mined for each
+        leaf's OGC ``dataType`` so the generated proto fields use the
+        matching wire type (e.g. float32 → ``float``); SWE+JSON / SWE+CSV /
+        SWE+text sources carry no dataType, so the node defaults apply.
+        """
+        record = getattr(other, "record_schema", other)
+        datatype_by_path = None
+        record_encoding = getattr(other, "record_encoding", None)
+        members = getattr(record_encoding, "members", None)
+        if members:
+            datatype_by_path = {
+                m.ref: m.data_type
+                for m in members
+                if getattr(m, "type", None) == "Component"
+                and getattr(m, "ref", None) and getattr(m, "data_type", None)
+            }
+        return cls.from_record_schema(
+            record, message_name=message_name, package=package,
+            datatype_by_path=datatype_by_path)
+
+    def to_proto_source(self) -> str:
+        """Render this schema's descriptor as editable ``.proto`` source text.
+
+        Works for any swe+proto schema — one generated here *or* one
+        delivered by the node — since it renders the carried
+        ``FileDescriptorSet``. Edit the text and recompile it with
+        :meth:`from_proto_source` to apply changes.
+        """
+        from .swe_protobuf import render_proto_source
+        return render_proto_source(self.file_descriptor_set, self.message_type)
+
+    @classmethod
+    def from_proto_source(
+        cls,
+        proto_text: str,
+        *,
+        message_type: str = None,
+        protoc: str = "protoc",
+    ) -> "SWEProtobufDatastreamRecordSchema":
+        """Build a schema from ``.proto`` source text (compiles via ``protoc``).
+
+        The round-trip companion to :meth:`to_proto_source`: generate the
+        text, hand-edit it (add/rename fields, tweak types, add
+        annotations), then compile it back into a schema. Requires
+        ``protoc`` on PATH (or pass ``protoc=<path>``); the
+        binary-descriptor paths (`from_record_schema` / `from_other_schema`)
+        need no protoc. ``message_type`` defaults to the first message in
+        the compiled file.
+        """
+        from .swe_protobuf import compile_proto_source, primary_message_type
+        fds = compile_proto_source(proto_text, protoc=protoc)
+        if message_type is None:
+            message_type = primary_message_type(fds)
+        return cls(file_descriptor_set=fds, message_type=message_type)
 
 
 class SWEFlatBuffersDatastreamRecordSchema(DatastreamRecordSchema):
@@ -501,6 +629,7 @@ SWEJSONCommandSchema.model_rebuild(force=True)
 JSONCommandSchema.model_rebuild(force=True)
 SWEDatastreamRecordSchema.model_rebuild(force=True)
 SWEBinaryDatastreamRecordSchema.model_rebuild(force=True)
-SWEProtobufDatastreamRecordSchema.model_rebuild(force=True)
+# SWEProtobufDatastreamRecordSchema no longer threads `AnyComponent` (it
+# carries the protobuf descriptor instead), so it needs no forced rebuild.
 SWEFlatBuffersDatastreamRecordSchema.model_rebuild(force=True)
 OMJSONDatastreamRecordSchema.model_rebuild(force=True)

@@ -32,12 +32,11 @@ from oshconnect.schema_datamodels import (
     JSONCommandSchema,
     OMJSONDatastreamRecordSchema,
     LogicalDatastreamRecordSchema,
-    ObservationOMJSONInline,
     SWEDatastreamRecordSchema,
-    SWEJSONCommandSchema,
 )
 from oshconnect.streamableresource import ControlStream, Datastream, System
 from oshconnect.timemanagement import TimeInstant, TimePeriod
+from tests.helpers import MockResponse, capture_request
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -274,22 +273,6 @@ def test_system_init_with_name_kwarg_routes_to_label_with_warning(node):
 # insert_self strips server-assigned fields from the POST body
 # ---------------------------------------------------------------------------
 
-class _MockResponse:
-    status_code = 201
-    ok = True
-    text = ""
-    headers = {"Location": "http://localhost:8282/sensorhub/api/systems/dest-id-xyz"}
-
-
-def _capture_post(into: dict):
-    def _f(url, params=None, headers=None, auth=None, data=None, json=None, **kwargs):
-        into["url"] = str(url)
-        into["data"] = data
-        into["json"] = json
-        return _MockResponse()
-    return _f
-
-
 def test_insert_self_strips_id_and_links_from_body(node, monkeypatch):
     """When re-POSTing a discovered system to a destination node, the
     source's server-assigned ``id`` and ``links`` must not leak into
@@ -305,11 +288,11 @@ def test_insert_self_strips_id_and_links_from_body(node, monkeypatch):
     res = SystemResource.from_smljson_dict(raw)
     sys = System.from_resource(res, node)
 
-    captured: dict = {}
-    monkeypatch.setattr(
-        "oshconnect.csapi4py.request_wrappers.requests.post",
-        _capture_post(captured),
-    )
+    captured = capture_request(monkeypatch, "post", response=MockResponse(
+        status=201,
+        headers={"Location":
+                 "http://localhost:8282/sensorhub/api/systems/dest-id-xyz"},
+    ))
 
     sys.insert_self()
 
@@ -543,86 +526,37 @@ def test_logical_schema_permissive_extra_fields():
     assert dumped["properties"]["x"]["minimum"] == 0
 
 
-def test_retrieve_datastream_schema_logical_obsformat(monkeypatch):
+@pytest.mark.parametrize("fixture_name, obs_format, schema_cls, parse", [
+    ("fake_weather_schema_logical.json", "logical",
+     LogicalDatastreamRecordSchema,
+     LogicalDatastreamRecordSchema.from_logical_dict),
+    ("fake_weather_schema_swejson.json", "application/swe+json",
+     SWEDatastreamRecordSchema,
+     SWEDatastreamRecordSchema.from_swejson_dict),
+])
+def test_retrieve_datastream_schema_by_obsformat(
+        monkeypatch, fixture_name, obs_format, schema_cls, parse):
     """Schema retrieval lives as a free function in
     ``oshconnect.api_helpers``, not on ``Datastream``. Callers pick the
     schema variant via the ``obs_format`` query param. Verify the URL,
-    ``?obsFormat=logical`` query, and that the body parses as
-    ``LogicalDatastreamRecordSchema``.
+    the ``?obsFormat=...`` query, and that the body parses as the
+    matching schema model.
     """
     from oshconnect.api_helpers import retrieve_datastream_schema
 
-    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_logical.json").read_text())
-
-    captured = {}
-
-    class _MockResponse:
-        status_code = 200
-
-        def raise_for_status(self):
-            pass
-
-        def json(self):
-            return raw
-
-    def _mock_get(url, params=None, headers=None, auth=None, **kwargs):
-        captured["url"] = str(url)
-        captured["params"] = params
-        captured["auth"] = auth
-        return _MockResponse()
-
-    monkeypatch.setattr(
-        "oshconnect.csapi4py.request_wrappers.requests.get", _mock_get,
-    )
+    raw = json.loads((FIXTURES_DIR / fixture_name).read_text())
+    captured = capture_request(monkeypatch, "get",
+                               response=MockResponse(payload=raw))
 
     resp = retrieve_datastream_schema(
         "http://localhost:8282/sensorhub", "038s1ic7k460",
-        obs_format="logical",
+        obs_format=obs_format,
     )
-    schema = LogicalDatastreamRecordSchema.from_logical_dict(resp.json())
+    schema = parse(resp.json())
 
-    assert isinstance(schema, LogicalDatastreamRecordSchema)
-    assert schema.title == "New Simulated Weather Sensor - weather"
+    assert isinstance(schema, schema_cls)
     assert captured["url"].endswith("/datastreams/038s1ic7k460/schema")
-    assert captured["params"] == {"obsFormat": "logical"}
-
-
-def test_retrieve_datastream_schema_swejson_obsformat(monkeypatch):
-    """Symmetric to the logical-format test: SWE+JSON variant goes
-    through the same ``retrieve_datastream_schema`` helper, picked via
-    ``obs_format='application/swe+json'``. The body parses as
-    ``SWEDatastreamRecordSchema``.
-    """
-    from oshconnect.api_helpers import retrieve_datastream_schema
-
-    raw = json.loads((FIXTURES_DIR / "fake_weather_schema_swejson.json").read_text())
-
-    captured = {}
-
-    class _MockResponse:
-        status_code = 200
-
-        def raise_for_status(self):
-            pass
-
-        def json(self):
-            return raw
-
-    def _mock_get(url, params=None, headers=None, auth=None, **kwargs):
-        captured["params"] = params
-        return _MockResponse()
-
-    monkeypatch.setattr(
-        "oshconnect.csapi4py.request_wrappers.requests.get", _mock_get,
-    )
-
-    resp = retrieve_datastream_schema(
-        "http://localhost:8282/sensorhub", "ds-x",
-        obs_format="application/swe+json",
-    )
-    schema = SWEDatastreamRecordSchema.from_swejson_dict(resp.json())
-    assert isinstance(schema, SWEDatastreamRecordSchema)
-    assert captured["params"] == {"obsFormat": "application/swe+json"}
+    assert captured["params"] == {"obsFormat": obs_format}
 
 
 def test_observation_to_omjson_round_trips():
