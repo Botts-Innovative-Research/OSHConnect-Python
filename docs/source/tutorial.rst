@@ -61,6 +61,21 @@ To connect a node with MQTT support for streaming:
                enable_mqtt=True, mqtt_port=1883)
    app.add_node(node)
 
+To talk to an **older OSH server** that predates the CS API Part 3 topic
+scheme, enable legacy topics. This reverts MQTT topic construction to the
+pre-Part-3 form — a leading slash and no ``:data`` suffix or format
+subtopic (e.g. ``/api/datastreams/{id}/observations`` instead of
+``api/datastreams/{id}/observations:data/<token>``):
+
+.. code-block:: python
+
+   node = Node(protocol='http', address='localhost', port=8585,
+               username='test', password='test',
+               enable_mqtt=True, mqtt_legacy_topics=True)
+   app.add_node(node)
+
+Legacy mode affects MQTT topics only; NATS subjects are unaffected.
+
 To stream over **NATS.io** instead (the corporate-bus transport, served by
 OSH's ``sensorhub-service-consys-nats`` binding), enable it the same way —
 ``enable_nats`` mirrors ``enable_mqtt``:

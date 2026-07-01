@@ -97,6 +97,10 @@ class APIHelper(ABC):
     username: str = None
     password: str = None
     user_auth: bool = False
+    # When True, build the pre-Part-3 ("legacy") MQTT topic form: a leading
+    # slash, no ``:data`` suffix, and no format subtopic — for talking to
+    # older OSH servers that predate the CS API Part 3 topic scheme.
+    legacy_topics: bool = False
 
     def get_mqtt_root(self) -> str:
         """
@@ -292,7 +296,7 @@ class APIHelper(ABC):
 
     # TODO: add validity checking for resource type combinations
     def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None,
-                       data_topic: bool = True, format: str | None = None):
+                       data_topic: bool = True, format: str | None = None, legacy: bool | None = None):
         """
         Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
         :param resource_type: The API resource type of the resource that comes first in the URL, cannot be None
@@ -308,15 +312,22 @@ class APIHelper(ABC):
         §Resource Data Messages Content Negotiation. ``None`` (default) emits a bare ``:data`` topic so the server's
         default format applies. Ignored when ``data_topic=False``. Raises ``ValueError`` for unmapped MIME types — see
         :func:`oshconnect.csapi4py.mqtt.mqtt_topic_format_token`.
+        :param legacy: Force the pre-Part-3 topic form (leading slash, no ``:data`` suffix, no format subtopic).
+        ``None`` (default) uses this helper's ``legacy_topics`` setting; pass ``True``/``False`` to override per-call.
+        In legacy mode ``data_topic`` and ``format`` are ignored.
         :return:
         """
-        data_suffix = ':data' if data_topic else ''
-        if data_topic and format is not None:
-            data_suffix = f'{data_suffix}/{mqtt_topic_format_token(format)}'
+        use_legacy = self.legacy_topics if legacy is None else legacy
         subresource_endpoint = f'/{resource_type_to_endpoint(subresource_type)}'
         resource_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
         resource_ident = "" if resource_id is None else f'/{resource_id}'
         subresource_ident = "" if subresource_id is None else f'/{subresource_id}'
+        if use_legacy:
+            # Pre-Part-3 form: leading slash, no ``:data``/format subtopic.
+            return f'/{self.get_mqtt_root()}{resource_endpoint}{resource_ident}{subresource_endpoint}{subresource_ident}'
+        data_suffix = ':data' if data_topic else ''
+        if data_topic and format is not None:
+            data_suffix = f'{data_suffix}/{mqtt_topic_format_token(format)}'
         topic_locator = f'{self.get_mqtt_root()}{resource_endpoint}{resource_ident}{subresource_endpoint}{data_suffix}{subresource_ident}'
         return topic_locator
 

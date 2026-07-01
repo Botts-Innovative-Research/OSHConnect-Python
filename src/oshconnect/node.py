@@ -189,7 +189,8 @@ class Node:
     def __init__(self, protocol: str, address: str, port: int, username: str = None, password: str = None,
                  server_root: str = 'sensorhub', api_root: str = 'api', mqtt_topic_root: str = None,
                  session_manager: SessionManager = None, enable_mqtt: bool = False, mqtt_port: int = 1883,
-                 enable_nats: bool = False, nats_port: int = 4222, nats_token: str = None):
+                 enable_nats: bool = False, nats_port: int = 4222, nats_token: str = None,
+                 mqtt_legacy_topics: bool = False):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
@@ -202,7 +203,7 @@ class Node:
         self._api_helper = APIHelper(
             server_url=self.address, protocol=self.protocol, port=self.port,
             server_root=self.server_root, api_root=api_root, mqtt_topic_root=mqtt_topic_root,
-            username=username, password=password,
+            username=username, password=password, legacy_topics=mqtt_legacy_topics,
         )
         if self.is_secure:
             self._api_helper.user_auth = True

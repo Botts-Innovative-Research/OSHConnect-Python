@@ -22,7 +22,7 @@ SYS_ID = "sys_test_001"
 PARENT_SYS_ID = "sys_parent_001"
 
 
-def make_mock_node(api_root="api", mqtt_topic_root=None):
+def make_mock_node(api_root="api", mqtt_topic_root=None, legacy_topics=False):
     """Returns a mock Node backed by a real APIHelper so topic construction is exercised."""
     api_helper = APIHelper(
         server_url="localhost",
@@ -31,6 +31,7 @@ def make_mock_node(api_root="api", mqtt_topic_root=None):
         server_root="sensorhub",
         api_root=api_root,
         mqtt_topic_root=mqtt_topic_root,
+        legacy_topics=legacy_topics,
     )
     node = MagicMock()
     node.get_api_helper.return_value = api_helper
@@ -458,3 +459,66 @@ class TestDataTopicFormatSubtopic:
             format="application/swe+binary",
         )
         assert topic == f"osh/mqtt/datastreams/{DS_ID}/observations:data/swe-binary"
+
+
+class TestLegacyTopics:
+    """Pre-Part-3 ("legacy") topic form: leading slash, no ``:data`` suffix,
+    no format subtopic — for backwards compatibility with older OSH servers."""
+
+    def test_datastream_observation_legacy_topic(self):
+        ds = make_datastream(make_mock_node(legacy_topics=True))
+        # Format is ignored in legacy mode.
+        topic = ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION,
+                                  data_topic=True, format="application/swe+binary")
+        assert topic == f"/api/datastreams/{DS_ID}/observations"
+
+    def test_controlstream_command_legacy_topic(self):
+        cs = make_controlstream(make_mock_node(legacy_topics=True))
+        topic = cs.get_mqtt_topic(subresource=APIResourceTypes.COMMAND, data_topic=True)
+        assert topic == f"/api/controlstreams/{CS_ID}/commands"
+
+    def test_controlstream_status_legacy_topic(self):
+        cs = make_controlstream(make_mock_node(legacy_topics=True))
+        topic = cs.get_mqtt_topic(subresource=APIResourceTypes.STATUS,
+                                  data_topic=True, format="application/json")
+        assert topic == f"/api/controlstreams/{CS_ID}/status"
+
+    def test_system_datastreams_collection_legacy_topic(self):
+        sysres = make_system(make_mock_node(legacy_topics=True))
+        topic = sysres.get_mqtt_topic(subresource=APIResourceTypes.DATASTREAM)
+        assert topic == f"/api/systems/{SYS_ID}/datastreams"
+
+    def test_init_mqtt_sets_legacy_topics(self):
+        node = make_mock_node(legacy_topics=True)
+        node.get_mqtt_client.return_value = MagicMock()
+
+        ds = make_datastream(node)
+        ds.init_mqtt()
+        assert ds._topic == f"/api/datastreams/{DS_ID}/observations"
+        # Subscribe topic mirrors publish topic in legacy MQTT (no wildcard).
+        assert ds._subscribe_topic == f"/api/datastreams/{DS_ID}/observations"
+
+    def test_controlstream_init_mqtt_sets_legacy_topics(self):
+        node = make_mock_node(legacy_topics=True)
+        node.get_mqtt_client.return_value = MagicMock()
+
+        cs = make_controlstream(node)
+        cs.init_mqtt()
+        assert cs._topic == f"/api/controlstreams/{CS_ID}/commands"
+        assert cs._status_topic == f"/api/controlstreams/{CS_ID}/status"
+
+    def test_legacy_off_by_default(self):
+        ds = make_datastream(make_mock_node())
+        topic = ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
+        assert topic == f"api/datastreams/{DS_ID}/observations:data"
+
+    def test_per_call_legacy_override(self):
+        """Callers can force legacy per-call even when the helper defaults to Part 3."""
+        node = make_mock_node()  # legacy_topics=False
+        helper = node.get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.DATASTREAM,
+            subresource_type=APIResourceTypes.OBSERVATION,
+            resource_id=DS_ID, data_topic=True, legacy=True,
+        )
+        assert topic == f"/api/datastreams/{DS_ID}/observations"
