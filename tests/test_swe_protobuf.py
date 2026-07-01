@@ -330,6 +330,7 @@ def test_datastream_insert_routes_through_protobuf_codec():
     class _StubNode:
         def register_streamable(self, _s): pass
         def get_mqtt_client(self): return None
+        def get_comm_client(self): return None
 
     payload = {
         "id": "weather42",

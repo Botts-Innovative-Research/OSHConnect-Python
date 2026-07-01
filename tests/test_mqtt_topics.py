@@ -35,6 +35,10 @@ def make_mock_node(api_root="api", mqtt_topic_root=None):
     node = MagicMock()
     node.get_api_helper.return_value = api_helper
     node.get_mqtt_client.return_value = None
+    # StreamableResource sources its transport via get_comm_client(); alias it
+    # to get_mqtt_client so per-test `get_mqtt_client.return_value = ...` wiring
+    # continues to drive the resource's client (these tests exercise MQTT).
+    node.get_comm_client = node.get_mqtt_client
     return node
 
 

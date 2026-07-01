@@ -120,7 +120,7 @@ class Datastream(StreamableResource[DatastreamResource]):
         super().start()
         if self._mqtt_client is not None:
             if self._connection_mode is StreamableModes.PULL or self._connection_mode is StreamableModes.BIDIRECTIONAL:
-                self._mqtt_client.subscribe(self._topic, msg_callback=self._mqtt_sub_callback)
+                self._mqtt_client.subscribe(self._subscribe_topic, msg_callback=self._mqtt_sub_callback)
             else:
                 try:
                     loop = asyncio.get_running_loop()
@@ -141,8 +141,12 @@ class Datastream(StreamableResource[DatastreamResource]):
         super().init_mqtt()
         schema = getattr(self._underlying_resource, "record_schema", None)
         obs_format = getattr(schema, "obs_format", None) if schema is not None else None
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION,
-                                          data_topic=True, format=obs_format)
+        self._topic = self.get_stream_topic(subresource=APIResourceTypes.OBSERVATION,
+                                            data_topic=True, format=obs_format)
+        # Publish uses the exact-format topic above; subscribe uses a
+        # format-wildcard subject over NATS (server picks the proactive format).
+        self._subscribe_topic = self.get_subscribe_topic(subresource=APIResourceTypes.OBSERVATION,
+                                                         format=obs_format)
 
     def _emit_inbound_event(self, msg):
         evt = (EventBuilder().with_type(DefaultEventTypes.NEW_OBSERVATION).with_topic(msg.topic).with_data(
@@ -203,12 +207,12 @@ class Datastream(StreamableResource[DatastreamResource]):
             }
             return SWEProtobufCodec(schema).encode(data, envelope=envelope)
         if isinstance(schema, SWEFlatBuffersDatastreamRecordSchema):
-            from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: stub
+            from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: optional dep
             return SWEFlatBuffersCodec(schema).encode(data)
         # JSON-family fallback (om+json, swe+json, swe+csv-handed-a-dict).
         return json.dumps(data).encode("utf-8")
 
-    def decode_observation(self, raw: bytes) -> dict:
+    def decode_observation(self, raw: bytes, obs_format: str | None = None) -> dict:
         """Decode one observation off the wire using this datastream's schema.
 
         For ``application/swe+binary`` datastreams: walks the record
@@ -218,6 +222,14 @@ class Datastream(StreamableResource[DatastreamResource]):
 
         For JSON-family datastreams: returns ``json.loads(raw)``.
 
+        :param obs_format: Optional MIME content-type overriding the
+            datastream's own schema format. Use this to decode data received
+            via a NATS format-wildcard subscription, where the concrete format
+            is only known per-message from the delivered subject (pass the
+            result of
+            :func:`~oshconnect.csapi4py.nats.nats_content_type_from_subject`).
+            ``application/swe+flatbuffers`` is schemaless and decodes
+            regardless of the datastream's own schema type.
         :raises ValueError: if no schema has been fetched.
         """
         schema = getattr(self._underlying_resource, "record_schema", None)
@@ -226,13 +238,34 @@ class Datastream(StreamableResource[DatastreamResource]):
                 "Cannot decode observation: no record_schema on this "
                 "datastream. Call System.discover_datastreams() first, "
                 "or set record_schema manually.")
+
+        # Explicit per-message format override (NATS wildcard case) dispatches
+        # by the given content-type rather than the datastream's schema type.
+        if obs_format is not None:
+            if obs_format == "application/swe+flatbuffers":
+                # FlexBuffers is self-describing — decode with any nominal schema.
+                from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: optional dep
+                inner = schema if isinstance(schema, SWEFlatBuffersDatastreamRecordSchema) \
+                    else getattr(schema, "record_schema", None) or schema
+                return SWEFlatBuffersCodec(inner).decode(raw)
+            if obs_format == "application/swe+binary" and isinstance(schema, SWEBinaryDatastreamRecordSchema):
+                return SWEBinaryCodec(schema).decode(raw)
+            if obs_format == "application/swe+proto" and isinstance(schema, SWEProtobufDatastreamRecordSchema):
+                from ..swe_protobuf import SWEProtobufCodec  # lazy: optional dep
+                return SWEProtobufCodec(schema).decode(raw)
+            # JSON family (swe+json / json / om+json) and any format whose
+            # concrete codec needs a matching schema we don't have fall through
+            # to JSON — the safe default for the text encodings.
+            return json.loads(raw)
+
+        # No override: dispatch by the datastream's own schema type.
         if isinstance(schema, SWEBinaryDatastreamRecordSchema):
             return SWEBinaryCodec(schema).decode(raw)
         if isinstance(schema, SWEProtobufDatastreamRecordSchema):
             from ..swe_protobuf import SWEProtobufCodec  # lazy: optional dep
             return SWEProtobufCodec(schema).decode(raw)
         if isinstance(schema, SWEFlatBuffersDatastreamRecordSchema):
-            from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: stub
+            from ..swe_flatbuffers import SWEFlatBuffersCodec  # lazy: optional dep
             return SWEFlatBuffersCodec(schema).decode(raw)
         return json.loads(raw)
 
@@ -288,7 +321,7 @@ class Datastream(StreamableResource[DatastreamResource]):
         t = None
 
         if topic is None or topic == APIResourceTypes.OBSERVATION.value:
-            t = self._topic
+            t = self._subscribe_topic
         # elif topic == APIResourceTypes.STATUS.value:
         #     t = self._status_topic
         else:

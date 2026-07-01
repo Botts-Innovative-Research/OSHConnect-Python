@@ -61,6 +61,26 @@ To connect a node with MQTT support for streaming:
                enable_mqtt=True, mqtt_port=1883)
    app.add_node(node)
 
+To stream over **NATS.io** instead (the corporate-bus transport, served by
+OSH's ``sensorhub-service-consys-nats`` binding), enable it the same way —
+``enable_nats`` mirrors ``enable_mqtt``:
+
+.. code-block:: python
+
+   node = Node(protocol='http', address='localhost', port=8585,
+               username='test', password='test',
+               enable_nats=True, nats_port=4222)      # or nats_token='...'
+   app.add_node(node)
+
+The two transports are drop-in twins: `Datastream` / `ControlStream` drive
+whichever one the node was configured with (NATS takes precedence if both
+are enabled). The only wire difference is the subject namespace — NATS data
+subjects are dot-delimited and *nested under systems*
+(``api.systems.{sysId}.datastreams.{dsId}.observations:data.<token>``),
+which the client builds for you. Only PROACTIVE-mode plain publish/subscribe
+is supported; the optional flow-control channel and JetStream are out of
+scope.
+
 
 Authentication
 --------------
@@ -79,7 +99,9 @@ Every HTTP call the node makes — discovery, resource creation, schema
 fetches — automatically carries those credentials. Internally, the node
 constructs an ``APIHelper`` that holds the credentials and reads them
 back via ``get_helper_auth()`` on each request. The same credentials
-also flow into the MQTT client when ``enable_mqtt=True``.
+also flow into the MQTT client when ``enable_mqtt=True`` (and, for NATS,
+into user/password auth when ``enable_nats=True``; pass ``nats_token`` for
+token auth instead).
 
 For an unsecured server (e.g., a local OSH dev instance), simply omit
 ``username`` and ``password``:

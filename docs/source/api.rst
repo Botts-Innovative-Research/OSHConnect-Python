@@ -120,3 +120,11 @@ MQTT Client
     :members:
     :undoc-members:
     :show-inheritance:
+
+NATS Client
+~~~~~~~~~~~
+
+.. automodule:: oshconnect.csapi4py.nats
+    :members:
+    :undoc-members:
+    :show-inheritance:

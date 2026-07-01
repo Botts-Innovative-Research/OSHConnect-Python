@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 from .csapi4py.constants import APIResourceTypes
 from .csapi4py.default_api_helpers import APIHelper
 from .csapi4py.mqtt import MQTTCommClient
+from .csapi4py.nats import NatsCommClient
 from .resource_datamodels import SystemResource
 
 if TYPE_CHECKING:
@@ -182,10 +183,13 @@ class Node:
     _client_session: OSHClientSession
     _mqtt_client: MQTTCommClient
     _mqtt_port: int = 1883
+    _nats_client: NatsCommClient
+    _nats_port: int = 4222
 
     def __init__(self, protocol: str, address: str, port: int, username: str = None, password: str = None,
                  server_root: str = 'sensorhub', api_root: str = 'api', mqtt_topic_root: str = None,
-                 session_manager: SessionManager = None, enable_mqtt: bool = False, mqtt_port: int = 1883):
+                 session_manager: SessionManager = None, enable_mqtt: bool = False, mqtt_port: int = 1883,
+                 enable_nats: bool = False, nats_port: int = 4222, nats_token: str = None):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
@@ -215,6 +219,14 @@ class Node:
                                                password=password, client_id_suffix=uuid.uuid4().hex, )
             self._mqtt_client.connect()
             self._mqtt_client.start()
+
+        if enable_nats:
+            self._nats_port = nats_port
+            self._nats_client = NatsCommClient(url=self.address, port=self._nats_port, username=username,
+                                               password=password, token=nats_token,
+                                               client_id_suffix=uuid.uuid4().hex)
+            self._nats_client.connect()
+            self._nats_client.start()
 
     def get_id(self) -> str:
         """Return the locally-generated node ID (``node-<uuid4>``)."""
@@ -249,6 +261,23 @@ class Node:
         """Return the connected `MQTTCommClient` or ``None`` if MQTT was
         not enabled at construction (``enable_mqtt=True``)."""
         return getattr(self, '_mqtt_client', None)
+
+    def get_nats_client(self) -> NatsCommClient:
+        """Return the connected `NatsCommClient` or ``None`` if NATS was
+        not enabled at construction (``enable_nats=True``)."""
+        return getattr(self, '_nats_client', None)
+
+    def get_comm_client(self):
+        """Return the active pub/sub transport client for this node.
+
+        Prefers NATS when it was enabled, otherwise falls back to MQTT (and
+        ``None`` if neither was enabled). `StreamableResource` reads this so
+        it can drive whichever transport the node was configured with.
+        """
+        nats_client = self.get_nats_client()
+        if nats_client is not None:
+            return nats_client
+        return self.get_mqtt_client()
 
     def discover_systems(self) -> list[System] | None:
         """GET ``/systems?f=application/sml+json`` and create a `System` for

@@ -45,6 +45,7 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         model that backs this stream.
     """
     _status_topic: str
+    _status_subscribe_topic: str
     _inbound_status_deque: deque
     _outbound_status_deque: deque
 
@@ -53,9 +54,16 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         self._underlying_resource = controlstream_resource
         self._inbound_status_deque = deque()
         self._outbound_status_deque = deque()
+        self._status_subscribe_topic = None
         self._resource_id = controlstream_resource.cs_id
-        # Always make sure this is set after the resource ids are set
-        self._status_topic = self.get_mqtt_status_topic()
+        # Always make sure this is set after the resource ids are set. The NATS
+        # variant nests under the parent system, whose id may only be assigned
+        # later via set_parent_resource_id — tolerate that here and recompute
+        # in init_mqtt once it is available.
+        try:
+            self._status_topic = self.get_mqtt_status_topic()
+        except ValueError:
+            self._status_topic = None
 
     def add_underlying_resource(self, resource: ControlStreamResource):
         """Replace the underlying `ControlStreamResource` model."""
@@ -74,15 +82,25 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         super().init_mqtt()
         schema = getattr(self._underlying_resource, "command_schema", None)
         cmd_format = getattr(schema, "command_format", None) if schema is not None else None
-        self._topic = self.get_mqtt_topic(subresource=APIResourceTypes.COMMAND,
-                                          data_topic=True, format=cmd_format)
+        self._topic = self.get_stream_topic(subresource=APIResourceTypes.COMMAND,
+                                            data_topic=True, format=cmd_format)
+        # Parent system id is resolved by now (via discovery or
+        # set_parent_resource_id), so a NATS status subject can be built.
+        self._status_topic = self.get_mqtt_status_topic()
+        # Publish uses the exact-format topics above; subscribe uses
+        # format-wildcard subjects over NATS (server picks the proactive format).
+        self._subscribe_topic = self.get_subscribe_topic(
+            subresource=APIResourceTypes.COMMAND, format=cmd_format)
+        self._status_subscribe_topic = self.get_subscribe_topic(
+            subresource=APIResourceTypes.STATUS, format="application/json")
 
     def get_mqtt_status_topic(self) -> str:
-        """Return the MQTT topic for command status updates. Status payloads
-        are always ``application/json``, so the topic is suffixed with the
-        ``json`` format subtopic (``…/status:data/json``)."""
-        return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS,
-                                   data_topic=True, format="application/json")
+        """Return the topic/subject for command status updates. Status payloads
+        are always ``application/json``, so it is suffixed with the ``json``
+        format subtopic (``…/status:data/json`` for MQTT, or the nested
+        ``…commands... status:data.json`` equivalent for NATS)."""
+        return self.get_stream_topic(subresource=APIResourceTypes.STATUS,
+                                     data_topic=True, format="application/json")
 
     def _emit_inbound_event(self, msg):
         evt_type = (DefaultEventTypes.NEW_COMMAND if msg.topic == self._topic else DefaultEventTypes.NEW_COMMAND_STATUS)
@@ -99,7 +117,7 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         if self._mqtt_client is not None:
             if self._connection_mode is StreamableModes.PULL or self._connection_mode is StreamableModes.BIDIRECTIONAL:
                 # Subs to command topic by default
-                self._mqtt_client.subscribe(self._topic, msg_callback=self._mqtt_sub_callback)
+                self._mqtt_client.subscribe(self._subscribe_topic, msg_callback=self._mqtt_sub_callback)
             else:
                 try:
                     loop = asyncio.get_running_loop()
@@ -174,9 +192,9 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         t = None
 
         if topic is None or topic == APIResourceTypes.COMMAND.value:
-            t = self._topic
+            t = self._subscribe_topic
         elif topic == APIResourceTypes.STATUS.value:
-            t = self._status_topic
+            t = self._status_subscribe_topic
         else:
             raise ValueError(
                 f"Invalid topic {topic!r}; must be None, "

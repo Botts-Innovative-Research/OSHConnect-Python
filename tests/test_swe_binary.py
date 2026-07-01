@@ -404,6 +404,9 @@ class _StubNode:
     def get_mqtt_client(self):
         return None
 
+    def get_comm_client(self):
+        return None
+
 
 def _make_binary_datastream():
     """Build a Datastream wired to a swe+binary schema, with the MQTT publish

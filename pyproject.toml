@@ -9,6 +9,9 @@ authors = [
 requires-python = "<4.0,>=3.12"
 dependencies = [
     "paho-mqtt>=2.1.0",
+    # NATS.io transport for the CS API Part 3 Pub/Sub binding (NatsCommClient),
+    # the corporate-bus twin of the paho-mqtt transport.
+    "nats-py>=2.6.0",
     "pydantic>=2.13.4,<3.0.0",
     "shapely>=2.1.2,<3.0.0",
     # websockets 16.0 is several majors past the previous floor; OSHConnect

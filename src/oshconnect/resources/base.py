@@ -40,7 +40,9 @@ from typing import TYPE_CHECKING, Generic, TypeVar, Union
 from uuid import UUID, uuid4
 
 from ..csapi4py.constants import APIResourceTypes
-from ..csapi4py.mqtt import MQTTCommClient
+from ..csapi4py.default_api_helpers import resource_type_to_endpoint
+from ..csapi4py.mqtt import MQTTCommClient, mqtt_topic_format_token
+from ..csapi4py.nats import NatsCommClient
 from ..resource_datamodels import ControlStreamResource
 from ..resource_datamodels import DatastreamResource
 from ..resource_datamodels import SystemResource
@@ -119,6 +121,7 @@ class StreamableResource(Generic[T], ABC):
     _inbound_deque: deque
     _outbound_deque: deque
     _mqtt_client: MQTTCommClient
+    _subscribe_topic: str
     _parent_resource_id: str
     _connection_mode: StreamableModes = StreamableModes.PUSH.value
 
@@ -126,10 +129,11 @@ class StreamableResource(Generic[T], ABC):
         self._id = uuid4()
         self._parent_node = node
         self._parent_node.register_streamable(self)
-        self._mqtt_client = self._parent_node.get_mqtt_client()
+        self._mqtt_client = self._parent_node.get_comm_client()
         self._connection_mode = connection_mode
         self._inbound_deque = deque()
         self._outbound_deque = deque()
+        self._subscribe_topic = None
         self._parent_resource_id = None
 
     def get_streamable_id(self) -> UUID:
@@ -269,6 +273,119 @@ class StreamableResource(Generic[T], ABC):
                                                                   format=format)
         return topic
 
+    def uses_nats(self) -> bool:
+        """True when this resource's active transport is NATS.
+
+        Drives the flat-vs-nested topic choice: NATS data subjects nest under
+        ``systems`` (and need the parent system id) where the MQTT topics are
+        flat. See `get_nats_subject`.
+        """
+        return isinstance(self._mqtt_client, NatsCommClient)
+
+    def get_stream_topic(self, subresource: APIResourceTypes | None = None, data_topic: bool = True,
+                         format: str | None = None) -> str:
+        """Return the data topic/subject for the *active* transport.
+
+        Dispatches to `get_nats_subject` (nested-under-systems, dot-delimited)
+        when NATS is active, else `get_mqtt_topic` (flat, slash-delimited).
+        Subclasses call this from ``init_mqtt`` so they stay transport-agnostic.
+        """
+        if self.uses_nats():
+            return self.get_nats_subject(subresource=subresource, data_topic=data_topic, format=format)
+        return self.get_mqtt_topic(subresource=subresource, data_topic=data_topic, format=format)
+
+    def get_subscribe_topic(self, subresource: APIResourceTypes | None = None,
+                            format: str | None = None) -> str:
+        """Return the topic/subject to *subscribe* to for inbound data.
+
+        For MQTT this is the exact per-format topic (the broker negotiates the
+        format per subscription). For NATS it is a format-wildcard subject
+        (``…:data.*``): in PROACTIVE mode the server publishes each stream on a
+        single server-chosen format regardless of the subscriber, so we accept
+        whatever it emits and read the concrete format back from each delivered
+        subject via
+        :func:`~oshconnect.csapi4py.nats.nats_content_type_from_subject`.
+        """
+        if self.uses_nats():
+            return self.get_nats_subject(subresource=subresource, data_topic=True, format_wildcard=True)
+        return self.get_mqtt_topic(subresource=subresource, data_topic=True, format=format)
+
+    def get_nats_subject(self, subresource: APIResourceTypes | None = None, data_topic: bool = True,
+                         format: str | None = None, format_wildcard: bool = False) -> str:
+        """Build the CS API Part 3 NATS data subject for this resource.
+
+        Unlike the flat MQTT topics, NATS data subjects are the canonical
+        *nested-under-systems* resource path, dot-delimited, with a
+        ``:data[.<token>]`` suffix — e.g.
+        ``api.systems.{sysId}.datastreams.{dsId}.observations:data.swe-proto``.
+        This mirrors ``ConSysApiNatsConnector.getResourceUri`` on the server,
+        which reverses a subject back into ``/systems/.../observations`` by
+        stripping the ``:data`` suffix and replacing ``.`` with ``/``.
+
+        When ``format_wildcard`` is set, the format subtopic is a NATS
+        single-token wildcard (``…:data.*``) instead of a concrete token.
+        This is used to *subscribe* in PROACTIVE mode, where the server
+        publishes on one server-chosen format subtopic regardless of the
+        datastream's own obs format — the actual format is then read back
+        from each delivered subject's trailing token (see
+        :func:`~oshconnect.csapi4py.nats.nats_content_type_from_subject`).
+
+        The parent system id required for the nesting is read from the
+        datastream's ``system_id`` (``system@id``) or — for control streams
+        and locally-created datastreams — from ``_parent_resource_id``.
+
+        :raises ValueError: if the underlying resource type is unsupported or
+            the parent system id cannot be resolved.
+        """
+        parts = [self._parent_node.get_api_helper().get_mqtt_root()]
+        collection_type = None
+
+        if isinstance(self._underlying_resource, DatastreamResource):
+            sys_id = getattr(self._underlying_resource, "system_id", None) or self._parent_resource_id
+            parts += [resource_type_to_endpoint(APIResourceTypes.SYSTEM), sys_id,
+                      resource_type_to_endpoint(APIResourceTypes.DATASTREAM), self._resource_id]
+            collection_type = APIResourceTypes.OBSERVATION
+        elif isinstance(self._underlying_resource, ControlStreamResource):
+            sys_id = self._parent_resource_id
+            parts += [resource_type_to_endpoint(APIResourceTypes.SYSTEM), sys_id,
+                      resource_type_to_endpoint(APIResourceTypes.CONTROL_CHANNEL), self._resource_id]
+            # Command status subjects follow the same nesting convention as
+            # command subjects. The reference server publishes observation and
+            # command data subjects explicitly; the status data subject is
+            # built by analogy — see docs/osh_spec_deviations.md#nats-status-subject.
+            collection_type = (APIResourceTypes.STATUS if subresource is APIResourceTypes.STATUS
+                               else APIResourceTypes.COMMAND)
+        elif isinstance(self._underlying_resource, SystemResource):
+            parts += [resource_type_to_endpoint(APIResourceTypes.SYSTEM), self._resource_id]
+            match subresource:
+                case APIResourceTypes.DATASTREAM:
+                    collection_type = APIResourceTypes.DATASTREAM
+                case APIResourceTypes.CONTROL_CHANNEL:
+                    collection_type = APIResourceTypes.CONTROL_CHANNEL
+                case None:
+                    collection_type = None
+                case _:
+                    raise ValueError(f"Unsupported subresource type {subresource} for SystemResource.")
+        else:
+            raise ValueError("Underlying resource must be a System, Datastream, or ControlStream resource.")
+
+        if any(p is None for p in parts):
+            raise ValueError(
+                "Cannot build NATS subject: parent system id is unresolved. Ensure the resource "
+                "was discovered with its 'system@id' or had set_parent_resource_id() called.")
+
+        if collection_type is not None:
+            parts.append(resource_type_to_endpoint(collection_type))
+
+        subject = ".".join(str(p) for p in parts)
+        if data_topic:
+            subject += ":data"
+            if format_wildcard:
+                subject += ".*"
+            elif format is not None:
+                subject += f".{mqtt_topic_format_token(format)}"
+        return subject
+
     def get_event_topic(self) -> str:
         """
         Returns the Resource Event Topic for this streamable resource per CS API Part 3. Event topics point to the
@@ -280,8 +397,12 @@ class StreamableResource(Generic[T], ABC):
         mqtt_root = self._parent_node.get_api_helper().get_mqtt_root()
 
         if isinstance(self._underlying_resource, DatastreamResource):
-            if self._parent_resource_id:
-                return f'{mqtt_root}/systems/{self._parent_resource_id}/datastreams/{self._resource_id}'
+            # Prefer the nested-under-system path (required by the NATS event
+            # subjects, and valid for MQTT too). Fall back to the datastream's
+            # own ``system@id`` when no parent id was assigned locally.
+            sys_id = self._parent_resource_id or getattr(self._underlying_resource, "system_id", None)
+            if sys_id:
+                return f'{mqtt_root}/systems/{sys_id}/datastreams/{self._resource_id}'
             return f'{mqtt_root}/datastreams/{self._resource_id}'
 
         elif isinstance(self._underlying_resource, ControlStreamResource):
