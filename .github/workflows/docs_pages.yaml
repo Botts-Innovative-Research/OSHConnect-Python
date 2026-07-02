@@ -32,14 +32,17 @@ jobs:
         run: uv run sphinx-build -W --keep-going -b html docs/source docs/build/sphinx
 
       - name: Upload Pages artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # Run on push-to-main and on manual workflow_dispatch of the main ref.
+        # (push is already restricted to main by `on.push.branches`.)
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./docs/build/sphinx
 
   deploy:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deploy on push-to-main and on manual workflow_dispatch of the main ref.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       pages: write
