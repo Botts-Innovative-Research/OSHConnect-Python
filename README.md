@@ -18,17 +18,18 @@ nats), `protobuf`, `flatbuffers`, `tinydb`, and `all`.
 **Extras combine** — comma-separate them in one bracket (no spaces); they're
 additive. This works from PyPI, from the Git URL, and in a uv project.
 
+OSHConnect is on PyPI but **only as alpha pre-releases**, so `pip`/`uv` need a
+pre-release opt-in:
+
 ```bash
-# From Git (current method) — use the "name[extras] @ URL" form:
+# From PyPI (pre-release opt-in required):
+pip install --pre "oshconnect[mqtt,protobuf]"
+uv add "oshconnect[mqtt,nats]==0.5.1a22"              # exact pin auto-allows the alpha
+uv add "oshconnect[streaming]>=0.5.1a0" --prerelease=allow
+
+# From Git (unreleased work) — use the "name[extras] @ URL" form:
 pip install "oshconnect[mqtt,protobuf] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
-
-# uv project:
-uv add "oshconnect[mqtt,nats] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
-# equivalently:
 uv add "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git" --extra mqtt --extra nats
-
-# Once on PyPI, the bracket form works directly:
-pip install "oshconnect[streaming]"
 ```
 
 See the [tutorial's Optional features table](https://botts-innovative-research.github.io/OSHConnect-Python/tutorial.html)

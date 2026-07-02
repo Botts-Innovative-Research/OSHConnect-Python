@@ -5,17 +5,32 @@ This tutorial walks through the most common workflows.
 
 Installation
 ------------
+OSHConnect is published to `PyPI <https://pypi.org/project/oshconnect/>`_, but
+so far **only as alpha pre-releases** (e.g. ``0.5.1a22``) — there is no stable
+release yet. Because of that, ``pip``/``uv`` skip these versions by default,
+so you must opt into pre-releases.
+
 Install using ``uv`` (recommended):
 
 .. code-block:: bash
 
-   uv add git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git
+   uv add "oshconnect==0.5.1a22"        # exact pin auto-allows the pre-release
+   # or, to allow future alphas:
+   uv add "oshconnect>=0.5.1a0" --prerelease=allow
 
 Or with ``pip``:
 
 .. code-block:: bash
 
-   pip install git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git
+   pip install --pre oshconnect
+
+To track unreleased work, install straight from Git instead (no pre-release
+flag needed):
+
+.. code-block:: bash
+
+   uv add "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+   pip install "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
 
 Optional features
 ~~~~~~~~~~~~~~~~~
@@ -54,39 +69,39 @@ opt-in extras:
 
 **Extras combine** — list several in one comma-separated bracket (no spaces);
 they are additive, so ``[mqtt,protobuf]`` installs both. This works
-identically whether you install from PyPI, from the Git URL, or into a uv
-project.
+identically from PyPI, from the Git URL, and in a uv project.
 
-Because the package is currently installed **from Git** (not yet on real
-PyPI), use the PEP 508 "name-with-extras @ URL" form:
+From PyPI (remember the pre-release opt-in — see *Installation* above):
 
 .. code-block:: bash
 
-   # pip, from Git, with combined extras
+   pip install --pre "oshconnect[mqtt,protobuf]"        # MQTT + swe+proto
+   pip install --pre "oshconnect[streaming]"            # MQTT + NATS
+   pip install --pre "oshconnect[all]"                  # everything
+
+   uv add "oshconnect[mqtt,nats]==0.5.1a22"             # exact pin auto-allows the alpha
+   uv add "oshconnect[streaming]>=0.5.1a0" --prerelease=allow
+
+From Git (for unreleased work), use the PEP 508 "name-with-extras @ URL" form:
+
+.. code-block:: bash
+
    pip install "oshconnect[mqtt,protobuf] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
 
-   # uv project — either the PEP 508 string …
    uv add "oshconnect[mqtt,nats] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
-   # … or the Git URL plus repeated --extra flags
+   # equivalently, the Git URL plus repeated --extra flags:
    uv add "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git" --extra mqtt --extra nats
 
-Once published to PyPI the bracket form works directly:
-
-.. code-block:: bash
-
-   pip install "oshconnect[mqtt]"            # HTTP + MQTT streaming
-   pip install "oshconnect[mqtt,protobuf]"   # MQTT + swe+proto encoding
-   pip install "oshconnect[streaming]"       # HTTP + MQTT + NATS
-   pip install "oshconnect[all]"             # everything
-
 In a uv project you can also hand-edit ``pyproject.toml`` — the extras go in
-the dependency string:
+the dependency string (from PyPI or from Git):
 
 .. code-block:: toml
 
    [project]
    dependencies = [
-       "oshconnect[mqtt,nats] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git",
+       "oshconnect[mqtt,nats]>=0.5.1a0",   # from PyPI (needs the pre-release opt-in)
+       # or from Git:
+       # "oshconnect[mqtt,nats] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git",
    ]
 
 Using a transport without its extra raises a ``RuntimeError`` naming the
