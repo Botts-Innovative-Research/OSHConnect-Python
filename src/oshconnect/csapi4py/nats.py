@@ -130,9 +130,9 @@ class NatsCommClient:
                  client_id_suffix="", connect_timeout=5, max_reconnects=-1):
         if _nats is None:
             raise RuntimeError(
-                "NATS transport requires the 'nats-py' package. It is a core "
-                "dependency of oshconnect; reinstall the package if this import "
-                "failed."
+                "The NATS transport requires the 'nats-py' package. "
+                "Install it with `pip install oshconnect[nats]` "
+                "(or `oshconnect[streaming]` for MQTT + NATS)."
             )
         self.__url = url if "://" in str(url) else f"nats://{url}:{port}"
         self.__port = port

@@ -69,6 +69,58 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  # Verify the no-extras install: core must import (and construct a Node)
+  # without any transport/codec extras, and the transport classes must fail
+  # with an error that names the extra to install. Guards the [mqtt]/[nats]
+  # optional-dependency split against regressions (e.g. a stray top-level
+  # `import paho` sneaking back in).
+  core-install:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install package with NO extras
+        run: |
+          uv venv --python 3.13
+          uv pip install .
+
+      - name: Import smoke test (no extras)
+        run: |
+          uv run --no-project python - <<'PY'
+          import oshconnect
+          from oshconnect import OSHConnect, Node, System, Datastream, ControlStream
+          from oshconnect.csapi4py.mqtt import MQTTCommClient, mqtt_topic_format_token
+          from oshconnect.csapi4py.nats import NatsCommClient, nats_subject_from_topic
+
+          # Pure helpers work without the transport deps
+          assert mqtt_topic_format_token("application/swe+json") == "swe-json"
+          assert nats_subject_from_topic("a/b/+/#") == "a.b.*.>"
+
+          # A transport-less Node constructs fine
+          node = Node(protocol="http", address="localhost", port=8585)
+          assert node.get_comm_client() is None
+
+          # Transport clients fail with an error naming the extra
+          for cls, extra in ((MQTTCommClient, "oshconnect[mqtt]"),
+                             (NatsCommClient, "oshconnect[nats]")):
+              try:
+                  cls(url="localhost")
+              except RuntimeError as e:
+                  assert extra in str(e), f"{cls.__name__}: {e}"
+              else:
+                  raise AssertionError(f"{cls.__name__} should require {extra}")
+          print("no-extras core install OK")
+          PY
+
   # Strict Sphinx build acts as a docstring/signature drift gate. Runs in
   # parallel with pytest; publish-test depends on both. Same `-W` flag the
   # Pages deploy uses (docs_pages.yaml), so any failure here would also

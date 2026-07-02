@@ -17,6 +17,50 @@ Or with ``pip``:
 
    pip install git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git
 
+Optional features
+~~~~~~~~~~~~~~~~~
+The base install is deliberately small: HTTP discovery, resource CRUD, and
+the pydantic model layer. Streaming transports and binary encodings are
+opt-in extras:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 30 48
+
+   * - Extra
+     - Installs
+     - Enables
+   * - ``[mqtt]``
+     - ``paho-mqtt``
+     - Real-time MQTT streaming (``enable_mqtt=True``)
+   * - ``[nats]``
+     - ``nats-py``
+     - NATS.io streaming (``enable_nats=True``)
+   * - ``[streaming]``
+     - both of the above
+     - Both transports
+   * - ``[protobuf]``
+     - ``protobuf``
+     - ``application/swe+proto`` encoding
+   * - ``[flatbuffers]``
+     - ``flatbuffers``
+     - ``application/swe+flatbuffers`` encoding
+   * - ``[tinydb]``
+     - ``tinydb``
+     - TinyDB-backed persistence
+   * - ``[all]``
+     - all of the above
+     - Everything except the ``av`` video demo extra
+
+.. code-block:: bash
+
+   pip install "oshconnect[mqtt]"            # HTTP + MQTT streaming
+   pip install "oshconnect[streaming]"       # HTTP + MQTT + NATS
+   pip install "oshconnect[all]"             # everything
+
+Using a transport without its extra raises a ``RuntimeError`` naming the
+extra to install.
+
 All public classes and utilities can be imported directly from ``oshconnect``:
 
 .. code-block:: python
@@ -40,7 +84,9 @@ one for you. Before using this library you need:
   module enabled on that node, with an MQTT broker reachable (OSH's default
   broker port is ``1883``). Streaming over NATS instead requires the
   Connected Systems API – NATS service and a reachable NATS server (default
-  port ``4222``).
+  port ``4222``). Client-side, install the matching extra —
+  ``oshconnect[mqtt]`` / ``oshconnect[nats]`` (see *Optional features*
+  above).
 - **Credentials** for the node, if it has security enabled (OSHConnect uses
   HTTP Basic Auth).
 

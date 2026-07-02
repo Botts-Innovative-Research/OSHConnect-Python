@@ -9,6 +9,21 @@ Links:
  * [Architecture Doc](https://docs.google.com/document/d/1pIaeQw0ocU6ApNgqTVRZuSwjJAbhCcmweMq6RiVYEic/edit?usp=sharing)
  * [UML Diagram](https://drive.google.com/file/d/1FVrnYiuAR8ykqfOUa1NuoMyZ1abXzMPw/view?usp=drive_link)
 
+## Installation extras
+
+The base install is transport-free (HTTP discovery/CRUD + models). Streaming
+and binary encodings are opt-in extras:
+
+```bash
+pip install "oshconnect[mqtt]"       # MQTT streaming (paho-mqtt)
+pip install "oshconnect[nats]"       # NATS streaming (nats-py)
+pip install "oshconnect[streaming]"  # both transports
+pip install "oshconnect[all]"        # transports + protobuf/flatbuffers/tinydb
+```
+
+See the [tutorial's Optional features table](https://botts-innovative-research.github.io/OSHConnect-Python/tutorial.html)
+for the full matrix.
+
 ## Pre-releases
 
 Every push to the `dev` branch publishes a `.devN` pre-release wheel to
@@ -21,7 +36,7 @@ pip install --index-url https://test.pypi.org/simple/ \
             oshconnect --pre
 ```
 
-The `--extra-index-url` is needed so transitive deps (pydantic, paho-mqtt,
+The `--extra-index-url` is needed so transitive deps (pydantic, shapely,
 …) still resolve from real PyPI. Tagged releases (`v*`) continue to publish
 to real PyPI via `.github/workflows/publish.yml`.
 

@@ -1,5 +1,13 @@
 import logging
-import paho.mqtt.client as mqtt
+
+# paho-mqtt ships in the optional [mqtt] extra. The topic-format helpers
+# below are pure and must stay importable without it (base.py and nats.py
+# depend on them), so the import is guarded and MQTTCommClient raises a
+# helpful error at construction instead.
+try:
+    import paho.mqtt.client as mqtt
+except ImportError:  # pragma: no cover - exercised only without the extra
+    mqtt = None
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +71,15 @@ class MQTTCommClient:
             credentials are sent without TLS
         :param reconnect_delay: seconds between automatic reconnect attempts
             on disconnect (0 disables)
+        :raises RuntimeError: if the ``paho-mqtt`` package is not installed
+            (``pip install oshconnect[mqtt]``).
         """
+        if mqtt is None:
+            raise RuntimeError(
+                "The MQTT transport requires the 'paho-mqtt' package. "
+                "Install it with `pip install oshconnect[mqtt]` "
+                "(or `oshconnect[streaming]` for MQTT + NATS)."
+            )
         self.__url = url
         self.__port = port
         self.__path = path

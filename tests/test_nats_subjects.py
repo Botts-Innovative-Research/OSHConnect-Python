@@ -17,6 +17,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# The TestTransportDispatch fixture constructs a real NatsCommClient, which
+# needs the optional [nats] extra. Subject-string tests are pure, but keep
+# the module runnable only where the dev env installed all extras.
+pytest.importorskip("nats", reason="requires the oshconnect[nats] extra")
+
 from oshconnect.csapi4py.constants import APIResourceTypes
 from oshconnect.csapi4py.default_api_helpers import APIHelper
 from oshconnect.csapi4py.nats import (
