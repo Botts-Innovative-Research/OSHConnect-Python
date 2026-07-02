@@ -12,13 +12,23 @@ Links:
 ## Installation extras
 
 The base install is transport-free (HTTP discovery/CRUD + models). Streaming
-and binary encodings are opt-in extras:
+and binary encodings are opt-in extras: `mqtt`, `nats`, `streaming` (mqtt +
+nats), `protobuf`, `flatbuffers`, `tinydb`, and `all`.
+
+**Extras combine** — comma-separate them in one bracket (no spaces); they're
+additive. This works from PyPI, from the Git URL, and in a uv project.
 
 ```bash
-pip install "oshconnect[mqtt]"       # MQTT streaming (paho-mqtt)
-pip install "oshconnect[nats]"       # NATS streaming (nats-py)
-pip install "oshconnect[streaming]"  # both transports
-pip install "oshconnect[all]"        # transports + protobuf/flatbuffers/tinydb
+# From Git (current method) — use the "name[extras] @ URL" form:
+pip install "oshconnect[mqtt,protobuf] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+
+# uv project:
+uv add "oshconnect[mqtt,nats] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+# equivalently:
+uv add "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git" --extra mqtt --extra nats
+
+# Once on PyPI, the bracket form works directly:
+pip install "oshconnect[streaming]"
 ```
 
 See the [tutorial's Optional features table](https://botts-innovative-research.github.io/OSHConnect-Python/tutorial.html)

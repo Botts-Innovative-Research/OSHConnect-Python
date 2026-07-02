@@ -52,11 +52,42 @@ opt-in extras:
      - all of the above
      - Everything except the ``av`` video demo extra
 
+**Extras combine** — list several in one comma-separated bracket (no spaces);
+they are additive, so ``[mqtt,protobuf]`` installs both. This works
+identically whether you install from PyPI, from the Git URL, or into a uv
+project.
+
+Because the package is currently installed **from Git** (not yet on real
+PyPI), use the PEP 508 "name-with-extras @ URL" form:
+
+.. code-block:: bash
+
+   # pip, from Git, with combined extras
+   pip install "oshconnect[mqtt,protobuf] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+
+   # uv project — either the PEP 508 string …
+   uv add "oshconnect[mqtt,nats] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+   # … or the Git URL plus repeated --extra flags
+   uv add "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git" --extra mqtt --extra nats
+
+Once published to PyPI the bracket form works directly:
+
 .. code-block:: bash
 
    pip install "oshconnect[mqtt]"            # HTTP + MQTT streaming
+   pip install "oshconnect[mqtt,protobuf]"   # MQTT + swe+proto encoding
    pip install "oshconnect[streaming]"       # HTTP + MQTT + NATS
    pip install "oshconnect[all]"             # everything
+
+In a uv project you can also hand-edit ``pyproject.toml`` — the extras go in
+the dependency string:
+
+.. code-block:: toml
+
+   [project]
+   dependencies = [
+       "oshconnect[mqtt,nats] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git",
+   ]
 
 Using a transport without its extra raises a ``RuntimeError`` naming the
 extra to install.
