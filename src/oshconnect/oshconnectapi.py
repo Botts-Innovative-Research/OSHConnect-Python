@@ -99,7 +99,7 @@ class OSHConnect:
 
         data = {}
         for node in self._nodes:
-            node_dict = node.serialize()
+            node_dict = node.to_storage_dict()
             data.update({node.get_id(): node_dict})
 
         # write to JSON file
@@ -303,9 +303,7 @@ class OSHConnect:
         :return:
         """
         if target_node in self._nodes:
-            target_node.add_new_system(system)
-            if insert_resource:
-                system.insert_self()
+            target_node.add_system(system, insert_resource=insert_resource)
             self._systems.append(system)
             return
 

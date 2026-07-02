@@ -1,0 +1,168 @@
+name: Tests
+on:
+  push:
+    branches:
+      - '**'
+    # Tag pushes (v*) are handled by publish.yml, which runs the same matrix
+    # before publishing — skip here to avoid running the suite twice.
+    tags-ignore:
+      - '**'
+    # `docs/**` is intentionally NOT ignored: docs-only commits still need
+    # to validate via the strict Sphinx build (the `docs` job below).
+    paths-ignore:
+      - 'README.md'
+      - 'CLAUDE.md'
+      - '.github/workflows/docs_pages.yaml'
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'CLAUDE.md'
+      - '.github/workflows/docs_pages.yaml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.12", "3.13", "3.14" ]
+    name: pytest (Python ${{ matrix.python-version }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras --python ${{ matrix.python-version }}
+
+      # Network-dependent tests need a live OSH server (e.g. localhost:8282).
+      # They're tagged `@pytest.mark.network` and skipped here. The plan is
+      # to shim those with mocks; once a test no longer needs a real server,
+      # drop the marker and it will run in CI automatically.
+      - name: Run pytest with coverage
+        run: |
+          uv run --python ${{ matrix.python-version }} pytest -v \
+            -m "not network" \
+            --cov --cov-report=term --cov-report=xml
+
+      # Keep coverage.xml around so a later badge/Codecov upload step can use it.
+      - name: Upload coverage report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  # Strict Sphinx build acts as a docstring/signature drift gate. Runs in
+  # parallel with pytest; publish-test depends on both. Same `-W` flag the
+  # Pages deploy uses (docs_pages.yaml), so any failure here would also
+  # break the production deploy on main. The built site is uploaded as a
+  # workflow artifact so dev-branch docs changes can be previewed without
+  # deploying to GitHub Pages (which only happens from main).
+  docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Build Sphinx + Furo site (strict)
+        run: uv run sphinx-build -W --keep-going -b html docs/source docs/build/sphinx
+
+      - name: Upload built docs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: docs/build/sphinx
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Publish a `.devN` pre-release wheel to TestPyPI on every push to dev,
+  # gated on BOTH the full pytest matrix and the strict docs build passing.
+  # Lives in this workflow (rather than a separate `workflow_run`-triggered
+  # file) so that the gate is a plain `needs:` dependency — `workflow_run`
+  # only fires from workflows that exist on the default branch, which is a
+  # maintenance footgun.
+  #
+  # One-time setup required at https://test.pypi.org/manage/account/publishing/
+  #   Owner: Botts-Innovative-Research
+  #   Repo:  OSHConnect-Python
+  #   Workflow: tests.yaml
+  #   Environment: publish-test
+  # And in this repo's Settings -> Environments, create env `publish-test`.
+  publish-test:
+    needs: [pytest, docs]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    environment:
+      name: publish-test
+      url: https://test.pypi.org/project/oshconnect/
+    permissions:
+      id-token: write   # OIDC trusted publishing
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      # Append `.dev<run_number>` to the version in pyproject.toml so each
+      # dev push gets a fresh PEP 440-compliant pre-release (e.g.
+      # 0.5.1a0 -> 0.5.1a0.dev42). The change lives only on the runner.
+      - name: Auto-bump version with .devN suffix
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+          run = os.environ['GITHUB_RUN_NUMBER']
+          p = pathlib.Path('pyproject.toml')
+          src = p.read_text()
+          new = re.sub(
+              r'^(version\s*=\s*")([^"]+)(")',
+              lambda m: f'{m.group(1)}{m.group(2)}.dev{run}{m.group(3)}',
+              src, count=1, flags=re.M,
+          )
+          if new == src:
+              raise SystemExit('No `version = "..."` line found in pyproject.toml')
+          p.write_text(new)
+          for line in new.splitlines():
+              if line.startswith('version'):
+                  print(f'Bumped {line}')
+                  break
+          PY
+
+      - name: Build
+        run: uv build
+
+      - name: Publish to TestPyPI
+        run: uv publish --publish-url https://test.pypi.org/legacy/

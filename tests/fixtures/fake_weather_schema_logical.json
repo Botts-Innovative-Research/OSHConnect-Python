@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "title": "New Simulated Weather Sensor - weather",
+  "properties": {
+    "time": {
+      "title": "Sampling Time",
+      "type": "string",
+      "format": "date-time",
+      "x-ogc-definition": "http://www.opengis.net/def/property/OGC/0/SamplingTime",
+      "x-ogc-refFrame": "http://www.opengis.net/def/trs/BIPM/0/UTC",
+      "x-ogc-unit": "http://www.opengis.net/def/uom/ISO-8601/0/Gregorian"
+    },
+    "temperature": {
+      "title": "Air Temperature",
+      "type": "number",
+      "x-ogc-definition": "http://mmisw.org/ont/cf/parameter/air_temperature",
+      "x-ogc-unit": "Cel"
+    },
+    "pressure": {
+      "title": "Atmospheric Pressure",
+      "type": "number",
+      "x-ogc-definition": "http://mmisw.org/ont/cf/parameter/air_pressure",
+      "x-ogc-unit": "hPa"
+    },
+    "windSpeed": {
+      "title": "Wind Speed",
+      "type": "number",
+      "x-ogc-definition": "http://mmisw.org/ont/cf/parameter/wind_speed",
+      "x-ogc-unit": "m/s"
+    },
+    "windDirection": {
+      "title": "Wind Direction",
+      "type": "number",
+      "x-ogc-definition": "http://mmisw.org/ont/cf/parameter/wind_from_direction",
+      "x-ogc-refFrame": "http://www.opengis.net/def/cs/OGC/0/NED",
+      "x-ogc-axis": "z",
+      "x-ogc-unit": "deg"
+    }
+  }
+}

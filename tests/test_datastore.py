@@ -9,19 +9,10 @@ All tests use SQLiteDataStore(":memory:") so there is no file I/O.
 
 import pytest
 
-from src.oshconnect import OSHConnect
-from src.oshconnect.datastores import SQLiteDataStore
-from src.oshconnect.resource_datamodels import (
-    ControlStreamResource,
-    DatastreamResource,
-)
-from src.oshconnect.streamableresource import (
-    ControlStream,
-    Datastream,
-    Node,
-    SessionManager,
-    System,
-)
+from oshconnect import OSHConnect
+from oshconnect.datastores import SQLiteDataStore
+from oshconnect.streamableresource import Node, SessionManager, System
+from tests.helpers import make_controlstream, make_datastream, make_system
 
 
 # ---------------------------------------------------------------------------
@@ -43,38 +34,19 @@ def make_node(sm: SessionManager = None) -> Node:
     return node
 
 
-def make_system(node: Node) -> System:
-    return System(
-        name="test_system",
-        label="Test System",
-        urn="urn:test:sensors:sys1",
-        parent_node=node,
-        resource_id="sys001",
-    )
-
-
-def make_datastream(node: Node) -> Datastream:
-    ds_resource = DatastreamResource.model_validate({
-        "id": "ds001",
-        "name": "Test Datastream",
-        "validTime": ["2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"],
-    })
-    return Datastream(parent_node=node, datastream_resource=ds_resource)
-
-
-def make_controlstream(node: Node) -> ControlStream:
-    cs_resource = ControlStreamResource.model_validate({
-        "id": "cs001",
-        "name": "Test ControlStream",
-    })
-    return ControlStream(node=node, controlstream_resource=cs_resource)
-
-
 # ---------------------------------------------------------------------------
 # Node round-trip
 # ---------------------------------------------------------------------------
 
 class TestNodeRoundTrip:
+    def test_node_password_round_trips_through_storage_dict(self):
+        node = Node(protocol='http', address='localhost', port=8080,
+                    username='user', password='pass')
+        stored = node.to_storage_dict()
+        assert stored['password'] == 'pass'
+        rehydrated = Node.from_storage_dict(stored)
+        assert rehydrated._api_helper.password == 'pass'
+
     def test_save_and_load_node(self):
         store = SQLiteDataStore(":memory:")
         sm = SessionManager()
@@ -141,7 +113,7 @@ class TestSystemCRUD:
         loaded = store.load_system(system_id, node)
 
         assert loaded is not None
-        assert loaded.name == system.name
+        assert loaded.label == system.label
         assert loaded.urn == system.urn
 
     def test_load_missing_system_returns_none(self):
@@ -156,7 +128,6 @@ class TestSystemCRUD:
         node = make_node(sm)
         sys1 = make_system(node)
         sys2 = System(
-            name="system_two",
             label="System Two",
             urn="urn:test:sensors:sys2",
             parent_node=node,
@@ -167,9 +138,9 @@ class TestSystemCRUD:
 
         systems = store.load_systems_for_node(node.get_id(), node)
         assert len(systems) == 2
-        names = {s.name for s in systems}
-        assert "test_system" in names
-        assert "system_two" in names
+        labels = {s.label for s in systems}
+        assert "Test System" in labels
+        assert "System Two" in labels
 
     def test_delete_system(self):
         store = SQLiteDataStore(":memory:")
@@ -255,7 +226,7 @@ class TestBulkOperations:
         sm = SessionManager()
         node = make_node(sm)
         system = make_system(node)
-        node.add_new_system(system)
+        node.add_system(system)
 
         store.save_all([node])
         nodes = store.load_all(session_manager=sm)
@@ -264,7 +235,7 @@ class TestBulkOperations:
         loaded_node = nodes[0]
         assert loaded_node.get_id() == node.get_id()
         assert len(loaded_node.systems()) == 1
-        assert loaded_node.systems()[0].name == system.name
+        assert loaded_node.systems()[0].label == system.label
 
     def test_save_all_empty_node_list(self):
         store = SQLiteDataStore(":memory:")
@@ -304,7 +275,7 @@ class TestOSHConnectIntegration:
 
         assert len(app2._nodes) == 1
         assert len(app2._systems) == 1
-        assert app2._systems[0].name == system.name
+        assert app2._systems[0].label == system.label
 
     def test_save_to_store_no_datastore_raises(self):
         app = OSHConnect(name="no-store-app")

@@ -11,7 +11,7 @@ import re
 from numbers import Real
 from typing import Union, Any, Literal, Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, SerializeAsAny
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .csapi4py.constants import GeometryTypes
 from .api_utils import UCUMCode, URI
@@ -78,13 +78,11 @@ class DataRecordSchema(AnyComponentSchema):
 
 
 class VectorSchema(AnyComponentSchema):
-    label: str = Field(...)
     type: Literal["Vector"] = "Vector"
     definition: str = Field(...)
     reference_frame: str = Field(..., alias='referenceFrame')
     local_frame: str = Field(None, alias='localFrame')
-    # TODO: VERIFY might need to be moved further down when these are defined
-    coordinates: SerializeAsAny[Union[list[CountSchema], list[QuantitySchema], list[TimeSchema]]] = Field(...)
+    coordinates: Union[list[CountSchema], list[QuantitySchema], list[TimeSchema]] = Field(...)
 
     @model_validator(mode="after")
     def _coordinates_require_name(self):
@@ -97,7 +95,12 @@ class DataArraySchema(AnyComponentSchema):
     type: Literal["DataArray"] = "DataArray"
     element_count: dict | str | CountSchema = Field(..., alias='elementCount')  # Should type of Count
     element_type: "AnyComponent" = Field(..., alias='elementType')
-    encoding: str = Field(...)  # TODO: implement an encodings class
+    # Optional in practice: when the parent schema carries a BinaryEncoding
+    # whose `members` reference this DataArray via a Block (e.g. an H.264
+    # video frame), the record-level encoding overrides the array's wire
+    # shape and OSH omits this inner `encoding` field. See
+    # docs/osh_spec_deviations.md (dataarray-encoding-omitted-when-block-overridden).
+    encoding: str = Field(None)  # TODO: implement an encodings class
     values: list = Field(None)
 
     @model_validator(mode="after")
@@ -112,7 +115,9 @@ class MatrixSchema(AnyComponentSchema):
     # TODO: spec defines Matrix.elementType as a single component (allOf SoftNamedProperty + AnyComponent),
     # not a list. Cardinality fix is out of scope for the name-validator change.
     element_type: list["AnyComponent"] = Field(..., alias='elementType')
-    encoding: str = Field(...)  # TODO: implement an encodings class
+    # Optional for the same reason as `DataArraySchema.encoding` — see that
+    # field's docstring and docs/osh_spec_deviations.md.
+    encoding: str = Field(None)  # TODO: implement an encodings class
     values: list = Field(None)
     reference_frame: str = Field(None)
     local_frame: str = Field(None)
@@ -128,7 +133,10 @@ class DataChoiceSchema(AnyComponentSchema):
     type: Literal["DataChoice"] = "DataChoice"
     updatable: bool = Field(False)
     optional: bool = Field(False)
-    choice_value: CategorySchema = Field(..., alias='choiceValue')  # TODO: Might be called "choiceValues"
+    # `choiceValue` carries a runtime selection (which item is active) and is
+    # absent from schema responses emitted by OpenSensorHub. See
+    # `docs/osh_spec_deviations.md` (datachoice-schema-missing-choicevalue).
+    choice_value: CategorySchema = Field(None, alias='choiceValue')
     items: list["AnyComponent"] = Field(...)
 
     @model_validator(mode="after")
@@ -139,7 +147,6 @@ class DataChoiceSchema(AnyComponentSchema):
 
 
 class GeometrySchema(AnyComponentSchema):
-    label: str = Field(...)
     type: Literal["Geometry"] = "Geometry"
     updatable: bool = Field(False)
     optional: bool = Field(False)
@@ -160,7 +167,6 @@ class GeometrySchema(AnyComponentSchema):
 
 
 class AnySimpleComponentSchema(AnyComponentSchema):
-    label: str = Field(...)
     description: str = Field(None)
     type: str = Field(...)
     updatable: bool = Field(False)
@@ -273,3 +279,17 @@ AnyComponent = Annotated[
     ],
     Field(discriminator="type"),
 ]
+
+
+# Rebuild every container model that forward-references AnyComponent.
+# Without this, pydantic leaves a `MockValSer` placeholder on the
+# serializer side — `model_validate` upgrades the validator, but
+# `model_dump`/`model_dump_json` raise
+# `TypeError: 'MockValSer' object is not an instance of 'SchemaSerializer'`.
+# Plain `model_rebuild()` is a no-op (the class reports `model_complete`),
+# so `force=True` is required.
+DataRecordSchema.model_rebuild(force=True)
+VectorSchema.model_rebuild(force=True)
+DataArraySchema.model_rebuild(force=True)
+MatrixSchema.model_rebuild(force=True)
+DataChoiceSchema.model_rebuild(force=True)

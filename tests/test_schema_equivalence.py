@@ -32,7 +32,7 @@ import pytest
 import requests
 
 from src.oshconnect.schema_datamodels import (
-    JSONDatastreamRecordSchema,
+    OMJSONDatastreamRecordSchema,
     SWEDatastreamRecordSchema,
 )
 
@@ -51,7 +51,7 @@ class FormatCase(NamedTuple):
 CASES = [
     FormatCase(
         obs_format="application/om+json",
-        model=JSONDatastreamRecordSchema,
+        model=OMJSONDatastreamRecordSchema,
         fixture_path=FIXTURES_DIR / "fake_weather_schema_omjson.json",
     ),
     FormatCase(

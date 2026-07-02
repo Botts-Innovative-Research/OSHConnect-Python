@@ -12,8 +12,9 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
-from .con_sys_api import ConnectedSystemAPIRequest
+from .con_sys_api import DeleteRequest, GetRequest, PostRequest, PutRequest
 from .constants import APIResourceTypes, ContentTypes, APITerms
+from .mqtt import mqtt_topic_format_token
 
 
 # TODO: rework to make the first resource in the endpoint the primary key for URL construction, currently, the implementation is a bit on the confusing side with what is being generated and why.
@@ -96,6 +97,10 @@ class APIHelper(ABC):
     username: str = None
     password: str = None
     user_auth: bool = False
+    # When True, build the pre-Part-3 ("legacy") MQTT topic form: a leading
+    # slash, no ``:data`` suffix, and no format subtopic — for talking to
+    # older OSH servers that predate the CS API Part 3 topic scheme.
+    legacy_topics: bool = False
 
     def get_mqtt_root(self) -> str:
         """
@@ -122,10 +127,9 @@ class APIHelper(ABC):
         if url_endpoint is None:
             url = self.resource_url_resolver(res_type, None, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='POST', auth=self.get_helper_auth(),
-                                                body=json_data, headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return PostRequest(url=url, body=json_data, headers=req_headers,
+                           auth=self.get_helper_auth()).execute()
 
     def retrieve_resource(self, res_type: APIResourceTypes, res_id: str = None, parent_res_id: str = None,
                           from_collection: bool = False,
@@ -145,14 +149,14 @@ class APIHelper(ABC):
         if url_endpoint is None:
             url = self.resource_url_resolver(res_type, res_id, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='GET', auth=self.get_helper_auth(),
-                                                headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return GetRequest(url=url, headers=req_headers,
+                          auth=self.get_helper_auth()).execute()
 
     def get_resource(self, resource_type: APIResourceTypes, resource_id: str = None,
                      subresource_type: APIResourceTypes = None,
-                     req_headers: dict = None):
+                     req_headers: dict = None,
+                     params: dict = None):
 
         """
         Helper to get resources by type, specifically by id, and optionally a sub-resource collection of a specified resource.
@@ -160,6 +164,7 @@ class APIHelper(ABC):
         :param resource_id:
         :param subresource_type:
         :param req_headers:
+        :param params: Optional query-string parameters (e.g., ``{"obsFormat": "logical"}`` for schema variants).
         :return:
         """
         if req_headers is None:
@@ -169,9 +174,8 @@ class APIHelper(ABC):
         res_id_str = f'/{resource_id}' if resource_id else ""
         sub_res_type_str = f'/{resource_type_to_endpoint(subresource_type)}' if subresource_type else ""
         complete_url = f'{base_api_url}/{resource_type_str}{res_id_str}{sub_res_type_str}'
-        api_request = ConnectedSystemAPIRequest(url=complete_url, request_method='GET', auth=self.get_helper_auth(),
-                                                headers=req_headers)
-        return api_request.make_request()
+        return GetRequest(url=complete_url, params=params, headers=req_headers,
+                          auth=self.get_helper_auth()).execute()
 
     def update_resource(self, res_type: APIResourceTypes, res_id: str, json_data: any, parent_res_id: str = None,
                         from_collection: bool = False, url_endpoint: str = None, req_headers: dict = None):
@@ -188,12 +192,11 @@ class APIHelper(ABC):
         :return:
         """
         if url_endpoint is None:
-            url = self.resource_url_resolver(res_type, None, parent_res_id, from_collection)
+            url = self.resource_url_resolver(res_type, res_id, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='PUT', auth=self.get_helper_auth(),
-                                                body=json_data, headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return PutRequest(url=url, body=json_data, headers=req_headers,
+                          auth=self.get_helper_auth()).execute()
 
     def delete_resource(self, res_type: APIResourceTypes, res_id: str, parent_res_id: str = None,
                         from_collection: bool = False, url_endpoint: str = None, req_headers: dict = None):
@@ -209,12 +212,11 @@ class APIHelper(ABC):
         :return:
         """
         if url_endpoint is None:
-            url = self.resource_url_resolver(res_type, None, parent_res_id, from_collection)
+            url = self.resource_url_resolver(res_type, res_id, parent_res_id, from_collection)
         else:
-            url = f'{self.server_url}/{self.api_root}/{url_endpoint}'
-        api_request = ConnectedSystemAPIRequest(url=url, request_method='DELETE', auth=self.get_helper_auth(),
-                                                headers=req_headers)
-        return api_request.make_request()
+            url = f'{self.get_api_root_url()}/{url_endpoint}'
+        return DeleteRequest(url=url, headers=req_headers,
+                             auth=self.get_helper_auth()).execute()
 
     # Helpers
     def resource_url_resolver(self, subresource_type: APIResourceTypes, subresource_id: str = None,
@@ -294,7 +296,7 @@ class APIHelper(ABC):
 
     # TODO: add validity checking for resource type combinations
     def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None,
-                       data_topic: bool = True):
+                       data_topic: bool = True, format: str | None = None, legacy: bool | None = None):
         """
         Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
         :param resource_type: The API resource type of the resource that comes first in the URL, cannot be None
@@ -306,13 +308,26 @@ class APIHelper(ABC):
         the given type.
         :param data_topic: If True (default), appends ':data' to the subresource collection endpoint per CS API Part 3
         spec for Resource Data Topics. Set to False for Resource Event Topics (no suffix).
+        :param format: Optional MIME content-type that selects the ``:data/<token>`` format subtopic per CS API Part 3
+        §Resource Data Messages Content Negotiation. ``None`` (default) emits a bare ``:data`` topic so the server's
+        default format applies. Ignored when ``data_topic=False``. Raises ``ValueError`` for unmapped MIME types — see
+        :func:`oshconnect.csapi4py.mqtt.mqtt_topic_format_token`.
+        :param legacy: Force the pre-Part-3 topic form (leading slash, no ``:data`` suffix, no format subtopic).
+        ``None`` (default) uses this helper's ``legacy_topics`` setting; pass ``True``/``False`` to override per-call.
+        In legacy mode ``data_topic`` and ``format`` are ignored.
         :return:
         """
-        data_suffix = ':data' if data_topic else ''
+        use_legacy = self.legacy_topics if legacy is None else legacy
         subresource_endpoint = f'/{resource_type_to_endpoint(subresource_type)}'
         resource_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
         resource_ident = "" if resource_id is None else f'/{resource_id}'
         subresource_ident = "" if subresource_id is None else f'/{subresource_id}'
+        if use_legacy:
+            # Pre-Part-3 form: leading slash, no ``:data``/format subtopic.
+            return f'/{self.get_mqtt_root()}{resource_endpoint}{resource_ident}{subresource_endpoint}{subresource_ident}'
+        data_suffix = ':data' if data_topic else ''
+        if data_topic and format is not None:
+            data_suffix = f'{data_suffix}/{mqtt_topic_format_token(format)}'
         topic_locator = f'{self.get_mqtt_root()}{resource_endpoint}{resource_ident}{subresource_endpoint}{data_suffix}{subresource_ident}'
         return topic_locator
 

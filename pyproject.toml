@@ -1,33 +1,108 @@
 [project]
 name = "oshconnect"
-version = "0.5.0a0"
+version = "0.5.1a22"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations. Implements OGC CS API Part 3 (Pub/Sub) MQTT topic conventions including :data topics and resource event topics."
 readme = "README.md"
 authors = [
-    { name = "Ian Patterson", email = "ian@botts-inc.com" },
+    { name = "Ian Patterson", email = "ian.patterson@georobotix.us" },
 ]
 requires-python = "<4.0,>=3.12"
 dependencies = [
     "paho-mqtt>=2.1.0",
-    "pydantic>=2.12.5,<3.0.0",
+    # NATS.io transport for the CS API Part 3 Pub/Sub binding (NatsCommClient),
+    # the corporate-bus twin of the paho-mqtt transport.
+    "nats-py>=2.6.0",
+    "pydantic>=2.13.4,<3.0.0",
     "shapely>=2.1.2,<3.0.0",
-    "websockets>=12.0,<16.0",
-    "requests",
-    "aiohttp>=3.12.15",
+    # websockets 16.0 is several majors past the previous floor; OSHConnect
+    # uses the async client which has been stable across the 13–16 series.
+    "websockets>=16.0,<17.0",
+    # Security floors (Dependabot sweep): floors track the latest patched
+    # release rather than the original advisory baseline, so new installs
+    # don't drift back to a vulnerable version.
+    "requests>=2.33.1",
+    "aiohttp>=3.13.5",
+    "urllib3>=2.7.0",         # transitive via requests; explicit floor pins the patched version
 ]
 [project.optional-dependencies]
+# Binary encoding extras. The bindings these depend on are generated from the
+# SWE Common 3 schemas in https://github.com/tipatterson-dev/BinaryEncodings —
+# until that project publishes a pip-installable package, generate the Python
+# bindings yourself (``make protobuf PROTO_LANG=python``) and place them on
+# PYTHONPATH. See docs/source/tutorial.rst "SWE Protobuf Encoding".
+protobuf = ["protobuf>=7.35.0"]
+flatbuffers = ["flatbuffers>=24.0"]
+# Optional H.264 frame decoding for the Axis-camera demo
+# (examples/axis_video_frame.py). PyAV is heavy because it wraps FFmpeg;
+# Pillow handles the PNG write step. Both are unused outside the demo
+# and only loaded with `try: import` — installing the library without
+# this extra works fine and the demo just skips PNG generation.
+av = ["av>=15.0.0", "pillow>=11.0.0"]
 dev = [
-    "flake8>=7.2.0",
-    "pytest>=8.3.5",
-    "sphinx>=7.4.7",
-    "sphinx-rtd-theme>=2.0.0",
-    "mkdocs-material>=9.5.0",
-    "mkdocstrings[python]>=0.26.0",
+    "flake8>=7.3.0",
+    # pytest 9.x is the validated target. The suite uses no APIs that
+    # PytestRemovedIn9Warning would convert to errors.
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "interrogate>=1.7.0",
+    # Sphinx + Furo is the canonical docs toolchain. Furo is the modern
+    # dark-mode-first theme used by Black, attrs, Pip, etc. Sphinx 9.x
+    # and myst-parser 5.x are the validated combo; sphinxcontrib-mermaid
+    # 2.x corresponds to that Sphinx generation.
+    "sphinx>=9.0.0",
+    "furo>=2025.12.19",
+    "myst-parser>=5.0.0",
+    "sphinxcontrib-mermaid>=2.0.0",
+    "sphinx-copybutton>=0.5.2",
+    # Pygments is transitive via sphinx; explicit floor pins the patched version
+    # to resolve the Dependabot alert flagging older versions.
+    "Pygments>=2.20.0",
 ]
-tinydb = ["tinydb>=4.8.0,<5.0.0"]
+tinydb = ["tinydb>=4.8.2,<5.0.0"]
 
 [tool.setuptools]
 packages = {find = { where = ["src/"]}}
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "network: test requires a live OSH server or external network endpoint (skipped by default in CI; see workflow `tests.yaml`).",
+]
+
+# Coverage is opt-in (run with `pytest --cov`) so the default `pytest` run stays fast.
+# `--cov` with no argument picks up the source paths configured below.
+
+[tool.coverage.run]
+source = ["src/oshconnect"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@(abc\\.)?abstractmethod",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+# Docstring presence (not style). Run with `uv run interrogate -v src/oshconnect`.
+[tool.interrogate]
+ignore-init-method = true       # constructors covered by class docstring
+ignore-init-module = true       # don't require docstrings on bare __init__.py
+ignore-magic = true             # skip dunder methods (__repr__, __eq__, etc.)
+ignore-private = true           # skip _name and __name (non-dunder) members
+ignore-property-decorators = true
+ignore-nested-functions = true
+ignore-setters = true
+fail-under = 0                  # report-only for now; raise once a baseline is set
+exclude = ["tests", "docs", "build", ".venv", "scripts"]
+verbose = 2                     # 0=summary, 1=per-file, 2=per-symbol

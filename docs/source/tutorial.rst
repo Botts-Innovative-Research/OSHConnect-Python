@@ -27,6 +27,79 @@ All public classes and utilities can be imported directly from ``oshconnect``:
    from oshconnect import ObservationFormat, DefaultEventTypes
 
 
+Prerequisites
+-------------
+OSHConnect-Python is a *client*. It talks to a running **OpenSensorHub (OSH)
+node** (or any OGC API – Connected Systems server) — it does not start or host
+one for you. Before using this library you need:
+
+- **A running OSH node** with the **Connected Systems API** service enabled.
+  This is what exposes the HTTP endpoints (Parts 1, 2, and 3) that discovery
+  and resource creation use.
+- **For real-time streaming:** the **Connected Systems API – MQTT** service
+  module enabled on that node, with an MQTT broker reachable (OSH's default
+  broker port is ``1883``). Streaming over NATS instead requires the
+  Connected Systems API – NATS service and a reachable NATS server (default
+  port ``4222``).
+- **Credentials** for the node, if it has security enabled (OSHConnect uses
+  HTTP Basic Auth).
+
+Installing, configuring, and enabling those services on an OSH node is outside
+the scope of this library. See the official
+`OpenSensorHub documentation <https://docs.opensensorhub.org/>`_ — in
+particular the node setup guides and the
+`OSHConnect getting-started guide
+<https://docs.opensensorhub.org/docs/osh-connect/getting-started/usage>`_.
+
+What you need from your OSH node
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+To point OSHConnect-Python at your node, gather the following from its
+configuration and pass them to ``Node`` (see *Adding a Node* below):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 22 54
+
+   * - What to find on the node
+     - ``Node`` parameter
+     - Notes
+   * - Protocol
+     - ``protocol``
+     - ``'http'`` or ``'https'``.
+   * - Host / IP
+     - ``address``
+     - Hostname or IP serving the node, e.g. ``'localhost'``.
+   * - HTTP port
+     - ``port``
+     - The port the Connected Systems API is served on (e.g. ``8181``).
+   * - Servlet root
+     - ``server_root``
+     - Context path; OSH default ``'sensorhub'``. The CS API base URL is
+       ``{protocol}://{address}:{port}/{server_root}/{api_root}/``.
+   * - API root
+     - ``api_root``
+     - CS API path segment; default ``'api'``.
+   * - Username / password
+     - ``username`` / ``password``
+     - Only if the node enforces authentication.
+   * - MQTT broker port
+     - ``mqtt_port`` (with ``enable_mqtt=True``)
+     - The node's MQTT broker port for real-time streaming; default ``1883``.
+   * - NATS server port / token
+     - ``nats_port`` / ``nats_token`` (with ``enable_nats=True``)
+     - Only for NATS streaming; default port ``4222``.
+
+For example, a node whose Connected Systems API answers at
+``http://localhost:8585/sensorhub/api/`` with an MQTT broker on ``1883``
+maps to:
+
+.. code-block:: python
+
+   node = Node(protocol='http', address='localhost', port=8585,
+               server_root='sensorhub', api_root='api',
+               enable_mqtt=True, mqtt_port=1883)
+
+
 Creating an OSHConnect Instance
 --------------------------------
 The main entry point is the ``OSHConnect`` class:
@@ -61,6 +134,105 @@ To connect a node with MQTT support for streaming:
                enable_mqtt=True, mqtt_port=1883)
    app.add_node(node)
 
+To talk to an **older OSH server** that predates the CS API Part 3 topic
+scheme, enable legacy topics. This reverts MQTT topic construction to the
+pre-Part-3 form — a leading slash and no ``:data`` suffix or format
+subtopic (e.g. ``/api/datastreams/{id}/observations`` instead of
+``api/datastreams/{id}/observations:data/<token>``):
+
+.. code-block:: python
+
+   node = Node(protocol='http', address='localhost', port=8585,
+               username='test', password='test',
+               enable_mqtt=True, mqtt_legacy_topics=True)
+   app.add_node(node)
+
+Legacy mode affects MQTT topics only; NATS subjects are unaffected.
+
+To stream over **NATS.io** instead (the corporate-bus transport, served by
+OSH's ``sensorhub-service-consys-nats`` binding), enable it the same way —
+``enable_nats`` mirrors ``enable_mqtt``:
+
+.. code-block:: python
+
+   node = Node(protocol='http', address='localhost', port=8585,
+               username='test', password='test',
+               enable_nats=True, nats_port=4222)      # or nats_token='...'
+   app.add_node(node)
+
+The two transports are drop-in twins: `Datastream` / `ControlStream` drive
+whichever one the node was configured with (NATS takes precedence if both
+are enabled). The only wire difference is the subject namespace — NATS data
+subjects are dot-delimited and *nested under systems*
+(``api.systems.{sysId}.datastreams.{dsId}.observations:data.<token>``),
+which the client builds for you. Only PROACTIVE-mode plain publish/subscribe
+is supported; the optional flow-control channel and JetStream are out of
+scope.
+
+
+Authentication
+--------------
+OSHConnect speaks **HTTP Basic Auth** to OGC CS API servers. There is no
+bearer-token, OAuth, or API-key flow — the underlying ``requests``
+library carries credentials as a ``(username, password)`` tuple.
+
+For a secured server, pass ``username`` and ``password`` to ``Node``:
+
+.. code-block:: python
+
+   node = Node(protocol='https', address='sensors.example.org', port=443,
+               username='alice', password='s3cret')
+
+Every HTTP call the node makes — discovery, resource creation, schema
+fetches — automatically carries those credentials. Internally, the node
+constructs an ``APIHelper`` that holds the credentials and reads them
+back via ``get_helper_auth()`` on each request. The same credentials
+also flow into the MQTT client when ``enable_mqtt=True`` (and, for NATS,
+into user/password auth when ``enable_nats=True``; pass ``nats_token`` for
+token auth instead).
+
+For an unsecured server (e.g., a local OSH dev instance), simply omit
+``username`` and ``password``:
+
+.. code-block:: python
+
+   node = Node(protocol='http', address='localhost', port=8585)
+
+If the server has been secured but you forget to provide credentials,
+each request will return ``401 Unauthorized`` from the server — no
+exception is raised by the library; inspect the response status.
+
+Lower-level usage (free helpers)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For one-off scripts or when you don't want a full ``Node`` /
+``OSHConnect`` setup, the module-level helpers in
+``oshconnect.api_helpers`` mirror each CS API endpoint and accept an
+optional ``auth`` tuple plus optional ``headers`` dict. Every helper
+returns a ``requests.Response`` object:
+
+.. code-block:: python
+
+   from oshconnect.api_helpers import list_all_systems, create_new_systems
+
+   resp = list_all_systems(
+       'http://sensors.example.org/sensorhub',
+       auth=('alice', 's3cret'),
+   )
+   resp.raise_for_status()
+   systems = resp.json()['items']
+
+   created = create_new_systems(
+       'http://sensors.example.org/sensorhub',
+       request_body={'name': 'Sensor #1', 'uid': 'urn:test:sensor:1'},
+       auth=('alice', 's3cret'),
+       headers={'Content-Type': 'application/sml+json'},
+   )
+   new_id = created.headers['Location'].rsplit('/', 1)[-1]
+
+Omit ``auth`` to call an unsecured endpoint. For application code,
+prefer the ``Node`` / ``APIHelper`` path so credentials are configured
+once at the node boundary instead of threaded through every call site.
+
 
 Discovery
 ---------
@@ -77,6 +249,68 @@ Discover all datastreams across all discovered systems:
 
    app.discover_datastreams()
 
+Each discovered ``Datastream`` arrives with its SWE+JSON record schema
+already cached on ``ds._underlying_resource.record_schema`` — discovery
+makes a follow-up ``GET /datastreams/{id}/schema`` per stream so callers
+that build observations don't need a second round trip.
+
+Discover control streams the same way, per system:
+
+.. code-block:: python
+
+   for system in node.get_systems():
+       control_streams = system.discover_controlstreams()
+       for cs in control_streams:
+           print(cs.get_id(), cs._underlying_resource.input_name)
+
+Discovered control streams arrive with their command schema cached on
+``cs._underlying_resource.command_schema`` (a ``JSONCommandSchema`` —
+OSH normalizes responses to the JSON envelope). Reach the inner SWE
+Common component via ``cs._underlying_resource.command_schema.params_schema``;
+its ``items`` (for ``DataChoice``) or ``fields`` (for ``DataRecord``)
+list the parameters the stream accepts.
+
+
+MQTT Topic Conventions
+----------------------
+OSHConnect speaks the CS API Part 3 pub/sub conventions, including the
+optional **format subtopic** that selects the wire format for each
+Resource Data Topic. A subscription path looks like::
+
+   {mqtt_root}/datastreams/{ds_id}/observations:data/<format-token>
+   {mqtt_root}/controlstreams/{cs_id}/commands:data/<format-token>
+   {mqtt_root}/controlstreams/{cs_id}/status:data/json
+
+The trailing ``<format-token>`` is the hyphen-substituted MIME subtype
+(``+`` is reserved as an MQTT wildcard and is disallowed in Kafka topic
+names, so the server uses ``-`` instead):
+
+============================  ======================
+Content-type                  Topic token
+============================  ======================
+``application/json``          ``json``
+``application/swe+json``      ``swe-json``
+``application/swe+binary``    ``swe-binary``
+``application/swe+csv``       ``swe-csv``
+``application/om+json``       ``om-json``
+``application/sml+json``      ``sml-json``
+============================  ======================
+
+The Python client picks the right token for you. ``Datastream.init_mqtt``
+reads the discovered ``record_schema.obs_format`` (e.g.
+``application/swe+binary`` for video datastreams) and appends
+``/swe-binary`` to the data topic. ``ControlStream.init_mqtt`` does the
+same with ``command_schema.command_format``, and the status topic is
+always suffixed with ``/json`` since status payloads are JSON by
+convention. If you build a topic manually via
+``APIHelper.get_mqtt_topic`` you can pass ``format=...`` explicitly; an
+unknown MIME type raises ``ValueError`` from
+``oshconnect.csapi4py.mqtt.mqtt_topic_format_token`` so the client never
+sends a token the server can't parse.
+
+Older servers that don't recognise the format subtopic still accept the
+bare ``:data`` form — that's what ``init_mqtt`` produces when a
+datastream has no fetched schema (the server's default format applies).
 
 Streaming Observations (MQTT)
 ------------------------------
@@ -175,6 +409,435 @@ Build a schema using SWE Common component classes, then attach it to a system:
 .. note::
 
    A ``TimeSchema`` must be the first field in the ``DataRecordSchema`` when targeting OpenSensorHub.
+
+
+Working with SWE+Binary Datastreams
+-----------------------------------
+Some datastreams ship payloads that don't fit a JSON envelope — H.264 video
+frames, JPEG snapshots, dense fixed-width records. For these the OGC CS API
+defines ``application/swe+binary``: each observation is a packed byte
+sequence whose layout is described by the datastream's ``recordEncoding``
+(a SWE Common ``BinaryEncoding``).
+
+OSHConnect parses these schemas automatically. When you call
+``System.discover_datastreams()``, the SDK picks the schema obsFormat from
+each datastream's advertised ``formats``:
+
+* ``application/swe+json`` if available (parsed as
+  ``SWEDatastreamRecordSchema``)
+* otherwise ``application/swe+binary`` (parsed as
+  ``SWEBinaryDatastreamRecordSchema``)
+
+Decoding observations
+~~~~~~~~~~~~~~~~~~~~~
+
+For an existing binary datastream, ``Datastream.decode_observation(raw)``
+returns a dict keyed by field name. Block members (e.g. an H.264 frame)
+come back as ``bytes`` — the SDK does not demux video codecs.
+
+.. code-block:: python
+
+   # Assume `ds` is a Datastream whose schema is application/swe+binary,
+   # e.g. an Axis camera's `video1` output.
+   raw = bytes(ds._inbound_deque.popleft())   # one MQTT message
+   record = ds.decode_observation(raw)
+   ts = record['time']                        # float — Unix epoch s
+   nal = record['img']                        # bytes — opaque H.264 NAL unit
+
+Publishing binary observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a binary datastream, ``Datastream.insert(...)`` dispatches through
+``SWEBinaryCodec``, so you pass a dict keyed by field name (or a positional
+sequence in declared member order) and the SDK packs it for you:
+
+.. code-block:: python
+
+   # Pan/tilt record (fixed-width: [ts: double][f32][f32][f32])
+   ds.insert({'time': time.time(),
+              'pan': -6.7, 'tilt': 0.0, 'zoomFactor': 1.0})
+
+   # Video frame (variable-size block: [ts: double][size: uint32][N bytes])
+   nal_bytes = grab_h264_nal_unit()           # your codec, opaque to OSHConnect
+   ds.insert({'time': time.time(), 'img': nal_bytes})
+
+You can also bypass the codec entirely by passing pre-encoded ``bytes`` —
+useful when another component has already framed the record:
+
+.. code-block:: python
+
+   from oshconnect.swe_binary import encode_swe_binary_blob
+   pre_framed = encode_swe_binary_blob(nal_bytes)
+   ds.insert(pre_framed)                       # passes through unchanged
+
+Building a binary datastream from scratch
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When registering a new binary datastream against an OSH node, build the
+schema with ``SWEBinaryDatastreamRecordSchema`` and a ``BinaryEncoding``
+whose ``members`` list maps each record field to a wire shape:
+
+.. code-block:: python
+
+   from oshconnect import DataRecordSchema, TimeSchema, QuantitySchema
+   from oshconnect.api_utils import URI, UCUMCode
+   from oshconnect.encoding import (
+       BinaryComponentMember, BinaryEncoding,
+   )
+   from oshconnect.schema_datamodels import SWEBinaryDatastreamRecordSchema
+
+   record = DataRecordSchema(
+       name='ptz', label='PTZ Snapshot',
+       definition='http://example.org/ptz',
+       fields=[
+           TimeSchema(name='time', label='Timestamp',
+                      definition='http://www.opengis.net/def/property/OGC/0/SamplingTime',
+                      uom=URI(href='http://www.opengis.net/def/uom/ISO-8601/0/Gregorian')),
+           QuantitySchema(name='pan', label='Pan',
+                          definition='http://example.org/pan',
+                          uom=UCUMCode(code='deg', label='degrees')),
+       ],
+   )
+   encoding = BinaryEncoding(
+       byte_order='bigEndian', byte_encoding='raw',
+       members=[
+           BinaryComponentMember(
+               ref='/time',
+               data_type='http://www.opengis.net/def/dataType/OGC/0/double'),
+           BinaryComponentMember(
+               ref='/pan',
+               data_type='http://www.opengis.net/def/dataType/OGC/0/float32'),
+       ],
+   )
+   schema = SWEBinaryDatastreamRecordSchema(
+       obs_format='application/swe+binary',
+       record_schema=record,
+       record_encoding=encoding,
+   )
+
+Block payloads (H.264, JPEG, etc.) are declared with
+``BinaryBlockMember``; the ``compression`` attribute is metadata for
+downstream consumers and is **not** acted on by the codec.
+
+
+Working with SWE+Protobuf and SWE+FlatBuffers Datastreams
+---------------------------------------------------------
+``application/swe+proto`` ships observations as Protocol Buffers
+messages encoded against a **per-datastream descriptor**. Each
+DataStream carries a pre-compiled Protobuf schema — a serialized
+``google.protobuf.FileDescriptorSet`` describing one
+``Observation_<dsId>``-shaped message — and every observation is a
+serialized instance of that message. ``application/swe+flatbuffers`` is
+the FlatBuffers analogue.
+
+The per-datastream message has a fixed envelope at fields 1–5
+(``id``, ``datastream_id``, ``foi_id``, ``phenomenon_time``,
+``result_time`` — the two times are ``google.protobuf.Timestamp``)
+followed by the SWE Common record at fields 6+, one flat field per
+component. SWE semantics (definition, label, unit) travel as field
+options inside the descriptor.
+
+Why a separate encoding family from SWE+Binary?
+
+* **SWE+Binary** is a packed wire format for known-shape records (declared
+  per-field by `BinaryEncoding.members`). It's compact and demands no
+  schema-side runtime; it's also rigid — fields must be fixed-width or
+  size-prefixed blocks.
+* **SWE+Protobuf** is a self-describing tag-length-value stream whose
+  layout comes from the delivered descriptor. The receiver registers the
+  ``FileDescriptorSet`` in a ``DescriptorPool`` and builds the message
+  class dynamically — no ``protoc`` and no code-generated bindings.
+
+Install requirements
+~~~~~~~~~~~~~~~~~~~~
+
+Install the optional extra — only the ``protobuf`` runtime is needed
+(the per-datastream message is built dynamically from the descriptor, so
+no generated SWE Common bindings are required):
+
+.. code-block:: bash
+
+   pip install "oshconnect[protobuf]"
+
+The codec imports the ``protobuf`` runtime lazily on first use and
+raises a descriptive ``ImportError`` (including the install hint) if the
+extra is not installed.
+
+Encoding and decoding observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Datastream.insert(...)`` and ``decode_observation(...)`` dispatch on
+the schema's ``obs_format`` exactly as they do for SWE+Binary. The
+schema carries the descriptor; during discovery it is fetched from
+``/datastreams/{id}/schema`` and parsed into a
+`SWEProtobufDatastreamRecordSchema`:
+
+.. code-block:: python
+
+   from oshconnect import SWEProtobufDatastreamRecordSchema, SWEProtobufCodec
+
+   # `fds_bytes` is a serialized google.protobuf.FileDescriptorSet for the
+   # per-datastream observation message (delivered by the OSH node, or
+   # compiled from a .proto with `protoc --include_imports
+   # --descriptor_set_out`).
+   schema = SWEProtobufDatastreamRecordSchema(
+       file_descriptor_set=fds_bytes,
+       message_type="org.example.WeatherObservation",  # optional if the set has one message
+   )
+   ds_resource.record_schema = schema   # attach to a DatastreamResource
+   # Now `Datastream.insert({...})` packs the result record via
+   # SWEProtobufCodec (stamping datastream_id + result_time into the
+   # envelope) and `Datastream.decode_observation(raw)` returns the
+   # result record dict.
+
+``insert`` / ``decode_observation`` operate on the **result record**
+(fields 6+), keyed by field name — the same dict shape the SWE+Binary
+codec uses and what lands in ``ObservationResource.result``. The
+envelope metadata (ids and the two timestamps) is supplied by the
+``Datastream`` on encode and recoverable on decode via
+``SWEProtobufCodec.decode_with_envelope(raw)``.
+
+Supported result-field types: Protobuf scalars (numbers, ``bool``,
+``string``, ``bytes``), ``google.protobuf.Timestamp`` (decoded to an ISO
+8601 string), and **nested records and vectors** — these recurse into
+nested dicts (``{"location": {"lat": …, "lon": …}}``); a vector may be
+given as a sequence on encode and comes back as a dict keyed by
+coordinate name. ``DataArray`` (repeated) fields are not yet supported
+and raise ``NotImplementedError``.
+
+Generating a swe+proto schema (create side)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When *producing* a datastream you usually have the record structure in
+SWE Common already (the ``record_schema`` your SWE+JSON or SWE+Binary
+datastream carries). Translate it into a swe+proto schema — the
+descriptor is generated for you (the inverse of OSH's
+``ProtoSchemaWriter``: envelope fields 1–5 plus the record's components
+mapped to flat result fields 6+):
+
+.. code-block:: python
+
+   from oshconnect import SWEProtobufDatastreamRecordSchema
+
+   # From a SWE Common DataRecord directly...
+   proto_schema = SWEProtobufDatastreamRecordSchema.from_record_schema(
+       record, message_name=f"Observation_{ds_id}")
+
+   # ...or from another datastream schema you already hold (its semantic
+   # record_schema is reused, so SWE+JSON / SWE+CSV / SWE+binary all map
+   # to the same descriptor):
+   proto_schema = SWEProtobufDatastreamRecordSchema.from_other_schema(swe_binary_schema)
+
+Editing the schema as ``.proto`` text
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The generated schema is a binary descriptor, but you can translate it to
+editable ``.proto`` **source text** — inspect it, hand-tweak it (rename
+or add fields, change types, add annotations), then compile it back:
+
+.. code-block:: python
+
+   schema = SWEProtobufDatastreamRecordSchema.from_record_schema(record)
+
+   # Render the carried descriptor as .proto source (no protoc needed).
+   # Works for node-delivered schemas too — it renders whatever descriptor
+   # the schema holds.
+   text = schema.to_proto_source()
+
+   # ... edit `text` as needed ...
+
+   # Recompile the edited source back into a schema (requires protoc on PATH;
+   # the from_record_schema path itself needs no protoc).
+   edited = SWEProtobufDatastreamRecordSchema.from_proto_source(text)
+
+``to_proto_source`` is a faithful rendering of the descriptor (not a
+second generator), so the text and the binary descriptor never drift.
+``from_proto_source`` shells out to ``protoc`` and defaults the message
+type to the first message in the compiled file.
+
+Component → field type mapping: Quantity → ``double``, Count →
+``int32``, Boolean → ``bool``, Time → ``google.protobuf.Timestamp``
+(ISO) or ``double`` (numeric), Text → ``string``. A **Category** maps to
+``string`` when unconstrained, or to a proto **enum** (``Enum_<field>``,
+tokens numbered from 0 — matching OSH's convention) when it carries an
+``AllowedTokens`` constraint; encode accepts the token string and decode
+returns it. The component's OGC ``dataType`` selects the numeric width
+(float32 → ``float``, signedLong → ``int64``, …) when known. **Nested
+records and vectors** become nested message types (``Rec<N>`` /
+``Vec<N>``, inner fields numbered from 1), recursed to arbitrary depth. A
+**DataArray** becomes the node's ``Array<N> { repeated <elt> = 1 }``
+wrapper (the element may be a scalar, record, vector, or constrained
+category), round-tripping as ``{array_name: {element_name: [...]}}``.
+Component names that aren't valid proto identifiers (e.g. SWE NameToken
+hyphens) are sanitized to underscores; enum tokens must already be valid
+identifiers (as the node requires). The remaining composites
+(``DataChoice``, ranges, geometry, matrices) are not yet translatable and
+raise ``NotImplementedError``.
+
+.. note::
+
+   The JSON envelope that delivers the descriptor over the schema
+   endpoint is a contract still being finalized with the OSH node side;
+   OSHConnect currently assumes
+   ``{"obsFormat", "messageType", "fileDescriptorSet": <base64>}``. See
+   ``docs/osh_spec_deviations.md`` (``swe-proto-descriptor-format``).
+
+FlatBuffers status
+~~~~~~~~~~~~~~~~~~
+
+``application/swe+flatbuffers`` is wired through the same machinery
+(`SWEFlatBuffersDatastreamRecordSchema` parses cleanly, the format
+picker advertises the obsFormat, and ``Datastream.insert`` /
+``decode_observation`` route to ``SWEFlatBuffersCodec``), but the codec
+itself raises ``NotImplementedError`` until the FlatBuffers compiler
+adds Python support for vectors of unions. See
+``docs/osh_spec_deviations.md`` (``flatc-python-vector-of-union``).
+
+
+Inserting a New Control Stream
+------------------------------
+A control stream is the input counterpart to a datastream — it accepts
+commands and emits status reports. Build a ``DataRecordSchema``
+describing the command structure, then attach it to a system via
+``System.add_and_insert_control_stream(...)``:
+
+.. code-block:: python
+
+   from oshconnect import DataRecordSchema, BooleanSchema, CountSchema
+
+   command_record = DataRecordSchema(
+       name='counterControl',
+       label='Counter Control',
+       description='Commands to control the counter behavior',
+       fields=[
+           BooleanSchema(name='setCountDown', label='Set Count Down',
+                         definition='http://sensorml.com/ont/swe/property/SetCountDown'),
+           CountSchema(name='setStep', label='Set Step',
+                       definition='http://sensorml.com/ont/swe/property/SetStep'),
+       ],
+   )
+
+   control_stream = new_system.add_and_insert_control_stream(command_record)
+
+The default wire form is ``application/json`` —
+``commandFormat: "application/json"`` with a ``parametersSchema`` block
+(no ``encoding``). It matches what OSH echoes back from
+``GET /controlstreams/{id}/schema?f=json``, which is the form
+``discover_controlstreams`` parses, so cross-node sync round-trips
+without any format conversion. It also sidesteps the SWE+JSON
+``encoding``-omission deviation documented in
+``docs/osh_spec_deviations.md`` §1.
+
+For the spec-canonical SWE+JSON form (``recordSchema`` plus a
+``JSONEncoding`` block), pass ``command_format='application/swe+json'``:
+
+.. code-block:: python
+
+   control_stream = new_system.add_and_insert_control_stream(
+       command_record,
+       command_format='application/swe+json',
+   )
+
+For full control over the resource body — for example, when copying a
+control stream from one node to another and you already have a
+``ControlStreamResource`` in hand — use ``add_insert_controlstream(...)``
+instead. It takes a fully-built resource and POSTs it as-is. Build the
+embedded ``command_schema`` as a ``JSONCommandSchema`` for the
+recommended JSON form:
+
+.. code-block:: python
+
+   from oshconnect.resource_datamodels import ControlStreamResource
+   from oshconnect.schema_datamodels import JSONCommandSchema
+
+   resource = ControlStreamResource(
+       name='Counter Control',
+       input_name='counterControl',
+       command_schema=JSONCommandSchema(
+           command_format='application/json',
+           params_schema=command_record,
+       ),
+   )
+   control_stream = new_system.add_insert_controlstream(resource)
+
+After insert, the returned ``ControlStream`` carries the server-assigned
+ID (``control_stream.get_id()``) and is appended to ``new_system.control_channels``.
+
+
+Sending Commands
+----------------
+A control stream is the input side of a system. Once you have one — either
+freshly inserted or reconstructed from ``System.discover_controlstreams()`` —
+there are two ways to deliver a command:
+
+**Over MQTT (preferred for real-time control).** Initialize the stream's
+MQTT client, then publish to the command topic:
+
+.. code-block:: python
+
+   from oshconnect import StreamableModes
+
+   control_stream.set_connection_mode(StreamableModes.BIDIRECTIONAL)
+   control_stream.initialize()
+   control_stream.start()
+
+   control_stream.publish_command({
+       'params': {'setStep': 5},
+   })
+
+``publish_command(payload)`` is sugar for ``publish(payload, topic='command')``;
+it routes to the CS API Part 3 ``:commands`` topic for this stream
+(``…/controlstreams/{id}/commands``). The payload shape is whatever the
+control stream's command schema accepts — a dict matching the field names
+under ``params``, or a SWE+JSON envelope if the stream uses the SWE form.
+
+**Over HTTP (stateless, one-shot).** POST a command directly to the
+``/controlstreams/{id}/commands`` endpoint via the node's
+``APIHelper``:
+
+.. code-block:: python
+
+   from oshconnect.csapi4py.constants import APIResourceTypes
+   from oshconnect.schema_datamodels import CommandJSON
+
+   command = CommandJSON(params={'setStep': 5})
+   api = node.get_api_helper()
+   resp = api.create_resource(
+       APIResourceTypes.COMMAND,
+       command.to_csapi_dict(),
+       parent_res_id=control_stream.get_id(),
+       req_headers={'Content-Type': 'application/json'},
+   )
+   resp.raise_for_status()
+   command_id = resp.headers['Location'].rsplit('/', 1)[-1]
+
+The server responds with ``201 Created`` and a ``Location`` header pointing
+at the newly-created command resource (``/commands/{id}``); poll its
+``/status`` sub-resource (or subscribe to the MQTT status topic — next
+section) to see whether the system accepted and executed it.
+
+Subscribing to Command Status
+-----------------------------
+Each control stream exposes two MQTT topics: ``/commands:data/<format>``
+(input — the operator publishes here) and ``/status:data/json`` (output —
+the system reports execution results here). See *MQTT topic conventions*
+above for the format-token table. Subscribe to status updates:
+
+.. code-block:: python
+
+   def on_status(client, userdata, msg):
+       print(f"Status on {msg.topic}: {msg.payload}")
+
+   control_stream.subscribe(topic='status', callback=on_status)
+
+Inbound status reports are also pushed onto an internal deque — drain it
+exactly like a datastream's inbound queue:
+
+.. code-block:: python
+
+   while control_stream.get_status_deque_inbound():
+       status = control_stream.get_status_deque_inbound().popleft()
+       print(status)
 
 
 Inserting an Observation

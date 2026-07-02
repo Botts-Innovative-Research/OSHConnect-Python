@@ -33,7 +33,34 @@ from .swe_components import (
     QuantityRangeSchema,
     TimeRangeSchema,
 )
-from .schema_datamodels import SWEDatastreamRecordSchema, JSONDatastreamRecordSchema, JSONCommandSchema
+from .schema_datamodels import (
+    SWEDatastreamRecordSchema,
+    SWEBinaryDatastreamRecordSchema,
+    SWEProtobufDatastreamRecordSchema,
+    SWEFlatBuffersDatastreamRecordSchema,
+    OMJSONDatastreamRecordSchema,
+    SWEJSONCommandSchema,
+    JSONCommandSchema,
+    AnyDatastreamRecordSchema,
+    AnyCommandSchema,
+)
+from .encoding import (
+    Encoding,
+    JSONEncoding,
+    BinaryEncoding,
+    BinaryComponentMember,
+    BinaryBlockMember,
+    ProtobufEncoding,
+    FlatBuffersEncoding,
+)
+from .swe_binary import SWEBinaryCodec
+from .swe_flatbuffers import SWEFlatBuffersCodec
+# swe_protobuf is import-guarded — exposing the codec class re-exports the
+# `_INSTALL_HINT` error so callers learn what to install when invoking it.
+from .swe_protobuf import SWEProtobufCodec
+
+# SensorML structured fields (carried by SystemResource)
+from .sensorml import Term, Characteristics, Capabilities
 
 # Event system
 from .events import EventHandler, IEventListener, CallbackListener, DefaultEventTypes, AtomicEventTypes, Event, EventBuilder
@@ -76,8 +103,29 @@ __all__ = [
     "QuantityRangeSchema",
     "TimeRangeSchema",
     "SWEDatastreamRecordSchema",
-    "JSONDatastreamRecordSchema",
+    "SWEBinaryDatastreamRecordSchema",
+    "SWEProtobufDatastreamRecordSchema",
+    "SWEFlatBuffersDatastreamRecordSchema",
+    "OMJSONDatastreamRecordSchema",
+    "SWEJSONCommandSchema",
     "JSONCommandSchema",
+    "AnyDatastreamRecordSchema",
+    "AnyCommandSchema",
+    # Encodings + binary codecs
+    "Encoding",
+    "JSONEncoding",
+    "BinaryEncoding",
+    "BinaryComponentMember",
+    "BinaryBlockMember",
+    "ProtobufEncoding",
+    "FlatBuffersEncoding",
+    "SWEBinaryCodec",
+    "SWEProtobufCodec",
+    "SWEFlatBuffersCodec",
+    # SensorML structured fields
+    "Term",
+    "Characteristics",
+    "Capabilities",
     # Event system
     "EventHandler",
     "IEventListener",

@@ -164,3 +164,9 @@ cython_debug/
 .python-version
 
 poetry.lock
+
+# Demo-script artifacts (examples/axis_video_frame.py writes here)
+examples/_out/
+
+# Runtime selection state written by examples/axis_video_mqtt_stream.py
+examples/axis_video_config.json
