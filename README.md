@@ -9,21 +9,56 @@ Links:
  * [Architecture Doc](https://docs.google.com/document/d/1pIaeQw0ocU6ApNgqTVRZuSwjJAbhCcmweMq6RiVYEic/edit?usp=sharing)
  * [UML Diagram](https://drive.google.com/file/d/1FVrnYiuAR8ykqfOUa1NuoMyZ1abXzMPw/view?usp=drive_link)
 
-## Pre-releases
+## Installation
 
-Every push to the `dev` branch publishes a `.devN` pre-release wheel to
-[TestPyPI](https://test.pypi.org/project/oshconnect/) once the test suite
-passes. To install the latest:
+OSHConnect is published to [PyPI](https://pypi.org/project/oshconnect/), but
+so far **only as alpha pre-releases** (latest `0.5.1a22`) — there is no stable
+release yet. `pip` and `uv` skip pre-releases by default, so you must opt in:
 
 ```bash
-pip install --index-url https://test.pypi.org/simple/ \
-            --extra-index-url https://pypi.org/simple/ \
-            oshconnect --pre
+pip install "oshconnect==0.5.1a22"               # exact pin auto-allows the alpha
+pip install --pre oshconnect                     # or: latest alpha (note below)
+
+uv add "oshconnect==0.5.1a22"                    # exact pin auto-allows the alpha
+uv add "oshconnect>=0.5.1a0" --prerelease=allow  # or: allow future alphas
 ```
 
-The `--extra-index-url` is needed so transitive deps (pydantic, paho-mqtt,
-…) still resolve from real PyPI. Tagged releases (`v*`) continue to publish
-to real PyPI via `.github/workflows/publish.yml`.
+Prefer the exact pin with `pip`: its `--pre` flag is global, so it also
+allows pre-releases of every dependency (e.g. an alpha `pydantic`), not just
+`oshconnect`.
+
+To track unreleased work, install straight from Git instead (no pre-release
+flag needed):
+
+```bash
+pip install "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+uv add "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+```
+
+Releases are published from `v*` tags via `.github/workflows/publish.yml`.
+
+## Installation extras
+
+The base install is transport-free (HTTP discovery/CRUD + models). Streaming
+and binary encodings are opt-in extras: `mqtt`, `nats`, `streaming` (mqtt +
+nats), `protobuf`, `flatbuffers`, `tinydb`, and `all`.
+
+**Extras combine** — comma-separate them in one bracket (no spaces); they're
+additive. This works from PyPI, from the Git URL, and in a uv project.
+
+```bash
+# From PyPI (pre-release opt-in required, as above):
+pip install --pre "oshconnect[mqtt,protobuf]"
+uv add "oshconnect[mqtt,nats]==0.5.1a22"              # exact pin auto-allows the alpha
+uv add "oshconnect[streaming]>=0.5.1a0" --prerelease=allow
+
+# From Git (unreleased work) — use the "name[extras] @ URL" form:
+pip install "oshconnect[mqtt,protobuf] @ git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git"
+uv add "git+https://github.com/Botts-Innovative-Research/OSHConnect-Python.git" --extra mqtt --extra nats
+```
+
+See the [tutorial's Optional features table](https://botts-innovative-research.github.io/OSHConnect-Python/tutorial.html)
+for the full matrix.
 
 ## Running Tests
 
