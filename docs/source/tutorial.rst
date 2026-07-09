@@ -546,9 +546,9 @@ The default wire form is ``application/json`` —
 (no ``encoding``). It matches what OSH echoes back from
 ``GET /controlstreams/{id}/schema?f=json``, which is the form
 ``discover_controlstreams`` parses, so cross-node sync round-trips
-without any format conversion. It also sidesteps the SWE+JSON
-``encoding``-omission deviation documented in
-``docs/osh_spec_deviations.md`` §1.
+without any format conversion. It also sidesteps a known OSH server
+quirk where the ``encoding`` block is omitted from SWE+JSON
+control-stream schemas.
 
 For the spec-canonical SWE+JSON form (``recordSchema`` plus a
 ``JSONEncoding`` block), pass ``command_format='application/swe+json'``:
@@ -954,19 +954,22 @@ raise ``NotImplementedError``.
    The JSON envelope that delivers the descriptor over the schema
    endpoint is a contract still being finalized with the OSH node side;
    OSHConnect currently assumes
-   ``{"obsFormat", "messageType", "fileDescriptorSet": <base64>}``. See
-   ``docs/osh_spec_deviations.md`` (``swe-proto-descriptor-format``).
+   ``{"obsFormat", "messageType", "fileDescriptorSet": <base64>}``.
 
 FlatBuffers status
 ~~~~~~~~~~~~~~~~~~
 
-``application/swe+flatbuffers`` is wired through the same machinery
-(`SWEFlatBuffersDatastreamRecordSchema` parses cleanly, the format
-picker advertises the obsFormat, and ``Datastream.insert`` /
-``decode_observation`` route to ``SWEFlatBuffersCodec``), but the codec
-itself raises ``NotImplementedError`` until the FlatBuffers compiler
-adds Python support for vectors of unions. See
-``docs/osh_spec_deviations.md`` (``flatc-python-vector-of-union``).
+``application/swe+flatbuffers`` is fully supported and wired through
+the same machinery: `SWEFlatBuffersDatastreamRecordSchema` parses the
+schema, the format picker advertises the obsFormat, and
+``Datastream.insert`` / ``decode_observation`` route to
+``SWEFlatBuffersCodec``. On the wire, OSH encodes each observation as
+a length-prefixed **schemaless FlexBuffers** document (a 4-byte
+big-endian length followed by one FlexBuffers buffer) — not
+schema-compiled FlatBuffers — so decoding needs no generated bindings
+and results come back as plain dicts keyed by the SWE field names.
+The codec requires the optional ``flatbuffers`` extra
+(``pip install "oshconnect[flatbuffers]"``).
 
 
 Saving and Loading Configuration
