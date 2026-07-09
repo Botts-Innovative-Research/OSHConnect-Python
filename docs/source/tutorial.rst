@@ -516,6 +516,30 @@ Build a schema using SWE Common component classes, then attach it to a system:
    A ``TimeSchema`` must be the first field in the ``DataRecordSchema`` when targeting OpenSensorHub.
 
 
+Inserting an Observation
+------------------------
+Once a datastream is registered, send observation data using ``insert_observation_dict()``:
+
+.. code-block:: python
+
+   from oshconnect import TimeInstant
+
+   datastream.insert_observation_dict({
+       'resultTime': TimeInstant.now_as_time_instant().get_iso_time(),
+       'phenomenonTime': TimeInstant.now_as_time_instant().get_iso_time(),
+       'result': {
+           'timestamp': TimeInstant.now_as_time_instant().epoch_time,
+           'distance': 1.0,
+           'label': 'example observation',
+       }
+   })
+
+.. note::
+
+   The keys in ``result`` correspond to the ``name`` fields of each schema component.
+   ``resultTime`` and ``phenomenonTime`` are required by OpenSensorHub.
+
+
 Inserting a New Control Stream
 ------------------------------
 A control stream is the input counterpart to a datastream — it accepts
@@ -660,30 +684,6 @@ exactly like a datastream's inbound queue:
    while control_stream.get_status_deque_inbound():
        status = control_stream.get_status_deque_inbound().popleft()
        print(status)
-
-
-Inserting an Observation
-------------------------
-Once a datastream is registered, send observation data using ``insert_observation_dict()``:
-
-.. code-block:: python
-
-   from oshconnect import TimeInstant
-
-   datastream.insert_observation_dict({
-       'resultTime': TimeInstant.now_as_time_instant().get_iso_time(),
-       'phenomenonTime': TimeInstant.now_as_time_instant().get_iso_time(),
-       'result': {
-           'timestamp': TimeInstant.now_as_time_instant().epoch_time,
-           'distance': 1.0,
-           'label': 'example observation',
-       }
-   })
-
-.. note::
-
-   The keys in ``result`` correspond to the ``name`` fields of each schema component.
-   ``resultTime`` and ``phenomenonTime`` are required by OpenSensorHub.
 
 
 Working with SWE+Binary Datastreams
