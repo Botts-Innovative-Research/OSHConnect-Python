@@ -267,9 +267,19 @@ scope.
 
 Authentication
 --------------
-OSHConnect speaks **HTTP Basic Auth** to OGC CS API servers. There is no
-bearer-token, OAuth, or API-key flow — the underlying ``requests``
-library carries credentials as a ``(username, password)`` tuple.
+OSHConnect currently speaks **HTTP Basic Auth** to OGC CS API servers.
+There is no bearer-token, OAuth, or API-key flow yet — the underlying
+``requests`` library carries credentials as a ``(username, password)``
+tuple.
+
+.. note::
+
+   Work is planned for more secure authentication options — OpenID
+   Connect (OIDC) / OAuth2 bearer-token flows, matching OpenSensorHub's
+   own OAuth security module, and API keys are under consideration.
+   Until those land, always pair Basic Auth with ``protocol='https'``
+   on anything other than a local dev node, since Basic credentials are
+   only base64-encoded, not encrypted.
 
 For a secured server, pass ``username`` and ``password`` to ``Node``:
 
