@@ -22,6 +22,9 @@ Or with ``pip``:
 
 .. code-block:: bash
 
+   pip install "oshconnect==0.5.1a22"   # exact pin auto-allows the pre-release
+   # or, latest alpha — but note pip's --pre is global, so it also allows
+   # pre-releases of every dependency, not just oshconnect:
    pip install --pre oshconnect
 
 To track unreleased work, install straight from Git instead (no pre-release
