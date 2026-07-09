@@ -110,16 +110,6 @@ the dependency string (from PyPI or from Git):
 Using a transport without its extra raises a ``RuntimeError`` naming the
 extra to install.
 
-All public classes and utilities can be imported directly from ``oshconnect``:
-
-.. code-block:: python
-
-   from oshconnect import OSHConnect, Node, System, Datastream, ControlStream
-   from oshconnect import TimePeriod, TimeInstant, TemporalModes
-   from oshconnect import DataRecordSchema, QuantitySchema, TimeSchema, TextSchema
-   from oshconnect import ObservationFormat, DefaultEventTypes
-
-
 Prerequisites
 -------------
 OSHConnect-Python is a *client*. It talks to a running **OpenSensorHub (OSH)
@@ -197,6 +187,16 @@ maps to:
 
 Creating an OSHConnect Instance
 --------------------------------
+All public classes and utilities can be imported directly from
+``oshconnect``:
+
+.. code-block:: python
+
+   from oshconnect import OSHConnect, Node, System, Datastream, ControlStream
+   from oshconnect import TimePeriod, TimeInstant, TemporalModes
+   from oshconnect import DataRecordSchema, QuantitySchema, TimeSchema, TextSchema
+   from oshconnect import ObservationFormat, DefaultEventTypes
+
 The main entry point is the ``OSHConnect`` class:
 
 .. code-block:: python
