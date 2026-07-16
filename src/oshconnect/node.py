@@ -189,8 +189,8 @@ class Node:
     def __init__(self, protocol: str, address: str, port: int, username: str = None, password: str = None,
                  server_root: str = 'sensorhub', api_root: str = 'api', mqtt_topic_root: str = None,
                  session_manager: SessionManager = None, enable_mqtt: bool = False, mqtt_port: int = 1883,
-                 enable_nats: bool = False, nats_port: int = 4222, nats_token: str = None,
-                 mqtt_legacy_topics: bool = False):
+                 enable_nats: bool = False, nats_host: str = None, nats_port: int = 4222,
+                 nats_token: str = None, mqtt_legacy_topics: bool = False):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
@@ -223,7 +223,12 @@ class Node:
 
         if enable_nats:
             self._nats_port = nats_port
-            self._nats_client = NatsCommClient(url=self.address, port=self._nats_port, username=username,
+            # The NATS broker may live on a different host than the HTTP API
+            # (a common split-host deployment). Default to the API host for
+            # backwards compatibility; ``nats_host`` may be a bare hostname or
+            # a full ``nats://host:port`` URL (NatsCommClient handles both).
+            nats_url = nats_host if nats_host is not None else self.address
+            self._nats_client = NatsCommClient(url=nats_url, port=self._nats_port, username=username,
                                                password=password, token=nats_token,
                                                client_id_suffix=uuid.uuid4().hex)
             self._nats_client.connect()

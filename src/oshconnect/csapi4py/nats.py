@@ -246,7 +246,7 @@ class NatsCommClient:
         self.__closing = True
         try:
             if self.__nc is not None:
-                self.__call_sync(self.__close(), timeout=5)
+                self.__call_sync(self.__close(), timeout=self.__connect_timeout + 5)
         except Exception as exc:
             logger.debug('NATS close error (ignored): %s', exc)
         finally:
@@ -255,8 +255,31 @@ class NatsCommClient:
             self.__is_connected = False
 
     async def __close(self):
+        """Tear the connection down without orphaning nats-py's loop tasks.
+
+        Unsubscribing first stops inbound delivery so the subsequent ``drain``
+        has nothing left to flush and returns promptly (a wildcard subscription
+        under load could otherwise outrun a bare ``drain`` and time out). If the
+        bounded drain still fails, ``close`` is forced so nats-py's internal
+        ``_read_loop``/``_ping_interval``/``_flusher`` tasks are cancelled —
+        otherwise stopping our event loop leaves them pending and CPython prints
+        a flurry of "Task was destroyed but it is pending" warnings on teardown.
+        """
         try:
-            await self.__nc.drain()
+            for subject, sub in list(self.__subs.items()):
+                try:
+                    await sub.unsubscribe()
+                except Exception as exc:  # pragma: no cover - best-effort cleanup
+                    logger.debug('NATS unsubscribe error on %s (ignored): %s', subject, exc)
+            self.__subs.clear()
+            try:
+                await asyncio.wait_for(self.__nc.drain(), timeout=5)
+            except Exception as exc:
+                logger.debug('NATS drain failed, forcing close: %s', exc)
+                try:
+                    await self.__nc.close()
+                except Exception:  # pragma: no cover - best-effort cleanup
+                    pass
         finally:
             self.__is_connected = False
 
@@ -265,9 +288,9 @@ class NatsCommClient:
         self.__closing = True
         if self.__nc is not None:
             try:
-                self.__call_sync(self.__nc.drain(), timeout=5)
-            finally:
-                self.__is_connected = False
+                self.__call_sync(self.__close(), timeout=self.__connect_timeout + 5)
+            except Exception as exc:
+                logger.debug('NATS disconnect error (ignored): %s', exc)
 
     # -- pub/sub --------------------------------------------------------------
 
