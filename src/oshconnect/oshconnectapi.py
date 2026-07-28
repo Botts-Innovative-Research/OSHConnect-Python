@@ -19,6 +19,8 @@ from .streamableresource import Node, System, SessionManager, Datastream, Contro
 from .styling import Styling
 from .timemanagement import TemporalModes, TimeManagement, TimePeriod
 
+logger = logging.getLogger(__name__)
+
 
 class OSHConnect:
     _name: str
@@ -54,7 +56,7 @@ class OSHConnect:
         self._datagroups = []
         self._tasks = []
         self._playback_mode = TemporalModes.REAL_TIME
-        logging.info(f"OSHConnect instance {name} created")
+        logger.info(f"OSHConnect instance {name} created")
         self._session_manager = SessionManager()
         self._event_bus = EventHandler()
 
@@ -96,7 +98,7 @@ class OSHConnect:
         )
 
     def save_config(self):
-        logging.info(f"Saving configuration for {self._name}")
+        logger.info(f"Saving configuration for {self._name}")
 
         data = {}
         for node in self._nodes:

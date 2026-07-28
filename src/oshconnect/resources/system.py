@@ -34,6 +34,8 @@ from .base import SchemaFetchWarning, StreamableResource, new_resource_id_from_r
 from .controlstream import ControlStream
 from .datastream import Datastream
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from ..node import Node
 
@@ -195,7 +197,7 @@ class System(StreamableResource[SystemResource]):
                     f"supported schema format (have: {datastream_objs.formats}); "
                     "skipping schema fetch."
                 )
-                logging.warning(msg)
+                logger.warning(msg)
                 warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             else:
                 try:
@@ -211,7 +213,7 @@ class System(StreamableResource[SystemResource]):
                         f"Failed to fetch {obs_format} schema for datastream "
                         f"{datastream_objs.ds_id}: {type(e).__name__}: {e}"
                     )
-                    logging.error(msg, exc_info=True)
+                    logger.error(msg, exc_info=True)
                     warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             datastreams.append(new_ds)
 
@@ -274,7 +276,7 @@ class System(StreamableResource[SystemResource]):
                     f"Failed to fetch command schema for control stream "
                     f"{controlstream_objs.cs_id}: {type(e).__name__}: {e}"
                 )
-                logging.error(msg, exc_info=True)
+                logger.error(msg, exc_info=True)
                 warnings.warn(msg, SchemaFetchWarning, stacklevel=2)
             controlstreams.append(new_cs)
 

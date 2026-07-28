@@ -84,6 +84,13 @@ from .datastores import SQLiteDataStore
 from .csapi4py.constants import ObservationFormat, APIResourceTypes, ContentTypes
 
 __all__ = [
+    # Exceptions
+    "OSHConnectError",
+    "ConfigurationError",
+    "ResourceRequestError",
+    "ResourceInsertError",
+    "MissingLocationHeaderError",
+    "ResourceDiscoveryError",
     # Core resources
     "OSHConnect",
     "Node",
@@ -153,3 +160,21 @@ __all__ = [
     "DataStore",
     "SQLiteDataStore",
 ]
+
+# ---------------------------------------------------------------------------
+# Logging hygiene (kept last so it doesn't push the imports above out of
+# top-of-file position, which flake8 flags as E402).
+#
+# A library must not configure logging for the application embedding it.
+# Attaching a NullHandler to the package logger keeps OSHConnect from
+# implicitly installing a stderr handler on the ROOT logger the first time
+# it warns. Consumers opt in explicitly:
+#
+#     logging.getLogger("oshconnect").setLevel(logging.DEBUG)
+#
+# Every module logs to `oshconnect.<module>` via logging.getLogger(__name__),
+# so that single call controls the whole library and nothing else.
+# ---------------------------------------------------------------------------
+import logging as _logging  # noqa: E402
+
+_logging.getLogger(__name__).addHandler(_logging.NullHandler())

@@ -49,6 +49,8 @@ from ..resource_datamodels import DatastreamResource
 from ..resource_datamodels import SystemResource
 from ..timemanagement import TimePeriod
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from ..node import Node
 
@@ -98,16 +100,19 @@ def new_resource_id_from_response(res, *, resource_type: str,
 
 class SchemaFetchWarning(UserWarning):
     """A datastream/control-stream schema fetch or parse failed during
-    `Node.discover_systems` / `System.discover_datastreams` /
-    `System.discover_controlstreams`.
+    `System.discover_datastreams` / `System.discover_controlstreams`.
+
+    (`Node.discover_systems` is *not* a source: it lists systems and never
+    fetches a schema. The two `System` methods above are the only ones
+    that do.)
 
     Discovery deliberately does not raise on per-resource schema failures —
     one broken schema would otherwise poison the entire listing. The
     matching wrapper is still appended (with `record_schema` / `command_schema`
     left as ``None``), but the original exception is surfaced both here
-    (via ``warnings.warn``) and in the root logger at ERROR level (with a
-    full traceback via ``exc_info=True``). Filter or capture this category
-    if you want to react programmatically.
+    (via ``warnings.warn``) and on the ``oshconnect.resources.system``
+    logger at ERROR level (with a full traceback via ``exc_info=True``).
+    Filter or capture this category if you want to react programmatically.
     """
 
 
@@ -228,7 +233,7 @@ class StreamableResource(Generic[T], ABC):
         tasks. Logs and returns silently if `initialize` hasn't been called.
         """
         if self._status != Status.INITIALIZED.value:
-            logging.warning(f"Streamable resource {self._id} not initialized. Call initialize() first.")
+            logger.warning(f"Streamable resource {self._id} not initialized. Call initialize() first.")
             return
         self._status = Status.STARTING.value
         self._status = Status.STARTED.value
@@ -244,13 +249,13 @@ class StreamableResource(Generic[T], ABC):
 
         try:
             async with session.ws_connect(self.ws_url, auth=self._parent_node.get_basicauth()) as ws:
-                logging.info(f"Streamable resource {self._id} started.")
+                logger.info(f"Streamable resource {self._id} started.")
                 read_task = asyncio.create_task(self._read_from_ws(ws))
                 write_task = asyncio.create_task(self._write_to_ws(ws))
                 await asyncio.gather(read_task, write_task)
         except Exception as e:
-            logging.error(f"Error in streamable resource {self._id}: {e}")
-            logging.error(traceback.format_exc())
+            logger.error(f"Error in streamable resource {self._id}: {e}")
+            logger.error(traceback.format_exc())
 
     def init_mqtt(self):
         """Wire the MQTT subscribe-acknowledged callback if a client exists.
@@ -260,7 +265,7 @@ class StreamableResource(Generic[T], ABC):
         `ControlStream.init_mqtt`).
         """
         if self._mqtt_client is None:
-            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            logger.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return
 
         self._mqtt_client.set_on_subscribe(self._default_on_subscribe)
@@ -268,7 +273,7 @@ class StreamableResource(Generic[T], ABC):
         # self.get_mqtt_topic()
 
     def _default_on_subscribe(self, client, userdata, mid, granted_qos, properties):
-        logging.debug("OSH Subscribed: mid=%s granted_qos=%s", mid, granted_qos)
+        logger.debug("OSH Subscribed: mid=%s granted_qos=%s", mid, granted_qos)
 
     def get_mqtt_topic(self, subresource: APIResourceTypes | None = None, data_topic: bool = True,
                        format: str | None = None):
@@ -474,7 +479,7 @@ class StreamableResource(Generic[T], ABC):
         :return: The event topic string that was subscribed to.
         """
         if self._mqtt_client is None:
-            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            logger.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return ""
         event_topic = self.get_event_topic()
         cb = callback if callback is not None else self._mqtt_sub_callback
@@ -587,29 +592,29 @@ class StreamableResource(Generic[T], ABC):
         :param qos: MQTT QoS level. Default 0.
         """
         if self._mqtt_client is None:
-            logging.warning(f"No MQTT client configured for streamable resource {self._id}.")
+            logger.warning(f"No MQTT client configured for streamable resource {self._id}.")
             return
         self._mqtt_client.subscribe(topic, qos=qos, msg_callback=self._mqtt_sub_callback)
 
     def _publish_mqtt(self, topic, payload):
         if self._mqtt_client is None:
-            logging.warning("No MQTT client configured for streamable resource %s.", self._id)
+            logger.warning("No MQTT client configured for streamable resource %s.", self._id)
             return
-        logging.debug("Publishing to MQTT topic %s", topic)
+        logger.debug("Publishing to MQTT topic %s", topic)
         self._mqtt_client.publish(topic, payload, qos=0)
 
     async def _write_to_mqtt(self):
         while self._status == Status.STARTED.value:
             try:
                 msg = self._outbound_deque.popleft()
-                logging.debug("Publishing outbound message from %s", self._id)
+                logger.debug("Publishing outbound message from %s", self._id)
                 self._publish_mqtt(self._topic, msg)
             except IndexError:
                 await asyncio.sleep(0.05)
             except Exception as e:
-                logging.error("Error in Write To MQTT %s: %s\n%s", self._id, e, traceback.format_exc())
+                logger.error("Error in Write To MQTT %s: %s\n%s", self._id, e, traceback.format_exc())
         if self._status == Status.STOPPED.value:
-            logging.debug("MQTT write task stopping: resource %s stopped", self._id)
+            logger.debug("MQTT write task stopping: resource %s stopped", self._id)
 
     def publish(self, payload, topic: str = None):
         """
@@ -639,7 +644,7 @@ class StreamableResource(Generic[T], ABC):
             self._mqtt_client.subscribe(t, qos=qos, msg_callback=callback)
 
     def _mqtt_sub_callback(self, client, userdata, msg):
-        logging.debug("Received MQTT message on topic %s (%s bytes)", msg.topic, len(msg.payload))
+        logger.debug("Received MQTT message on topic %s (%s bytes)", msg.topic, len(msg.payload))
         # Appends to right of deque
         self._inbound_deque.append(msg.payload)
         self._emit_inbound_event(msg)

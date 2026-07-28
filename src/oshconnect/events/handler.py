@@ -14,6 +14,8 @@ from typing import Callable
 from .core import DefaultEventTypes, Event
 from .listeners import CallbackListener, IEventListener
 
+logger = logging.getLogger(__name__)
+
 
 class EventHandler(object):
     """
@@ -115,7 +117,7 @@ class EventHandler(object):
                     try:
                         listener.handle_events(evt)
                     except Exception as e:
-                        logging.error("Error in event listener %s: %s", listener, e)
+                        logger.error("Error in event listener %s: %s", listener, e)
         finally:
             self.publish_lock = False
             self.commit_changes()

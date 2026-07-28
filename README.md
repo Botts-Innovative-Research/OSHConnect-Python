@@ -97,6 +97,31 @@ CI (`.github/workflows/tests.yaml`) runs the suite with `--cov` on every push
 across Python 3.12 / 3.13 / 3.14 and uploads `coverage.xml` as a workflow
 artifact (downloadable from the run page).
 
+## Logging
+
+OSHConnect logs to the `oshconnect` logger namespace — every module uses
+`logging.getLogger(__name__)`, so records arrive as `oshconnect.node`,
+`oshconnect.resources.system`, `oshconnect.csapi4py.mqtt`, and so on.
+
+The library never configures logging on your behalf: the package logger
+carries a `NullHandler`, so nothing is emitted until you opt in. One call
+controls the whole library without touching the root logger or any other
+package:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)               # your app's choice
+logging.getLogger("oshconnect").setLevel(logging.DEBUG)   # verbose OSHConnect
+logging.getLogger("oshconnect.csapi4py.mqtt").setLevel(logging.WARNING)  # ...but quiet MQTT
+```
+
+Note that discovery additionally raises `SchemaFetchWarning` through the
+`warnings` module when an individual datastream or control-stream schema
+fetch fails. That's deliberate and separate from logging — discovery
+doesn't raise on per-resource schema failures, so the warning is how you
+catch them programmatically (`warnings.catch_warnings`).
+
 ## Documentation Coverage
 
 [`interrogate`](https://interrogate.readthedocs.io/) reports what fraction of
