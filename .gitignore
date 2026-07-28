@@ -161,7 +161,11 @@ cython_debug/
 
 .idea/
 
-.python-version
+# .python-version is intentionally TRACKED — it pins development to 3.14.
+# Without it, uv selects the newest stable interpreter satisfying
+# requires-python (>=3.11), so every contributor would silently move to
+# 3.15 the day it ships. 3.15 is meant to be a non-blocking preview lane
+# in tests.yaml, not the dev environment.
 
 poetry.lock
 
