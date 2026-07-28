@@ -26,6 +26,8 @@ from ..events.builder import EventBuilder
 from ..resource_datamodels import ControlStreamResource
 from .base import StreamableModes, StreamableResource
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from ..node import Node
 
@@ -123,10 +125,10 @@ class ControlStream(StreamableResource[ControlStreamResource]):
                     loop = asyncio.get_running_loop()
                     loop.create_task(self._write_to_mqtt())
                 except RuntimeError:
-                    logging.warning("No running event loop — MQTT write task for %s not started. "
-                                    "Call start() from within an async context.", self._id)
+                    logger.warning("No running event loop — MQTT write task for %s not started. "
+                                   "Call start() from within an async context.", self._id)
                 except Exception as e:
-                    logging.error("Error starting MQTT write task for %s: %s\n%s", self._id, e, traceback.format_exc())
+                    logger.error("Error starting MQTT write task for %s: %s\n%s", self._id, e, traceback.format_exc())
 
     def get_inbound_deque(self) -> deque:
         """Return the deque receiving inbound command payloads."""

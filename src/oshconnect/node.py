@@ -35,6 +35,7 @@ from .csapi4py.constants import APIResourceTypes
 from .csapi4py.default_api_helpers import APIHelper
 from .csapi4py.mqtt import MQTTCommClient
 from .csapi4py.nats import NatsCommClient
+from .exceptions import ResourceDiscoveryError
 from .resource_datamodels import SystemResource
 
 if TYPE_CHECKING:
@@ -196,6 +197,17 @@ class Node:
         self.address = address
         self.server_root = server_root
         self.port = port
+        # Bind every declared dataclass field up front, even when the
+        # corresponding feature is off. The generated `__repr__` reads all
+        # of them unconditionally, so a field left unset made `repr(node)`
+        # raise `AttributeError: 'Node' object has no attribute
+        # '_basic_auth'` (anonymous nodes) or `'_mqtt_client'` /
+        # '_nats_client'` (transport-less nodes) — which then surfaced
+        # anywhere a Node appeared in an error message or a pytest failure
+        # report, burying the real problem under a repr traceback.
+        self._basic_auth = None
+        self._mqtt_client = None
+        self._nats_client = None
         self.is_secure = username is not None and password is not None
         if self.is_secure:
             self.add_basicauth(username, password)
@@ -307,8 +319,14 @@ class Node:
         The new systems are appended to this node's internal list and also
         returned for convenience.
 
-        :return: List of newly-created `System` objects, or ``None`` if
-            the HTTP request failed.
+        :return: List of newly-created `System` objects. An empty list
+            means the server has no systems — a failure raises instead of
+            returning a falsy value, so the two are distinguishable.
+        :raises ResourceDiscoveryError: if the listing request fails.
+            Previously this returned ``None``, which the common
+            ``for s in node.discover_systems() or []:`` idiom silently
+            turned into a zero-iteration loop — an auth failure and an
+            empty server looked identical. See GitHub issue #49.
         """
         # Deferred runtime import: System -> StreamableResource -> Node would
         # otherwise close a cycle when this module is first loaded.
@@ -317,25 +335,28 @@ class Node:
             APIResourceTypes.SYSTEM,
             params={'f': 'application/sml+json'},
         )
-        if result.ok:
-            new_systems = []
-            system_objs = result.json()['items']
-            for system_json in system_objs:
-                system = SystemResource.model_validate(system_json, by_alias=True)
-                # Route through the canonical factory so the parsed
-                # `SystemResource` is bound to the wrapper via
-                # `set_system_resource(...)`. The previous manual
-                # `System(label=..., name=..., urn=..., resource_id=...)`
-                # call dropped the parsed resource on the floor —
-                # any caller reaching for `_underlying_resource`
-                # (deep-copy round-trip, cross-node sync, geometry,
-                # validTime, properties) saw only a thin shell.
-                sys_obj = System.from_resource(system, parent_node=self)
-                self._systems.append(sys_obj)
-                new_systems.append(sys_obj)
-            return new_systems
-        else:
-            return None
+        if not result.ok:
+            raise ResourceDiscoveryError(
+                f'Failed to list systems on {self._api_helper.get_base_url()}: '
+                f'HTTP {result.status_code} — {result.text}',
+                status_code=result.status_code, response_text=result.text,
+                resource_type='system',
+            )
+        new_systems = []
+        for system_json in result.json()['items']:
+            system = SystemResource.model_validate(system_json, by_alias=True)
+            # Route through the canonical factory so the parsed
+            # `SystemResource` is bound to the wrapper via
+            # `set_system_resource(...)`. The previous manual
+            # `System(label=..., name=..., urn=..., resource_id=...)`
+            # call dropped the parsed resource on the floor —
+            # any caller reaching for `_underlying_resource`
+            # (deep-copy round-trip, cross-node sync, geometry,
+            # validTime, properties) saw only a thin shell.
+            sys_obj = System.from_resource(system, parent_node=self)
+            self._systems.append(sys_obj)
+            new_systems.append(sys_obj)
+        return new_systems
 
     def get_api_helper(self) -> APIHelper:
         """Return the `APIHelper` this node uses for HTTP calls."""

@@ -21,6 +21,12 @@ import pytest
 from pydantic import ValidationError
 
 from oshconnect import Node
+from oshconnect.exceptions import (
+    ConfigurationError,
+    MissingLocationHeaderError,
+    ResourceDiscoveryError,
+    ResourceInsertError,
+)
 from oshconnect.resource_datamodels import (
     ControlStreamResource,
     DatastreamResource,
@@ -324,10 +330,22 @@ def test_insert_self_raises_on_failed_post(node, monkeypatch):
 
     # Status code and response body both belong in the message — they are
     # the only diagnostic the caller gets.
-    with pytest.raises(Exception, match=r"HTTP 500"):
+    with pytest.raises(ResourceInsertError, match=r"HTTP 500"):
         sys.insert_self()
-    with pytest.raises(Exception, match=r"disk full"):
+    with pytest.raises(ResourceInsertError, match=r"disk full"):
         sys.insert_self()
+
+    # ...and they're also reachable as structured attributes, so callers
+    # can branch on the status code without parsing the message.
+    try:
+        sys.insert_self()
+    except ResourceInsertError as e:
+        assert e.status_code == 500
+        assert "disk full" in e.response_text
+        assert e.resource_type == "system"
+        assert e.resource_label == "Doomed"
+        # Back-compat: pre-existing `except Exception:` handlers still catch.
+        assert isinstance(e, Exception)
 
 
 def test_add_system_does_not_attach_on_failed_insert(node, monkeypatch):
@@ -339,9 +357,88 @@ def test_add_system_does_not_attach_on_failed_insert(node, monkeypatch):
 
     capture_request(monkeypatch, "post", response=MockResponse(status=500))
 
-    with pytest.raises(Exception, match=r"Failed to insert system"):
+    with pytest.raises(ResourceInsertError, match=r"Failed to create system"):
         node.add_system(sys, insert_resource=True)
     assert sys not in node.systems()
+
+
+def test_repr_of_credential_less_node_does_not_raise():
+    """`Node` is a dataclass whose generated `__repr__` reads every declared
+    field, but `_basic_auth` was only assigned when credentials were passed
+    — so `repr()` on any anonymous node raised AttributeError. That poisoned
+    error messages and pytest failure reports (which repr their fixtures)
+    with a confusing secondary exception."""
+    anon = Node(protocol="http", address="localhost", port=8282)
+    assert anon._basic_auth is None
+    assert "Node" in repr(anon)     # the point: it doesn't raise
+
+    secure = Node(protocol="http", address="localhost", port=8282,
+                  username="u", password="p")
+    assert secure._basic_auth is not None
+    assert "Node" in repr(secure)
+
+
+def test_unregistered_node_raises_instead_of_silent_noop(node):
+    """`add_system_to_node` / `create_and_insert_system` used to guard on
+    `if target_node in self._nodes:` with no else, so an unregistered node
+    made them fall off the end and return None — nothing POSTed, nothing
+    attached, no error. `create_and_insert_system` is documented to return
+    the created system, so callers dereferenced the None far from the
+    mistake. See GitHub issue #43."""
+    from oshconnect import OSHConnect
+
+    osh = OSHConnect(name="unregistered-node-test")
+    sys = System(label="Orphan", urn="urn:test:orphan:1", parent_node=node)
+
+    # `node` was never passed to osh.add_node(...)
+    with pytest.raises(ConfigurationError, match=r"not registered"):
+        osh.add_system_to_node(sys, node, insert_resource=True)
+
+    with pytest.raises(ConfigurationError, match=r"add_node\(\)"):
+        osh.create_and_insert_system(
+            {"label": "Orphan2", "urn": "urn:test:orphan:2"}, node)
+
+
+def test_insert_self_raises_on_2xx_without_location(node, monkeypatch):
+    """A 2xx with no `Location` header used to raise a bare
+    `KeyError: 'Location'`, whose traceback pointed at a dict lookup and
+    gave no hint the POST had actually succeeded. It now raises a typed
+    error saying so. See GitHub issue #44."""
+    sys = System(label="NoLoc", urn="urn:test:noloc:1", parent_node=node)
+
+    # 201 Created, but no Location header (spec-legal; also what some
+    # proxies produce after stripping or rewriting headers).
+    capture_request(monkeypatch, "post", response=MockResponse(status=201))
+
+    with pytest.raises(MissingLocationHeaderError,
+                       match=r"no Location header"):
+        sys.insert_self()
+
+    # It's a ResourceInsertError too, so callers that don't care about the
+    # distinction can catch the broader type.
+    with pytest.raises(ResourceInsertError):
+        sys.insert_self()
+
+
+def test_discover_systems_raises_on_failed_listing(node, monkeypatch):
+    """A failed listing must be distinguishable from an empty server.
+    Previously both were falsy, so `for s in node.discover_systems() or []:`
+    turned a 401 into a silent zero-iteration loop. See GitHub issue #49."""
+    capture_request(monkeypatch, "get", response=MockResponse(
+        payload={"error": "unauthorized"}, status=401))
+
+    with pytest.raises(ResourceDiscoveryError, match=r"HTTP 401") as excinfo:
+        node.discover_systems()
+    assert excinfo.value.status_code == 401
+
+
+def test_discover_systems_returns_empty_list_when_server_has_none(node, monkeypatch):
+    """The other half of #49: a genuinely empty server still returns a
+    plain empty list rather than raising."""
+    capture_request(monkeypatch, "get", response=MockResponse(
+        payload={"items": []}, status=200))
+
+    assert node.discover_systems() == []
 
 
 def test_resource_id_is_none_before_insert(node):

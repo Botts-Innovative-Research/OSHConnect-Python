@@ -21,6 +21,20 @@ Core Application
 
 ---
 
+Exceptions
+----------
+Every error OSHConnect raises deliberately descends from ``OSHConnectError``,
+so callers can catch library failures without also swallowing their own bugs.
+``OSHConnectError`` subclasses the builtin ``Exception``, so existing
+``except Exception:`` handlers keep working.
+
+.. automodule:: oshconnect.exceptions
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+---
+
 Streamable Resources
 --------------------
 These are the primary objects for interacting with systems, datastreams, and control streams on an OSH node.

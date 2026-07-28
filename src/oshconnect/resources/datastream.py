@@ -32,7 +32,9 @@ from ..schema_datamodels import (
 )
 from ..swe_binary import SWEBinaryCodec
 from ..timemanagement import TimeInstant
-from .base import StreamableModes, StreamableResource
+from .base import StreamableModes, StreamableResource, new_resource_id_from_response
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..node import Node
@@ -101,16 +103,19 @@ class Datastream(StreamableResource[DatastreamResource]):
     def insert_observation_dict(self, obs_data: dict):
         """POST an observation dict to ``/datastreams/{id}/observations``.
 
-        :raises Exception: if the server returns a non-OK response.
+        :return: The new observation's server-assigned id.
+        :raises ResourceInsertError: if the server returns a non-OK
+            response. Unlike the previous bare ``Exception``, this carries
+            the status code alongside the body.
+        :raises MissingLocationHeaderError: if the POST succeeded but no
+            ``Location`` header came back.
         """
         res = self._parent_node.get_api_helper().create_resource(APIResourceTypes.OBSERVATION, obs_data,
                                                                  parent_res_id=self._resource_id,
                                                                  req_headers={'Content-Type': 'application/json'})
-        if res.ok:
-            obs_id = res.headers['Location'].split('/')[-1]
-            return obs_id
-        else:
-            raise Exception(f'Failed to insert observation: {res.text}')
+        return new_resource_id_from_response(
+            res, resource_type='observation',
+            resource_label=self._underlying_resource.name)
 
     def start(self):
         """Start the datastream. PULL/BIDIRECTIONAL subscribes to the
@@ -126,10 +131,10 @@ class Datastream(StreamableResource[DatastreamResource]):
                     loop = asyncio.get_running_loop()
                     loop.create_task(self._write_to_mqtt())
                 except RuntimeError:
-                    logging.warning("No running event loop — MQTT write task for %s not started. "
-                                    "Call start() from within an async context.", self._id)
+                    logger.warning("No running event loop — MQTT write task for %s not started. "
+                                   "Call start() from within an async context.", self._id)
                 except Exception as e:
-                    logging.error("Error starting MQTT write task for %s: %s\n%s", self._id, e, traceback.format_exc())
+                    logger.error("Error starting MQTT write task for %s: %s\n%s", self._id, e, traceback.format_exc())
 
     def init_mqtt(self):
         """Set ``self._topic`` to the datastream's observation data topic
