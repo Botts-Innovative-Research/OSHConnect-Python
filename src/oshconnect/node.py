@@ -354,11 +354,19 @@ class Node:
         in-memory only; useful when reconstructing state from a
         datastore or staging a system before a deferred POST.
 
+        A failed POST propagates out of ``insert_self()`` and the system
+        is *not* attached — better a loud failure here than a system that
+        looks attached but has no server-side id, which previously only
+        surfaced later as an ``AttributeError`` from the first child
+        resource call.
+
         :param system: ``System`` object to attach.
         :param insert_resource: Whether to POST the system to the
             server before attaching it locally.
         :return: The same ``System`` (now parented to this node and
             tracked in ``self.systems()``).
+        :raises Exception: if ``insert_resource=True`` and the server
+            rejects the POST.
         """
         if insert_resource:
             system.insert_self()
