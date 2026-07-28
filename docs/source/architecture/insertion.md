@@ -44,6 +44,11 @@ The same pattern applies if you skip the `OSHConnect` convenience and
 build a `System` directly: just call `system.insert_self()` and the wrapper
 handles dump → POST → ID-capture itself.
 
+If the server rejects the POST, `insert_self()` raises with the status
+code and response body rather than returning quietly — otherwise the
+system's `_resource_id` would stay `None` and the failure would only
+resurface much later, from the first child-resource call that needs it.
+
 ## Inserting a Datastream
 
 Similar shape, but the body is wrapped inside a

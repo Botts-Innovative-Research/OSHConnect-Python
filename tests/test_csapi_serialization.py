@@ -322,8 +322,26 @@ def test_insert_self_raises_on_failed_post(node, monkeypatch):
     capture_request(monkeypatch, "post", response=MockResponse(
         payload={"error": "disk full"}, status=500))
 
-    with pytest.raises(Exception, match=r"Failed to insert system"):
+    # Status code and response body both belong in the message — they are
+    # the only diagnostic the caller gets.
+    with pytest.raises(Exception, match=r"HTTP 500"):
         sys.insert_self()
+    with pytest.raises(Exception, match=r"disk full"):
+        sys.insert_self()
+
+
+def test_add_system_does_not_attach_on_failed_insert(node, monkeypatch):
+    """The issue's actual repro: `add_system(insert_resource=True)` against
+    a node that rejects the POST must raise, and must not leave a system
+    with no server-side id sitting in the node's collection. See GitHub
+    issue #42."""
+    sys = System(label="Doomed", urn="urn:test:fail:2", parent_node=node)
+
+    capture_request(monkeypatch, "post", response=MockResponse(status=500))
+
+    with pytest.raises(Exception, match=r"Failed to insert system"):
+        node.add_system(sys, insert_resource=True)
+    assert sys not in node.systems()
 
 
 def test_resource_id_is_none_before_insert(node):
