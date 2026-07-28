@@ -43,6 +43,7 @@ from ..csapi4py.constants import APIResourceTypes
 from ..csapi4py.default_api_helpers import resource_type_to_endpoint
 from ..csapi4py.mqtt import MQTTCommClient, mqtt_topic_format_token
 from ..csapi4py.nats import NatsCommClient
+from ..exceptions import MissingLocationHeaderError, ResourceInsertError
 from ..resource_datamodels import ControlStreamResource
 from ..resource_datamodels import DatastreamResource
 from ..resource_datamodels import SystemResource
@@ -50,6 +51,49 @@ from ..timemanagement import TimePeriod
 
 if TYPE_CHECKING:
     from ..node import Node
+
+
+def new_resource_id_from_response(res, *, resource_type: str,
+                                  resource_label: str = None) -> str:
+    """Extract a server-assigned resource id from a create-POST response.
+
+    Every CS API create call follows the same contract — POST the body,
+    read the new id off the ``Location`` header — and every one of them
+    can fail the same two ways. Centralised here so all five call sites
+    (`System.insert_self`, `System.add_insert_datastream`,
+    `System.add_insert_controlstream`,
+    `System.add_and_insert_control_stream`,
+    `Datastream.insert_observation_dict`) report failures identically.
+
+    :param res: The `requests.Response` from the create request.
+    :param resource_type: Human-readable resource name for the message,
+        e.g. ``'system'`` or ``'observation'``.
+    :param resource_label: The specific resource's caller-facing name,
+        included in the message when available.
+    :return: The new resource's server-assigned id.
+    :raises ResourceInsertError: if the response is not OK.
+    :raises MissingLocationHeaderError: if the response is OK but carries
+        no ``Location`` header, so the id cannot be recovered.
+    """
+    named = f' {resource_label!r}' if resource_label is not None else ''
+    if not res.ok:
+        raise ResourceInsertError(
+            f'Failed to create {resource_type}{named}: '
+            f'HTTP {res.status_code} — {res.text}',
+            status_code=res.status_code, response_text=res.text,
+            resource_type=resource_type, resource_label=resource_label,
+        )
+    location = res.headers.get('Location')
+    if location is None:
+        raise MissingLocationHeaderError(
+            f'Created {resource_type}{named} (HTTP {res.status_code}) but the '
+            f'response carried no Location header, so its server-assigned id '
+            f'cannot be determined. The resource was most likely created — '
+            f're-discover rather than re-POSTing, to avoid a duplicate.',
+            status_code=res.status_code, response_text=res.text,
+            resource_type=resource_type, resource_label=resource_label,
+        )
+    return location.split('/')[-1]
 
 
 class SchemaFetchWarning(UserWarning):

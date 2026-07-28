@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from ..csapi4py.constants import APIResourceTypes, ContentTypes
 from ..encoding import JSONEncoding
+from ..exceptions import ResourceDiscoveryError
 from ..resource_datamodels import ControlStreamResource, DatastreamResource, SystemResource
 from ..schema_datamodels import (
     JSONCommandSchema, SWEBinaryDatastreamRecordSchema,
@@ -29,7 +30,7 @@ from ..schema_datamodels import (
 )
 from ..swe_components import DataRecordSchema
 from ..timemanagement import TimeInstant, TimePeriod, TimeUtils
-from .base import SchemaFetchWarning, StreamableResource
+from .base import SchemaFetchWarning, StreamableResource, new_resource_id_from_response
 from .controlstream import ControlStream
 from .datastream import Datastream
 
@@ -173,6 +174,13 @@ class System(StreamableResource[SystemResource]):
         api = self._parent_node.get_api_helper()
         res = api.get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                APIResourceTypes.DATASTREAM)
+        if not res.ok:
+            raise ResourceDiscoveryError(
+                f'Failed to list datastreams for system {self._resource_id!r}: '
+                f'HTTP {res.status_code} — {res.text}',
+                status_code=res.status_code, response_text=res.text,
+                resource_type='datastream', resource_label=self.label,
+            )
         datastream_json = res.json()['items']
         datastreams = []
 
@@ -238,6 +246,13 @@ class System(StreamableResource[SystemResource]):
         api = self._parent_node.get_api_helper()
         res = api.get_resource(APIResourceTypes.SYSTEM, self._resource_id,
                                APIResourceTypes.CONTROL_CHANNEL)
+        if not res.ok:
+            raise ResourceDiscoveryError(
+                f'Failed to list control streams for system '
+                f'{self._resource_id!r}: HTTP {res.status_code} — {res.text}',
+                status_code=res.status_code, response_text=res.text,
+                resource_type='control stream', resource_label=self.label,
+            )
         controlstream_json = res.json()['items']
         controlstreams = []
 
@@ -394,14 +409,9 @@ class System(StreamableResource[SystemResource]):
                                   req_headers={'Content-Type': ContentTypes.JSON.value},
                                   parent_res_id=self._resource_id)
 
-        if res.ok:
-            datastream_id = res.headers['Location'].split('/')[-1]
-            datastream_schema.ds_id = datastream_id
-        else:
-            raise Exception(
-                f'Failed to create datastream {datastream_schema.name!r}: '
-                f'HTTP {res.status_code} — {res.text}'
-            )
+        datastream_schema.ds_id = new_resource_id_from_response(
+            res, resource_type='datastream',
+            resource_label=datastream_schema.name)
 
         new_ds = Datastream(self._parent_node, datastream_schema)
         new_ds.set_parent_resource_id(self._underlying_resource.system_id)
@@ -442,14 +452,9 @@ class System(StreamableResource[SystemResource]):
             parent_res_id=self._resource_id,
         )
 
-        if res.ok:
-            cs_id = res.headers['Location'].split('/')[-1]
-            controlstream_resource.cs_id = cs_id
-        else:
-            raise Exception(
-                f'Failed to create control stream {controlstream_resource.name!r}: '
-                f'HTTP {res.status_code} — {res.text}'
-            )
+        controlstream_resource.cs_id = new_resource_id_from_response(
+            res, resource_type='control stream',
+            resource_label=controlstream_resource.name)
 
         new_cs = ControlStream(node=self._parent_node, controlstream_resource=controlstream_resource)
         new_cs.set_parent_resource_id(self._underlying_resource.system_id)
@@ -526,14 +531,9 @@ class System(StreamableResource[SystemResource]):
                                   control_stream_resource.model_dump_json(by_alias=True, exclude_none=True),
                                   req_headers={'Content-Type': 'application/json'}, parent_res_id=self._resource_id)
 
-        if res.ok:
-            control_channel_id = res.headers['Location'].split('/')[-1]
-            control_stream_resource.cs_id = control_channel_id
-        else:
-            raise Exception(
-                f'Failed to create control stream {control_stream_resource.name!r}: '
-                f'HTTP {res.status_code} — {res.text}'
-            )
+        control_stream_resource.cs_id = new_resource_id_from_response(
+            res, resource_type='control stream',
+            resource_label=control_stream_resource.name)
 
         new_cs = ControlStream(node=self._parent_node, controlstream_resource=control_stream_resource)
         new_cs.set_parent_resource_id(self._underlying_resource.system_id)
@@ -564,17 +564,11 @@ class System(StreamableResource[SystemResource]):
             body_resource.model_dump_json(by_alias=True, exclude_none=True),
             req_headers={'Content-Type': 'application/sml+json'})
 
-        if res.ok:
-            location = res.headers['Location']
-            sys_id = location.split('/')[-1]
-            self._resource_id = sys_id
-            if self._underlying_resource is not None:
-                self._underlying_resource.system_id = sys_id
-        else:
-            raise Exception(
-                f'Failed to insert system {self.label!r} ({self.urn!r}): '
-                f'HTTP {res.status_code} — {res.text}'
-            )
+        sys_id = new_resource_id_from_response(
+            res, resource_type='system', resource_label=self.label)
+        self._resource_id = sys_id
+        if self._underlying_resource is not None:
+            self._underlying_resource.system_id = sys_id
 
     def retrieve_resource(self):
         """GET ``/systems/{id}`` and refresh the underlying `SystemResource`.

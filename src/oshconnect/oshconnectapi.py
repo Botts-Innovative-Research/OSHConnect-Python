@@ -13,6 +13,7 @@ from .events import EventHandler, DefaultEventTypes, CallbackListener
 from .events.builder import EventBuilder
 from .csapi4py.default_api_helpers import APIHelper
 from .datastore import DataStore
+from .exceptions import ConfigurationError
 from .resource_datamodels import DatastreamResource
 from .streamableresource import Node, System, SessionManager, Datastream, ControlStream
 from .styling import Styling
@@ -252,16 +253,40 @@ class OSHConnect:
     #     """
     #     return self._datasource_handler.get_messages()
 
+    def _require_registered_node(self, target_node: Node) -> None:
+        """Guard: the target node must be registered with this instance.
+
+        These methods previously guarded on ``if target_node in
+        self._nodes:`` with no ``else``, so an unregistered node made them
+        fall off the end and return ``None`` — no POST attempted, no
+        exception, no log line. Callers of `create_and_insert_system` got
+        ``None`` back from a method documented to return the created
+        system, and only found out later when that ``None`` was
+        dereferenced. See GitHub issue #43.
+
+        :raises ConfigurationError: if the node isn't registered.
+        """
+        if target_node not in self._nodes:
+            # Identify the node by its address rather than `!r` — a full
+            # Node repr drags in the API helper, session, and system list,
+            # which buries the actual message.
+            raise ConfigurationError(
+                f"Node {target_node.get_address()} is not registered with this "
+                f"OSHConnect instance; call add_node() before adding systems "
+                f"to it."
+            )
+
     def _insert_system(self, system: System, target_node: Node):
         """
         Create a system on the target node.
         :param system: System object
         :param target_node: Node object, must be within the OSHConnect instance
         :return: the created system
+        :raises ConfigurationError: if ``target_node`` isn't registered.
         """
-        if target_node in self._nodes:
-            self.add_system_to_node(system, target_node, insert_resource=True)
-            return system
+        self._require_registered_node(target_node)
+        self.add_system_to_node(system, target_node, insert_resource=True)
+        return system
 
     def add_datastream(self, datastream: DatastreamResource, system: str | System) -> str:
         """
@@ -300,12 +325,12 @@ class OSHConnect:
         :param system: System object
         :param target_node: Node object,  must be within the OSHConnect instance
         :param insert_resource: Whether to insert the system into the target node's server, default is False
-        :return:
+        :return: None.
+        :raises ConfigurationError: if ``target_node`` isn't registered with this instance.
         """
-        if target_node in self._nodes:
-            target_node.add_system(system, insert_resource=insert_resource)
-            self._systems.append(system)
-            return
+        self._require_registered_node(target_node)
+        target_node.add_system(system, insert_resource=insert_resource)
+        self._systems.append(system)
 
     def create_and_insert_system(self, system_opts: dict, target_node: Node):
         """
@@ -313,11 +338,12 @@ class OSHConnect:
         :param system_opts: System object parameters
         :param target_node: Node object, must be within the OSHConnect instance
         :return: the created system
+        :raises ConfigurationError: if ``target_node`` isn't registered with this instance. Previously this returned ``None``, which callers then dereferenced far from the actual mistake.
         """
-        if target_node in self._nodes:
-            new_system = System(**system_opts)
-            self.add_system_to_node(new_system, target_node, insert_resource=True)
-            return new_system
+        self._require_registered_node(target_node)
+        new_system = System(**system_opts)
+        self.add_system_to_node(new_system, target_node, insert_resource=True)
+        return new_system
 
     def remove_system(self, system_id: str):
         pass

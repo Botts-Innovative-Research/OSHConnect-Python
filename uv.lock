@@ -570,7 +570,7 @@ wheels = [
 
 [[package]]
 name = "oshconnect"
-version = "0.5.3a1"
+version = "0.5.5a0"
 source = { virtual = "." }
 dependencies = [
     { name = "pydantic" },

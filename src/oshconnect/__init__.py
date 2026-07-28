@@ -5,6 +5,17 @@
 #   Contact Email:  ian@botts-inc.com
 #   ==============================================================================
 
+# Exceptions — every deliberate failure descends from OSHConnectError,
+# which subclasses Exception so existing `except Exception:` still works.
+from .exceptions import (
+    OSHConnectError,
+    ConfigurationError,
+    ResourceRequestError,
+    ResourceInsertError,
+    MissingLocationHeaderError,
+    ResourceDiscoveryError,
+)
+
 # Core resources
 from .oshconnectapi import OSHConnect
 from .streamableresource import Node, System, Datastream, ControlStream, StreamableModes, Status
