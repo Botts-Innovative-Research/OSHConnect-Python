@@ -34,8 +34,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.12", "3.13", "3.14" ]
-    name: pytest (Python ${{ matrix.python-version }})
+        # Supported range: 3.11 (floor, see requires-python in pyproject.toml)
+        # through 3.14 (the development version, see .python-version).
+        python-version: [ "3.11", "3.12", "3.13", "3.14" ]
+        experimental: [ false ]
+        include:
+          # Forward-looking lane for the next release (3.15, due 2026-10-01).
+          # Non-blocking on purpose: as of 3.15.0a8 this fails during
+          # *dependency installation*, not during our tests — shapely has no
+          # 3.15 wheels yet, so uv falls back to a source build that needs
+          # numpy headers. That is an upstream packaging gap, NOT an
+          # OSHConnect incompatibility. Expect this leg to go green on its
+          # own once shapely ships 3.15 wheels; if it fails for any other
+          # reason, that IS worth investigating.
+          - python-version: "3.15"
+            experimental: true
+    name: pytest (Python ${{ matrix.python-version }}${{ matrix.experimental && ' — experimental, non-blocking' || '' }})
+    # Only the experimental leg is allowed to fail without failing the run.
+    continue-on-error: ${{ matrix.experimental }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -85,12 +101,12 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install Python 3.13
-        run: uv python install 3.13
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
       - name: Install package with NO extras
         run: |
-          uv venv --python 3.13
+          uv venv --python 3.14
           uv pip install .
 
       - name: Import smoke test (no extras)
@@ -138,8 +154,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install Python 3.13
-        run: uv python install 3.13
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --all-extras
@@ -186,8 +202,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install Python 3.13
-        run: uv python install 3.13
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
       # Append `.dev<run_number>` to the version in pyproject.toml so each
       # dev push gets a fresh PEP 440-compliant pre-release (e.g.
