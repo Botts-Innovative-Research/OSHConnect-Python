@@ -94,8 +94,13 @@ coverage is on, source is scoped to `src/oshconnect`, and obvious dead lines
 (`if TYPE_CHECKING:`, `raise NotImplementedError`, etc.) are excluded.
 
 CI (`.github/workflows/tests.yaml`) runs the suite with `--cov` on every push
-across Python 3.12 / 3.13 / 3.14 and uploads `coverage.xml` as a workflow
-artifact (downloadable from the run page).
+across Python 3.11 / 3.12 / 3.13 / 3.14 and uploads `coverage.xml` as a workflow
+artifact (downloadable from the run page). A further non-blocking lane runs
+against the 3.15 pre-release as an early-warning signal; it is allowed to fail
+and does not gate merges.
+
+Development happens on Python 3.14 (pinned in `.python-version`); 3.11 is the
+supported floor.
 
 ## Logging
 

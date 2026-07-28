@@ -6,7 +6,14 @@ readme = "README.md"
 authors = [
     { name = "Ian Patterson", email = "ian.patterson@georobotix.us" },
 ]
-requires-python = "<4.0,>=3.12"
+# Floor is 3.11, not 3.10: `datetime.fromisoformat` only accepts arbitrary
+# ISO 8601 fractional-second precision from 3.11 on. 3.10 rejects the
+# 5-digit form OSH emits (`…T17:12:58.51182Z`) with "Invalid isoformat
+# string", failing tests/test_resource_datamodels.py::test_control_stream_resource.
+# Dropping to 3.10 is possible but needs a parsing shim in timemanagement.py —
+# don't lower this without adding one. Development happens on 3.14 (see
+# .python-version); the full matrix is in .github/workflows/tests.yaml.
+requires-python = "<4.0,>=3.11"
 # Core stays transport-free: HTTP discovery/CRUD and the pydantic model layer
 # only. Streaming transports are opt-in extras ([mqtt], [nats], [streaming])
 # so minimal installs stay small — see [project.optional-dependencies].
