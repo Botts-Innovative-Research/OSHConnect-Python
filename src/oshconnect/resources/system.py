@@ -549,6 +549,12 @@ class System(StreamableResource[SystemResource]):
         the body before POST so a re-POSTed (e.g. cross-node-synced)
         system doesn't leak the source server's identifier or links to
         the destination — the destination assigns its own.
+
+        :raises Exception: if the server returns a non-OK response. The
+            failure is raised here rather than swallowed — otherwise
+            ``_resource_id`` stays ``None`` and the error resurfaces much
+            later (and much less legibly) from the first child-resource
+            call that needs the system's id.
         """
         body_resource = self.to_system_resource().model_copy(deep=True)
         body_resource.system_id = None
@@ -564,6 +570,11 @@ class System(StreamableResource[SystemResource]):
             self._resource_id = sys_id
             if self._underlying_resource is not None:
                 self._underlying_resource.system_id = sys_id
+        else:
+            raise Exception(
+                f'Failed to insert system {self.label!r} ({self.urn!r}): '
+                f'HTTP {res.status_code} — {res.text}'
+            )
 
     def retrieve_resource(self):
         """GET ``/systems/{id}`` and refresh the underlying `SystemResource`.

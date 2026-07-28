@@ -107,7 +107,7 @@ class StreamableResource(Generic[T], ABC):
     :param connection_mode: One of `StreamableModes`. Default ``PUSH``.
     """
     _id: UUID
-    _resource_id: str
+    _resource_id: str | None
     # _canonical_link: str
     _topic: str
     _status: str = Status.STOPPED.value
@@ -135,6 +135,11 @@ class StreamableResource(Generic[T], ABC):
         self._outbound_deque = deque()
         self._subscribe_topic = None
         self._parent_resource_id = None
+        # Always present, even before the resource exists server-side, so
+        # pre-insert access is a clean `is None` check rather than an
+        # AttributeError far from the failed POST that caused it.
+        # Subclasses overwrite this when they know the server-assigned id.
+        self._resource_id = None
 
     def get_streamable_id(self) -> UUID:
         """Return the local UUID assigned at construction (not the server-side ID)."""

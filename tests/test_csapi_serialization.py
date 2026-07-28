@@ -311,6 +311,59 @@ def test_insert_self_strips_id_and_links_from_body(node, monkeypatch):
     assert sys._resource_id == "dest-id-xyz"
 
 
+def test_insert_self_raises_on_failed_post(node, monkeypatch):
+    """A rejected POST must raise with the status code and body, not be
+    swallowed. Previously `insert_self()` returned normally on a non-ok
+    response, leaving `_resource_id` unset — the failure only surfaced
+    later as an AttributeError from `add_insert_datastream()`. See
+    GitHub issue #42."""
+    sys = System(label="Doomed", urn="urn:test:fail:1", parent_node=node)
+
+    capture_request(monkeypatch, "post", response=MockResponse(
+        payload={"error": "disk full"}, status=500))
+
+    # Status code and response body both belong in the message — they are
+    # the only diagnostic the caller gets.
+    with pytest.raises(Exception, match=r"HTTP 500"):
+        sys.insert_self()
+    with pytest.raises(Exception, match=r"disk full"):
+        sys.insert_self()
+
+
+def test_add_system_does_not_attach_on_failed_insert(node, monkeypatch):
+    """The issue's actual repro: `add_system(insert_resource=True)` against
+    a node that rejects the POST must raise, and must not leave a system
+    with no server-side id sitting in the node's collection. See GitHub
+    issue #42."""
+    sys = System(label="Doomed", urn="urn:test:fail:2", parent_node=node)
+
+    capture_request(monkeypatch, "post", response=MockResponse(status=500))
+
+    with pytest.raises(Exception, match=r"Failed to insert system"):
+        node.add_system(sys, insert_resource=True)
+    assert sys not in node.systems()
+
+
+def test_resource_id_is_none_before_insert(node):
+    """`_resource_id` exists (as None) on every wrapper from construction,
+    so pre-insert access is a clean None check rather than an
+    AttributeError. Guards the `from_resource`-without-id path too, which
+    never passed a `resource_id` kwarg. See GitHub issue #42."""
+    sys = System(label="Uninserted", urn="urn:test:noid:1", parent_node=node)
+    assert sys._resource_id is None
+
+    res = SystemResource.from_smljson_dict({
+        "type": "PhysicalSystem",
+        "uniqueId": "urn:test:noid:2",
+        "label": "No Server Id",
+    })
+    from_res = System.from_resource(res, node)
+    assert from_res._resource_id is None
+    # retrieve_resource() already guards on `is None`; without the base
+    # init it would AttributeError before reaching that check.
+    assert from_res.retrieve_resource() is None
+
+
 # ===========================================================================
 # Datastream: resource representation, schema document, observations
 # ===========================================================================
