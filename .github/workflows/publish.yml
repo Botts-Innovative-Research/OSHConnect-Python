@@ -24,7 +24,10 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: [ "3.12", "3.13", "3.14" ]
+        # Mirrors the blocking legs of tests.yaml. Deliberately excludes the
+        # experimental 3.15 lane — a release gate must not depend on a leg
+        # that is allowed to fail.
+        python-version: [ "3.11", "3.12", "3.13", "3.14" ]
     name: pytest (Python ${{ matrix.python-version }})
     steps:
       - name: Checkout
@@ -56,8 +59,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install Python 3.13
-        run: uv python install 3.13
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --all-extras
@@ -80,8 +83,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install Python 3.13
-        run: uv python install 3.13
+      - name: Install Python 3.14
+        run: uv python install 3.14
 
       - name: Build
         run: uv build

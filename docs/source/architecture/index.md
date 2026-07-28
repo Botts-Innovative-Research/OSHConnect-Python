@@ -103,7 +103,7 @@ For the inverse direction (creating resources server-side), see
 
 - **pydantic** — all resource and schema models. Bumping the minimum requires
   confirming pre-built wheels exist for all supported Python versions
-  (3.12 – 3.14).
+  (3.11 – 3.14).
 - **shapely** — geometry handling for spatial resources.
 - **paho-mqtt** — MQTT streaming for CS API Part 3.
 - **websockets** / **aiohttp** — WebSocket and async HTTP streaming.
