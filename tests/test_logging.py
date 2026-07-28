@@ -93,20 +93,27 @@ def test_consumer_can_silence_oshconnect_without_touching_root(caplog):
 
     original_level = pkg_logger.level
     try:
+        # Assert on effective level rather than captured records: caplog
+        # installs its own handler and manipulates levels, so a "no records
+        # captured" assertion would also pass if the call simply never ran.
+        # `isEnabledFor` fails only for the reason this test is about.
         pkg_logger.setLevel(logging.CRITICAL)
-        # `caplog.set_level` would override the very thing under test, so
-        # attach at the root and assert on propagation instead.
-        with caplog.at_level(logging.DEBUG, logger="oshconnect"):
-            pass
-        pkg_logger.setLevel(logging.CRITICAL)
-        caplog.clear()
-        child.warning("should be suppressed by the package-level setLevel")
-        assert not [r for r in caplog.records if r.name.startswith("oshconnect")]
+        assert child.isEnabledFor(logging.WARNING) is False, (
+            "setting the package logger to CRITICAL must suppress a child "
+            "module's warnings — that's the whole point of the namespace"
+        )
 
         pkg_logger.setLevel(logging.DEBUG)
+        assert child.isEnabledFor(logging.DEBUG) is True
+
+        # And the level genuinely comes from the `oshconnect` parent, not
+        # from the root logger — the leak this replaced.
+        assert child.level == logging.NOTSET
+        assert child.getEffectiveLevel() == logging.DEBUG
+
         caplog.clear()
         with caplog.at_level(logging.DEBUG):
-            child.warning("should now be visible")
+            child.warning("visible once the package logger allows it")
         assert any(r.name == "oshconnect.resources.base"
                    for r in caplog.records)
     finally:
