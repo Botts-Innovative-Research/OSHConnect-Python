@@ -1,6 +1,6 @@
 [project]
 name = "oshconnect"
-version = "0.5.5a1"
+version = "0.5.5a2"
 description = "Library for interfacing with OSH, helping guide visualization efforts, and providing a place to store configurations. Implements OGC CS API Part 3 (Pub/Sub) MQTT topic conventions including :data topics and resource event topics."
 readme = "README.md"
 authors = [
@@ -24,7 +24,10 @@ dependencies = [
     # release rather than the original advisory baseline, so new installs
     # don't drift back to a vulnerable version.
     "requests>=2.33.1",
-    "urllib3>=2.7.0",         # transitive via requests; explicit floor pins the patched version
+    # Transitive via requests; explicit floors pin the patched versions.
+    "urllib3>=2.8.0",
+    "certifi>=2026.10.18",
+    "idna>=3.15",
 ]
 [project.optional-dependencies]
 # Streaming transports (CS API Part 3 Pub/Sub). The client classes import
@@ -56,7 +59,7 @@ flatbuffers = ["flatbuffers>=24.0"]
 # Pillow handles the PNG write step. Both are unused outside the demo
 # and only loaded with `try: import` — installing the library without
 # this extra works fine and the demo just skips PNG generation.
-av = ["av>=15.0.0", "pillow>=11.0.0"]
+av = ["av>=15.0.0", "pillow>=13.0.0"]
 dev = [
     "flake8>=7.3.0",
     # pytest 9.x is the validated target. The suite uses no APIs that
@@ -69,7 +72,10 @@ dev = [
     # and myst-parser 5.x are the validated combo; sphinxcontrib-mermaid
     # 2.x corresponds to that Sphinx generation.
     "sphinx>=9.0.0",
-    "furo>=2025.12.19",
+    # Furo pulls beautifulsoup4 -> soupsieve, and every patched soupsieve
+    # (>=3.0.2) needs Python >=3.11.5. The marker keeps the vulnerable 2.x
+    # line out of the lock; build the docs on 3.11.5 or later.
+    "furo>=2025.12.19; python_full_version >= '3.11.5'",
     "myst-parser>=5.0.0",
     "sphinxcontrib-mermaid>=2.0.0",
     "sphinx-copybutton>=0.5.2",
