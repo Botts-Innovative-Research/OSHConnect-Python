@@ -1,19 +1,26 @@
 """
 Tests verifying that each resource type produces the correct MQTT topic strings
-per the CS API Part 3 pub/sub conventions.
+for each topic scheme.
 
-Topic format (Resource Data Topic):
-  /{api_root}/{resource_type}/{resource_id}/{subresource_type}:data
+``part3`` (default), CS API Part 3 nested under the system path:
+  {root}/systems/{sysId}/datastreams/{dsId}/observations:data[/{format}]
+  {root}/systems/{sysId}/controlstreams/{csId}/commands:data[/{format}]
+  {root}/systems/{sysId}/controlstreams/{csId}/commands/{cmdId}/status:data
+  {root}/systems/{sysId}/datastreams/{dsId}                (Resource Event)
 
-Event topic format (Resource Event Topic):
-  /{api_root}/{resource_type}/{resource_id}
-  /{api_root}/{parent_type}/{parent_id}/{resource_type}/{resource_id}  (with parent)
+``part3-flat``, the same without the system path:
+  {root}/datastreams/{dsId}/observations:data[/{format}]
+
+``legacy``, pre-Part-3:
+  /{root}/datastreams/{dsId}/observations
 """
 import pytest
 from unittest.mock import MagicMock
 
+from oshconnect import ConfigurationError, Datastream, Node, System
 from oshconnect.csapi4py.constants import APIResourceTypes
 from oshconnect.csapi4py.default_api_helpers import APIHelper
+from oshconnect.resource_datamodels import DatastreamResource
 from tests import helpers
 
 DS_ID = "ds_test_001"
@@ -22,8 +29,16 @@ SYS_ID = "sys_test_001"
 PARENT_SYS_ID = "sys_parent_001"
 
 
-def make_mock_node(api_root="api", mqtt_topic_root=None, legacy_topics=False):
-    """Returns a mock Node backed by a real APIHelper so topic construction is exercised."""
+def make_mock_node(api_root="api", mqtt_topic_root=None, legacy_topics=False,
+                   topic_scheme="part3-flat"):
+    """Returns a mock Node backed by a real APIHelper so topic construction is exercised.
+
+    Defaults to the ``part3-flat`` scheme: the classes below pin the topics
+    that scheme (and ``legacy``) must keep producing. The default ``part3``
+    scheme is covered by ``TestPart3NestedTopics``.
+    """
+    if legacy_topics:
+        topic_scheme = None
     api_helper = APIHelper(
         server_url="localhost",
         port=8282,
@@ -32,6 +47,7 @@ def make_mock_node(api_root="api", mqtt_topic_root=None, legacy_topics=False):
         api_root=api_root,
         mqtt_topic_root=mqtt_topic_root,
         legacy_topics=legacy_topics,
+        topic_scheme=topic_scheme,
     )
     node = MagicMock()
     node.get_api_helper.return_value = api_helper
@@ -325,7 +341,29 @@ class TestDataTopicFormatSubtopic:
     def test_unknown_format_raises_value_error(self):
         from oshconnect.csapi4py.mqtt import mqtt_topic_format_token
         with pytest.raises(ValueError, match="No MQTT topic-format token"):
-            mqtt_topic_format_token("application/swe+protobuf")
+            mqtt_topic_format_token("text/csv")
+
+    @pytest.mark.parametrize("content_type,token", [
+        ("application/geo+json", "geo-json"),
+        ("application/sml+xml", "sml-xml"),
+        ("application/swe+xml", "swe-xml"),
+        # custom formats follow the Part 3 normalization rule
+        ("application/x-custom+json", "x-custom-json"),
+        ("application/X-Custom+JSON; version=2", "x-custom-json"),
+        ("application/swe+protobuf", "swe-protobuf"),
+        ("application/vnd.acme.thing+json", "vnd.acme.thing-json"),
+    ])
+    def test_format_token_follows_part3_rule(self, content_type, token):
+        from oshconnect.csapi4py.mqtt import mqtt_topic_format_token
+        assert mqtt_topic_format_token(content_type) == token
+
+    @pytest.mark.parametrize("content_type", [
+        "text/csv", "image/png", "", None, "application/a#b",
+    ])
+    def test_format_without_a_valid_token_raises(self, content_type):
+        from oshconnect.csapi4py.mqtt import mqtt_topic_format_token
+        with pytest.raises(ValueError, match="No MQTT topic-format token"):
+            mqtt_topic_format_token(content_type)
 
     def test_get_mqtt_topic_omits_format_when_none(self):
         """``format=None`` (default) emits bare ``:data`` so the server's
@@ -351,7 +389,7 @@ class TestDataTopicFormatSubtopic:
         )
         assert topic == f"api/datastreams/{DS_ID}/observations:data/swe-binary"
 
-    def test_get_mqtt_topic_raises_for_unknown_format(self):
+    def test_get_mqtt_topic_raises_for_format_without_token(self):
         helper = make_mock_node().get_api_helper()
         with pytest.raises(ValueError, match="No MQTT topic-format token"):
             helper.get_mqtt_topic(
@@ -359,7 +397,7 @@ class TestDataTopicFormatSubtopic:
                 subresource_type=APIResourceTypes.OBSERVATION,
                 resource_id=DS_ID,
                 data_topic=True,
-                format="application/swe+protobuf",
+                format="text/csv",
             )
 
     def test_get_mqtt_topic_ignores_format_on_event_topic(self):
@@ -507,14 +545,14 @@ class TestLegacyTopics:
         assert cs._topic == f"/api/controlstreams/{CS_ID}/commands"
         assert cs._status_topic == f"/api/controlstreams/{CS_ID}/status"
 
-    def test_legacy_off_by_default(self):
+    def test_flat_scheme_is_not_legacy(self):
         ds = make_datastream(make_mock_node())
         topic = ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, data_topic=True)
         assert topic == f"api/datastreams/{DS_ID}/observations:data"
 
     def test_per_call_legacy_override(self):
-        """Callers can force legacy per-call even when the helper defaults to Part 3."""
-        node = make_mock_node()  # legacy_topics=False
+        """Callers can force legacy per-call whatever the helper's scheme."""
+        node = make_mock_node()  # part3-flat
         helper = node.get_api_helper()
         topic = helper.get_mqtt_topic(
             resource_type=APIResourceTypes.DATASTREAM,
@@ -522,3 +560,288 @@ class TestLegacyTopics:
             resource_id=DS_ID, data_topic=True, legacy=True,
         )
         assert topic == f"/api/datastreams/{DS_ID}/observations"
+
+
+# ---------------------------------------------------------------------------
+# Default ``part3`` scheme: topics nested under the system path.
+#
+# The expected strings are the ones the server accepts or rejects in
+# osh-addons ``sensorhub-service-csapi-mqtt`` (``TestTopicMapper``), so a
+# mismatch here means the client and the server disagree.
+# ---------------------------------------------------------------------------
+
+def part3_node(mqtt_topic_root="node1"):
+    return make_mock_node(mqtt_topic_root=mqtt_topic_root, topic_scheme="part3")
+
+
+def part3_datastream(system_id="134", node=None):
+    ds = helpers.make_datastream(node or part3_node(), ds_id="12")
+    if system_id is not None:
+        ds.set_parent_resource_id(system_id)
+    return ds
+
+
+def part3_controlstream(system_id="134", node=None):
+    cs = helpers.make_controlstream(node or part3_node(), cs_id="3")
+    if system_id is not None:
+        cs.set_parent_resource_id(system_id)
+    return cs
+
+
+class TestTopicScheme:
+    def test_default_scheme_is_part3(self):
+        assert APIHelper().get_topic_scheme() == "part3"
+
+    def test_node_default_scheme_is_part3(self):
+        node = Node(protocol="http", address="localhost", port=8282)
+        assert node.get_api_helper().get_topic_scheme() == "part3"
+
+    def test_legacy_flag_selects_legacy_scheme(self):
+        node = Node(protocol="http", address="localhost", port=8282, mqtt_legacy_topics=True)
+        assert node.get_api_helper().get_topic_scheme() == "legacy"
+
+    @pytest.mark.parametrize("scheme", ["part3", "part3-flat", "legacy"])
+    def test_node_accepts_each_scheme(self, scheme):
+        node = Node(protocol="http", address="localhost", port=8282, mqtt_topic_scheme=scheme)
+        assert node.get_api_helper().get_topic_scheme() == scheme
+
+    def test_unknown_scheme_raises(self):
+        with pytest.raises(ConfigurationError, match="Unknown MQTT topic scheme"):
+            Node(protocol="http", address="localhost", port=8282, mqtt_topic_scheme="flat")
+
+    def test_legacy_flag_conflicting_with_scheme_raises(self):
+        with pytest.raises(ConfigurationError, match="conflicts"):
+            Node(protocol="http", address="localhost", port=8282,
+                 mqtt_legacy_topics=True, mqtt_topic_scheme="part3")
+
+    def test_legacy_flag_with_legacy_scheme_is_allowed(self):
+        node = Node(protocol="http", address="localhost", port=8282,
+                    mqtt_legacy_topics=True, mqtt_topic_scheme="legacy")
+        assert node.get_api_helper().get_topic_scheme() == "legacy"
+
+    @pytest.mark.parametrize("scheme", ["part3", "part3-flat", "legacy"])
+    def test_scheme_survives_storage_round_trip(self, scheme):
+        node = Node(protocol="http", address="localhost", port=8282, mqtt_topic_scheme=scheme)
+        stored = node.to_storage_dict()
+        assert stored["mqtt_topic_scheme"] == scheme
+        assert Node.from_storage_dict(stored).get_api_helper().get_topic_scheme() == scheme
+
+    def test_config_without_scheme_loads_as_part3(self):
+        stored = Node(protocol="http", address="localhost", port=8282).to_storage_dict()
+        del stored["mqtt_topic_scheme"]
+        assert Node.from_storage_dict(stored).get_api_helper().get_topic_scheme() == "part3"
+
+
+class TestPart3NestedTopics:
+    def test_observation_data_topic(self):
+        ds = part3_datastream()
+        assert (ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+                == "node1/systems/134/datastreams/12/observations:data")
+
+    def test_observation_data_topic_with_format(self):
+        ds = part3_datastream()
+        assert (ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION, format="application/swe+csv")
+                == "node1/systems/134/datastreams/12/observations:data/swe-csv")
+
+    def test_datastream_parent_from_system_id_field(self):
+        """A datastream read from the server carries ``system@id``."""
+        res = DatastreamResource.model_validate({
+            "id": "12", "name": "d", "system@id": "134",
+            "validTime": ["2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"]})
+        ds = Datastream(parent_node=part3_node(), datastream_resource=res)
+        assert (ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+                == "node1/systems/134/datastreams/12/observations:data")
+
+    def test_datastream_system_id_field_wins_over_parent_id(self):
+        res = DatastreamResource.model_validate({
+            "id": "12", "name": "d", "system@id": "134",
+            "validTime": ["2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"]})
+        ds = Datastream(parent_node=part3_node(), datastream_resource=res)
+        ds.set_parent_resource_id("other")
+        assert (ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+                == "node1/systems/134/datastreams/12/observations:data")
+
+        # data and event topics resolve the system the same way
+        assert ds.get_event_topic() == "node1/systems/134/datastreams/12"
+
+    def test_command_data_topic(self):
+        cs = part3_controlstream()
+        assert (cs.get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
+                == "node1/systems/134/controlstreams/3/commands:data")
+
+    def test_command_status_topic_is_per_command(self):
+        cs = part3_controlstream()
+        assert (cs.get_mqtt_status_topic("99")
+                == "node1/systems/134/controlstreams/3/commands/99/status:data")
+
+    def test_subsystem_path(self):
+        helper = part3_node().get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.DATASTREAM, subresource_type=APIResourceTypes.OBSERVATION,
+            resource_id="12", system_path=["134", "7", "8"])
+        assert topic == "node1/systems/134/subsystems/7/subsystems/8/datastreams/12/observations:data"
+
+    def test_subsystem_path_for_command_status(self):
+        helper = part3_node().get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.CONTROL_CHANNEL, subresource_type=APIResourceTypes.STATUS,
+            resource_id="3", subresource_id="99", system_path=["134", "7"])
+        assert topic == "node1/systems/134/subsystems/7/controlstreams/3/commands/99/status:data"
+
+    def test_system_path_accepts_a_single_id(self):
+        helper = part3_node().get_api_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.DATASTREAM, subresource_type=APIResourceTypes.OBSERVATION,
+            resource_id="2", system_path="1", format="application/swe+json")
+        assert topic == "node1/systems/1/datastreams/2/observations:data/swe-json"
+
+    def test_system_collection_topics(self):
+        sysres = helpers.make_system(part3_node(), resource_id="134")
+        assert sysres.get_mqtt_topic() == "node1/systems:data"
+        assert (sysres.get_mqtt_topic(subresource=APIResourceTypes.DATASTREAM)
+                == "node1/systems/134/datastreams:data")
+        assert (sysres.get_mqtt_topic(subresource=APIResourceTypes.CONTROL_CHANNEL)
+                == "node1/systems/134/controlstreams:data")
+
+    def test_event_topics(self):
+        assert part3_datastream().get_event_topic() == "node1/systems/134/datastreams/12"
+        assert part3_controlstream().get_event_topic() == "node1/systems/134/controlstreams/3"
+        assert helpers.make_system(part3_node(), resource_id="134").get_event_topic() == "node1/systems/134"
+
+    def test_default_root_is_api(self):
+        ds = part3_datastream(node=part3_node(mqtt_topic_root=None))
+        assert (ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+                == "api/systems/134/datastreams/12/observations:data")
+
+    # -- forms the server rejects are never built ---------------------------
+
+    def test_datastream_without_parent_raises(self):
+        """The server rejects ``node1/datastreams/2/observations:data``."""
+        ds = part3_datastream(system_id=None)
+        with pytest.raises(ValueError, match="parent system id"):
+            ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+
+    def test_controlstream_without_parent_raises(self):
+        cs = part3_controlstream(system_id=None)
+        with pytest.raises(ValueError, match="parent system id"):
+            cs.get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
+
+    def test_event_topic_without_parent_raises(self):
+        """The server rejects ``node1/datastreams/2``."""
+        with pytest.raises(ValueError, match="parent system id"):
+            part3_datastream(system_id=None).get_event_topic()
+        with pytest.raises(ValueError, match="parent system id"):
+            part3_controlstream(system_id=None).get_event_topic()
+
+    def test_status_topic_without_command_id_raises(self):
+        with pytest.raises(ValueError, match="per command"):
+            part3_controlstream().get_mqtt_status_topic()
+
+    def test_unknown_format_raises(self):
+        with pytest.raises(ValueError, match="No MQTT topic-format token"):
+            part3_datastream().get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION,
+                                              format="text/csv")
+
+    def test_custom_format_subtopic(self):
+        ds = part3_datastream()
+        assert (ds.get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION,
+                                  format="application/x-custom+json")
+                == "node1/systems/134/datastreams/12/observations:data/x-custom-json")
+
+    def test_command_format_subtopic(self):
+        cs = part3_controlstream()
+        assert (cs.get_mqtt_topic(subresource=APIResourceTypes.COMMAND, format="application/swe+json")
+                == "node1/systems/134/controlstreams/3/commands:data/swe-json")
+
+    def test_init_mqtt_without_parent_raises_when_a_client_exists(self):
+        node = part3_node()
+        node.get_mqtt_client.return_value = MagicMock()
+        with pytest.raises(ValueError, match="parent system id"):
+            part3_datastream(system_id=None, node=node).init_mqtt()
+        with pytest.raises(ValueError, match="parent system id"):
+            part3_controlstream(system_id=None, node=node).init_mqtt()
+
+    def test_init_mqtt_without_parent_or_client_does_not_raise(self):
+        """HTTP-only use: no pub/sub client, so the topics are never needed."""
+        ds = part3_datastream(system_id=None)
+        ds.init_mqtt()
+        assert ds._topic is None and ds._subscribe_topic is None
+        cs = part3_controlstream(system_id=None)
+        cs.init_mqtt()
+        assert cs._topic is None and cs._status_topic is None
+
+    def test_constructing_without_parent_does_not_raise(self):
+        """The parent id may be set after construction; only topic building needs it."""
+        cs = part3_controlstream(system_id=None)
+        assert cs._status_topic is None
+
+
+class TestPart3ResourceWiring:
+    def test_datastream_init_mqtt_sets_nested_topics(self):
+        ds = part3_datastream()
+        ds.init_mqtt()
+        assert ds._topic == "node1/systems/134/datastreams/12/observations:data"
+        assert ds._subscribe_topic == "node1/systems/134/datastreams/12/observations:data"
+
+    def test_controlstream_init_mqtt_sets_command_topic_only(self):
+        cs = part3_controlstream()
+        cs.init_mqtt()
+        assert cs._topic == "node1/systems/134/controlstreams/3/commands:data"
+        assert cs._subscribe_topic == "node1/systems/134/controlstreams/3/commands:data"
+        assert cs._status_topic is None
+        assert cs._status_subscribe_topic is None
+
+    def test_publish_command_uses_nested_topic(self):
+        node = part3_node()
+        client = MagicMock()
+        node.get_mqtt_client.return_value = client
+        cs = part3_controlstream(node=node)
+        cs.init_mqtt()
+        cs.publish_command("payload")
+        client.publish.assert_called_once_with(
+            "node1/systems/134/controlstreams/3/commands:data", "payload", qos=0)
+
+    def test_publish_status_raises_and_sends_nothing(self):
+        node = part3_node()
+        client = MagicMock()
+        node.get_mqtt_client.return_value = client
+        cs = part3_controlstream(node=node)
+        cs.init_mqtt()
+        with pytest.raises(ValueError, match="subscribe-only"):
+            cs.publish_status("payload")
+        client.publish.assert_not_called()
+
+    def test_subscribe_status_needs_command_id(self):
+        node = part3_node()
+        client = MagicMock()
+        node.get_mqtt_client.return_value = client
+        cs = part3_controlstream(node=node)
+        cs.init_mqtt()
+        with pytest.raises(ValueError, match="per command"):
+            cs.subscribe(topic=APIResourceTypes.STATUS.value)
+        client.subscribe.assert_not_called()
+
+    def test_subscribe_status_with_command_id(self):
+        node = part3_node()
+        client = MagicMock()
+        node.get_mqtt_client.return_value = client
+        cs = part3_controlstream(node=node)
+        cs.init_mqtt()
+        cs.subscribe(topic=APIResourceTypes.STATUS.value, command_id="99")
+        assert (client.subscribe.call_args.args[0]
+                == "node1/systems/134/controlstreams/3/commands/99/status:data")
+
+    def test_reloaded_streams_get_the_parent_system_id(self):
+        """Configs saved before the parent id was recorded still build nested topics."""
+        node = part3_node()
+        system = helpers.make_system(node, resource_id="134")
+        system.datastreams = [part3_datastream(system_id=None, node=node)]
+        system.control_channels = [part3_controlstream(system_id=None, node=node)]
+        stored = system.to_storage_dict()
+        assert stored["datastreams"][0]["parent_resource_id"] is None
+
+        reloaded = System.from_storage_dict(stored, node)
+        assert (reloaded.datastreams[0].get_mqtt_topic(subresource=APIResourceTypes.OBSERVATION)
+                == "node1/systems/134/datastreams/12/observations:data")
+        assert (reloaded.control_channels[0].get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
+                == "node1/systems/134/controlstreams/3/commands:data")

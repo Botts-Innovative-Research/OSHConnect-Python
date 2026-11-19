@@ -273,7 +273,7 @@ class TestResourceURLResolver:
 
 class TestGetMQTTTopic:
     def test_data_topic_for_datastream_observations(self):
-        helper = _make_helper()
+        helper = _make_helper(topic_scheme="part3-flat")
         topic = helper.get_mqtt_topic(
             resource_type=APIResourceTypes.DATASTREAM,
             subresource_type=APIResourceTypes.OBSERVATION,
@@ -281,6 +281,17 @@ class TestGetMQTTTopic:
             data_topic=True,
         )
         assert topic == "api/datastreams/ds-1/observations:data"
+
+    def test_data_topic_is_nested_under_the_system_by_default(self):
+        helper = _make_helper()
+        topic = helper.get_mqtt_topic(
+            resource_type=APIResourceTypes.DATASTREAM,
+            subresource_type=APIResourceTypes.OBSERVATION,
+            resource_id="ds-1",
+            data_topic=True,
+            system_path="sys-1",
+        )
+        assert topic == "api/systems/sys-1/datastreams/ds-1/observations:data"
 
     def test_event_topic_omits_data_suffix(self):
         helper = _make_helper()
@@ -293,7 +304,7 @@ class TestGetMQTTTopic:
         assert topic == "api/systems/sys-1/datastreams"
 
     def test_topic_uses_mqtt_topic_root_when_set(self):
-        helper = _make_helper(mqtt_topic_root="osh/mqtt")
+        helper = _make_helper(mqtt_topic_root="osh/mqtt", topic_scheme="part3-flat")
         topic = helper.get_mqtt_topic(
             resource_type=APIResourceTypes.DATASTREAM,
             subresource_type=APIResourceTypes.OBSERVATION,
@@ -303,7 +314,7 @@ class TestGetMQTTTopic:
         assert topic.startswith("osh/mqtt/")
 
     def test_topic_with_subresource_id_appends_after_data_suffix(self):
-        helper = _make_helper()
+        helper = _make_helper(topic_scheme="part3-flat")
         topic = helper.get_mqtt_topic(
             resource_type=APIResourceTypes.DATASTREAM,
             subresource_type=APIResourceTypes.OBSERVATION,

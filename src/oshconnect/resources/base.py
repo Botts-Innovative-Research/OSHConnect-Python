@@ -41,7 +41,7 @@ from uuid import UUID, uuid4
 
 from ..csapi4py.constants import APIResourceTypes
 from ..csapi4py.default_api_helpers import resource_type_to_endpoint
-from ..csapi4py.mqtt import MQTTCommClient, mqtt_topic_format_token
+from ..csapi4py.mqtt import MQTTCommClient, TOPIC_SCHEME_PART3, mqtt_topic_format_token
 from ..csapi4py.nats import NatsCommClient
 from ..exceptions import MissingLocationHeaderError, ResourceInsertError
 from ..resource_datamodels import ControlStreamResource
@@ -270,13 +270,42 @@ class StreamableResource(Generic[T], ABC):
 
         self._mqtt_client.set_on_subscribe(self._default_on_subscribe)
 
-        # self.get_mqtt_topic()
+    def _topic_unavailable_without_client(self, error: ValueError) -> bool:
+        """Decide what a failed topic build means during ``init_mqtt``.
+
+        Without a pub/sub client the topics are never used, so a resource
+        whose parent system is unknown must still initialize (HTTP-only use).
+        Returns True in that case; re-raises ``error`` when a client exists.
+        """
+        if self._mqtt_client is not None:
+            raise error
+        logger.debug("Topics not built for %s (no pub/sub client): %s", self._id, error)
+        return True
 
     def _default_on_subscribe(self, client, userdata, mid, granted_qos, properties):
         logger.debug("OSH Subscribed: mid=%s granted_qos=%s", mid, granted_qos)
 
+    def _system_path(self) -> list[str] | None:
+        """Ids of the systems that own this datastream or control stream,
+        top-level system first. ``None`` when the parent system is unknown.
+
+        Only one level is tracked today, so a stream of a subsystem needs the
+        full path passed to ``APIHelper.get_mqtt_topic`` directly.
+        """
+        sys_id = None
+        if isinstance(self._underlying_resource, DatastreamResource):
+            # The server's own ``system@id`` wins, as in get_nats_subject.
+            sys_id = getattr(self._underlying_resource, "system_id", None)
+        sys_id = sys_id or self._parent_resource_id
+        return [sys_id] if sys_id else None
+
+    def _uses_part3_mqtt_topics(self) -> bool:
+        """True when topics are built with the nested ``"part3"`` MQTT scheme."""
+        return (not self.uses_nats()
+                and self._parent_node.get_api_helper().get_topic_scheme() == TOPIC_SCHEME_PART3)
+
     def get_mqtt_topic(self, subresource: APIResourceTypes | None = None, data_topic: bool = True,
-                       format: str | None = None):
+                       format: str | None = None, command_id: str | None = None):
         """
         Retrieves the MQTT topic for this streamable resource based on its underlying resource type. By default,
         returns a Resource Data Topic (`:data` suffix per CS API Part 3).
@@ -285,10 +314,16 @@ class StreamableResource(Generic[T], ABC):
         Resource Event Topics.
         :param format: Optional MIME content-type for the ``:data/<token>`` format subtopic. ``None`` (default) emits
         bare ``:data`` so the server's default format applies. Ignored when ``data_topic=False``.
+        :param command_id: Command id for a control stream's status topic. Required by the ``"part3"`` scheme,
+        where status is per command (``…/commands/{cmdId}/status:data``); ignored otherwise.
+        :raises ValueError: in the ``"part3"`` scheme, if the parent system id of a datastream or control stream
+        is unknown, or ``command_id`` is missing for a status topic.
         """
         resource_type = None
         parent_res_type = None
         parent_id = None
+        subresource_id = None
+        api_helper = self._parent_node.get_api_helper()
 
         if isinstance(self._underlying_resource, ControlStreamResource):
             parent_res_type = APIResourceTypes.CONTROL_CHANNEL
@@ -299,6 +334,8 @@ class StreamableResource(Generic[T], ABC):
                     resource_type = APIResourceTypes.COMMAND
                 case APIResourceTypes.STATUS:
                     resource_type = APIResourceTypes.STATUS
+                    if api_helper.get_topic_scheme() == TOPIC_SCHEME_PART3:
+                        subresource_id = command_id
 
         elif isinstance(self._underlying_resource, DatastreamResource):
             parent_res_type = APIResourceTypes.DATASTREAM
@@ -322,17 +359,17 @@ class StreamableResource(Generic[T], ABC):
                 case _:
                     raise ValueError(f"Unsupported subresource type {subresource} for SystemResource.")
 
-        topic = self._parent_node.get_api_helper().get_mqtt_topic(subresource_type=resource_type, resource_id=parent_id,
-                                                                  resource_type=parent_res_type, data_topic=data_topic,
-                                                                  format=format)
+        topic = api_helper.get_mqtt_topic(subresource_type=resource_type, resource_id=parent_id,
+                                          resource_type=parent_res_type, data_topic=data_topic,
+                                          format=format, subresource_id=subresource_id,
+                                          system_path=self._system_path())
         return topic
 
     def uses_nats(self) -> bool:
         """True when this resource's active transport is NATS.
 
-        Drives the flat-vs-nested topic choice: NATS data subjects nest under
-        ``systems`` (and need the parent system id) where the MQTT topics are
-        flat. See `get_nats_subject`.
+        NATS subjects are built by `get_nats_subject`; the MQTT topic scheme
+        setting does not apply to them.
         """
         return isinstance(self._mqtt_client, NatsCommClient)
 
@@ -340,8 +377,8 @@ class StreamableResource(Generic[T], ABC):
                          format: str | None = None) -> str:
         """Return the data topic/subject for the *active* transport.
 
-        Dispatches to `get_nats_subject` (nested-under-systems, dot-delimited)
-        when NATS is active, else `get_mqtt_topic` (flat, slash-delimited).
+        Dispatches to `get_nats_subject` (dot-delimited) when NATS is active,
+        else `get_mqtt_topic` (slash-delimited, per the node's topic scheme).
         Subclasses call this from ``init_mqtt`` so they stay transport-agnostic.
         """
         if self.uses_nats():
@@ -368,7 +405,7 @@ class StreamableResource(Generic[T], ABC):
                          format: str | None = None, format_wildcard: bool = False) -> str:
         """Build the CS API Part 3 NATS data subject for this resource.
 
-        Unlike the flat MQTT topics, NATS data subjects are the canonical
+        NATS data subjects are the canonical
         *nested-under-systems* resource path, dot-delimited, with a
         ``:data[.<token>]`` suffix — e.g.
         ``api.systems.{sysId}.datastreams.{dsId}.observations:data.swe-proto``.
@@ -447,14 +484,21 @@ class StreamableResource(Generic[T], ABC):
         (create/update/delete) published by the server.
 
         For Datastream/ControlStream, includes the parent system path when a parent resource ID is available.
+
+        :raises ValueError: with the ``"part3"`` MQTT topic scheme, if the parent system id of a datastream or
+            control stream is unknown (the server only accepts the nested form).
         """
         mqtt_root = self._parent_node.get_api_helper().get_mqtt_root()
+        if (self._uses_part3_mqtt_topics() and not self._system_path()
+                and isinstance(self._underlying_resource, (DatastreamResource, ControlStreamResource))):
+            raise ValueError(
+                f"Cannot build the event topic for {self._resource_id!r}: the parent system id is unknown. "
+                f"Part 3 topics are nested under 'systems/{{id}}'. Discover the resource through its System, "
+                f"or call set_parent_resource_id().")
 
         if isinstance(self._underlying_resource, DatastreamResource):
-            # Prefer the nested-under-system path (required by the NATS event
-            # subjects, and valid for MQTT too). Fall back to the datastream's
-            # own ``system@id`` when no parent id was assigned locally.
-            sys_id = self._parent_resource_id or getattr(self._underlying_resource, "system_id", None)
+            # Nested under the system, resolved as for the data topics.
+            sys_id = (self._system_path() or [None])[0]
             if sys_id:
                 return f'{mqtt_root}/systems/{sys_id}/datastreams/{self._resource_id}'
             return f'{mqtt_root}/datastreams/{self._resource_id}'

@@ -164,8 +164,14 @@ class Node:
         ``"sensorhub"``).
     :param api_root: Second path segment under ``server_root``
         (default ``"api"``).
-    :param mqtt_topic_root: Override for the MQTT topic root if it diverges
-        from the HTTP api root (CS API Part 3 § A.1).
+    :param mqtt_topic_root: First level of every MQTT topic — the server's
+        ``nodeId``. Defaults to ``api_root``.
+    :param mqtt_topic_scheme: ``"part3"`` (default) nests datastream and
+        control stream topics under their system
+        (``api/systems/{sysId}/datastreams/{dsId}/observations:data``);
+        ``"part3-flat"`` leaves the system out (the default before 0.5.6);
+        ``"legacy"`` is the pre-Part-3 form (``/api/datastreams/{dsId}/observations``).
+    :param mqtt_legacy_topics: Same as ``mqtt_topic_scheme="legacy"``.
     :param session_manager: Optional `SessionManager`; if given the node
         registers itself and gets a fresh `OSHClientSession`.
     :param enable_mqtt: If True, connects an MQTT client to ``address``.
@@ -191,7 +197,8 @@ class Node:
                  server_root: str = 'sensorhub', api_root: str = 'api', mqtt_topic_root: str = None,
                  session_manager: SessionManager = None, enable_mqtt: bool = False, mqtt_port: int = 1883,
                  enable_nats: bool = False, nats_host: str = None, nats_port: int = 4222,
-                 nats_token: str = None, mqtt_legacy_topics: bool = False):
+                 nats_token: str = None, mqtt_legacy_topics: bool = False,
+                 mqtt_topic_scheme: str = None):
         self._id = f'node-{uuid.uuid4()}'
         self.protocol = protocol
         self.address = address
@@ -216,6 +223,7 @@ class Node:
             server_url=self.address, protocol=self.protocol, port=self.port,
             server_root=self.server_root, api_root=api_root, mqtt_topic_root=mqtt_topic_root,
             username=username, password=password, legacy_topics=mqtt_legacy_topics,
+            topic_scheme=mqtt_topic_scheme,
         )
         if self.is_secure:
             self._api_helper.user_auth = True
@@ -442,6 +450,7 @@ class Node:
             "server_root": self.server_root,
             "api_root": getattr(self._api_helper, "api_root", "api"),
             "mqtt_topic_root": getattr(self._api_helper, "mqtt_topic_root", None),
+            "mqtt_topic_scheme": self._api_helper.get_topic_scheme(),
             "is_secure": self.is_secure,
             "username": getattr(self._api_helper, "username", None),
             "password": getattr(self._api_helper, "password", None),
@@ -500,6 +509,7 @@ class Node:
             server_root=data.get("server_root", "sensorhub"),
             api_root=data.get("api_root", "api"),
             mqtt_topic_root=data.get("mqtt_topic_root"),
+            mqtt_topic_scheme=data.get("mqtt_topic_scheme"),
         )
         node._id = data["_id"]
         node.is_secure = data.get("is_secure", False)

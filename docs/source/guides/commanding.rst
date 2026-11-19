@@ -131,17 +131,25 @@ section) to see whether the system accepted and executed it.
 
 Subscribing to Command Status
 -----------------------------
-Each control stream exposes two MQTT topics: ``/commands:data/<format>``
-(input — the operator publishes here) and ``/status:data/json`` (output —
-the system reports execution results here). See the format-token table
-in :doc:`consuming`. Subscribe to status updates:
+Each control stream has a command topic, ``…/commands:data/<format>``
+(input — the operator publishes here), and a status topic per command,
+``…/commands/{cmdId}/status:data`` (output — the system reports execution
+results here). See the format-token table in :doc:`consuming`. Subscribe to
+status updates with the id of a command you sent (from the ``Location``
+header of the HTTP response):
 
 .. code-block:: python
 
    def on_status(client, userdata, msg):
        print(f"Status on {msg.topic}: {msg.payload}")
 
-   control_stream.subscribe(topic='status', callback=on_status)
+   control_stream.subscribe(topic='Status', callback=on_status,
+                            command_id=command_id)
+
+The server currently delivers the status of every command on the control
+stream on that topic, so check ``command@id`` in the payload. With the
+``"part3-flat"`` and ``"legacy"`` topic schemes (see :doc:`connecting`) there
+is one status topic per control stream and ``command_id`` is not needed.
 
 Inbound status reports are also pushed onto an internal deque — drain it
 exactly like a datastream's inbound queue:

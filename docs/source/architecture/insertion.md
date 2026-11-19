@@ -91,8 +91,9 @@ above. Differences:
   with `params_schema`.
 - The endpoint is `/systems/{system_id}/controlstreams` instead of
   `/datastreams`.
-- The wrapper class produced is `ControlStream`, with a `_status_topic`
-  computed alongside the regular command topic during construction.
+- The wrapper class produced is `ControlStream`. Its status topic is
+  per command with the default topic scheme
+  (`get_mqtt_status_topic(command_id)`).
 
 Otherwise the dump → POST → `Location` header → ID-capture chain is
 identical.

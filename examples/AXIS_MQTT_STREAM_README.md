@@ -78,6 +78,8 @@ The demo is read-mostly: it subscribes to a video datastream over MQTT and
 3. The server must support the **`:data/<format>` format subtopic** added in
    CS API Part 3 — the demo subscribes to
    `…/datastreams/<id>/observations:data/swe-binary`, not bare `:data`.
+   The demo pins `mqtt_topic_scheme="part3-flat"` (topics without the system
+   path), because it relies on the per-control-stream status topic.
 4. The datastream must actually be **producing observations** — i.e. the
    camera/RTP feed is connected and frames are buffered. An idle datastream
    discovers fine but the panel stays on "waiting for first frame".

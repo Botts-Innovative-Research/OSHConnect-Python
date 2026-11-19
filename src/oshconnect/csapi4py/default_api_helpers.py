@@ -14,7 +14,8 @@ from pydantic import BaseModel, Field
 
 from .con_sys_api import DeleteRequest, GetRequest, PostRequest, PutRequest
 from .constants import APIResourceTypes, ContentTypes, APITerms
-from .mqtt import mqtt_topic_format_token
+from .mqtt import MQTT_TOPIC_SCHEMES, TOPIC_SCHEME_LEGACY, TOPIC_SCHEME_PART3, mqtt_topic_format_token
+from ..exceptions import ConfigurationError
 
 
 # TODO: rework to make the first resource in the endpoint the primary key for URL construction, currently, the implementation is a bit on the confusing side with what is being generated and why.
@@ -100,7 +101,32 @@ class APIHelper(ABC):
     # When True, build the pre-Part-3 ("legacy") MQTT topic form: a leading
     # slash, no ``:data`` suffix, and no format subtopic — for talking to
     # older OSH servers that predate the CS API Part 3 topic scheme.
+    # Kept for backwards compatibility; equivalent to ``topic_scheme="legacy"``.
     legacy_topics: bool = False
+    # One of ``MQTT_TOPIC_SCHEMES``. ``None`` means ``"legacy"`` when
+    # ``legacy_topics`` is set, else ``"part3"``.
+    topic_scheme: str = None
+
+    def __post_init__(self):
+        self.get_topic_scheme()
+
+    def get_topic_scheme(self) -> str:
+        """Return the MQTT topic scheme in effect: ``"part3"`` (default),
+        ``"part3-flat"`` or ``"legacy"``.
+
+        :raises ConfigurationError: if ``topic_scheme`` is not a known scheme,
+            or if it contradicts ``legacy_topics=True``.
+        """
+        if self.topic_scheme is None:
+            return TOPIC_SCHEME_LEGACY if self.legacy_topics else TOPIC_SCHEME_PART3
+        if self.topic_scheme not in MQTT_TOPIC_SCHEMES:
+            raise ConfigurationError(
+                f"Unknown MQTT topic scheme {self.topic_scheme!r}; expected one of {MQTT_TOPIC_SCHEMES}.")
+        if self.legacy_topics and self.topic_scheme != TOPIC_SCHEME_LEGACY:
+            raise ConfigurationError(
+                f"legacy_topics=True conflicts with topic_scheme={self.topic_scheme!r}; "
+                f"set only one of them.")
+        return self.topic_scheme
 
     def get_mqtt_root(self) -> str:
         """
@@ -296,9 +322,15 @@ class APIHelper(ABC):
 
     # TODO: add validity checking for resource type combinations
     def get_mqtt_topic(self, resource_type, subresource_type, resource_id: str, subresource_id: str = None,
-                       data_topic: bool = True, format: str | None = None, legacy: bool | None = None):
+                       data_topic: bool = True, format: str | None = None, legacy: bool | None = None,
+                       system_path: str | list[str] | None = None):
         """
-        Returns the MQTT topic for the resource type, does not check for validity of the resource type combination
+        Returns the MQTT topic for the resource type, does not check for validity of the resource type combination.
+
+        With the default ``"part3"`` scheme, datastream and control stream topics are nested under the system
+        path, e.g. ``api/systems/{sysId}/datastreams/{dsId}/observations:data``, and the command status topic is
+        ``…/controlstreams/{csId}/commands/{cmdId}/status:data`` (``subresource_id`` is the command id).
+        With ``"part3-flat"`` the system path is left out; with ``"legacy"`` the topic mirrors the HTTP path.
         :param resource_type: The API resource type of the resource that comes first in the URL, cannot be None
         :param subresource_type: The API resource type of the sub-resource that comes second in the URL, optional if there
         is no sub-resource.
@@ -314,10 +346,24 @@ class APIHelper(ABC):
         :func:`oshconnect.csapi4py.mqtt.mqtt_topic_format_token`.
         :param legacy: Force the pre-Part-3 topic form (leading slash, no ``:data`` suffix, no format subtopic).
         ``None`` (default) uses this helper's ``legacy_topics`` setting; pass ``True``/``False`` to override per-call.
-        In legacy mode ``data_topic`` and ``format`` are ignored.
+        In legacy mode ``data_topic`` and ``format`` are ignored. ``legacy=False`` on a helper whose scheme is
+        ``"legacy"`` builds the ``"part3"`` form.
+        :param system_path: Id of the parent system of the datastream or control stream, or the list of ids from
+        the top-level system down to the owning subsystem. Required by the ``"part3"`` scheme when
+        ``resource_type`` is a datastream or control stream; ignored by the other schemes.
+        :raises ValueError: in the ``"part3"`` scheme, if ``system_path`` is missing for a datastream or control
+        stream topic, or the command id is missing for a status topic.
         :return:
         """
-        use_legacy = self.legacy_topics if legacy is None else legacy
+        scheme = self.get_topic_scheme()
+        if legacy is True:
+            scheme = TOPIC_SCHEME_LEGACY
+        elif legacy is False and scheme == TOPIC_SCHEME_LEGACY:
+            scheme = TOPIC_SCHEME_PART3
+        use_legacy = scheme == TOPIC_SCHEME_LEGACY
+        if scheme == TOPIC_SCHEME_PART3:
+            return self._part3_mqtt_topic(resource_type, subresource_type, resource_id, subresource_id,
+                                          data_topic, format, system_path)
         subresource_endpoint = f'/{resource_type_to_endpoint(subresource_type)}'
         resource_endpoint = "" if resource_type is None else f'/{resource_type_to_endpoint(resource_type)}'
         resource_ident = "" if resource_id is None else f'/{resource_id}'
@@ -330,6 +376,43 @@ class APIHelper(ABC):
             data_suffix = f'{data_suffix}/{mqtt_topic_format_token(format)}'
         topic_locator = f'{self.get_mqtt_root()}{resource_endpoint}{resource_ident}{subresource_endpoint}{data_suffix}{subresource_ident}'
         return topic_locator
+
+    def _part3_mqtt_topic(self, resource_type, subresource_type, resource_id, subresource_id,
+                          data_topic, format, system_path) -> str:
+        """Build a CS API Part 3 topic: ``{root}/{systemPath}/…[:data[/{token}]]``."""
+        parts = [self.get_mqtt_root()]
+        if resource_type in (APIResourceTypes.DATASTREAM, APIResourceTypes.CONTROL_CHANNEL):
+            path = [system_path] if isinstance(system_path, str) else list(system_path or [])
+            if not path or not all(path):
+                raise ValueError(
+                    f"Cannot build the MQTT topic for {resource_type.value} {resource_id!r}: the parent system id "
+                    f"is unknown. Part 3 topics are nested under 'systems/{{id}}'. Discover the resource through "
+                    f"its System, or call set_parent_resource_id().")
+            parts += [resource_type_to_endpoint(APIResourceTypes.SYSTEM), path[0]]
+            for subsystem_id in path[1:]:
+                parts += ['subsystems', subsystem_id]
+        if resource_type is not None:
+            parts.append(resource_type_to_endpoint(resource_type))
+            if resource_id is not None:
+                parts.append(resource_id)
+        if resource_type is APIResourceTypes.CONTROL_CHANNEL and subresource_type is APIResourceTypes.STATUS:
+            # Status is published per command: …/commands/{cmdId}/status
+            if subresource_id is None:
+                raise ValueError(
+                    "Cannot build the command status topic: Part 3 status topics are per command "
+                    "('…/commands/{cmdId}/status:data'). Pass the command id.")
+            parts += [resource_type_to_endpoint(APIResourceTypes.COMMAND), subresource_id,
+                      resource_type_to_endpoint(APIResourceTypes.STATUS)]
+        else:
+            parts.append(resource_type_to_endpoint(subresource_type))
+            if subresource_id is not None:
+                parts.append(subresource_id)
+        topic = '/'.join(str(p) for p in parts)
+        if data_topic:
+            topic += ':data'
+            if format is not None:
+                topic += f'/{mqtt_topic_format_token(format)}'
+        return topic
 
 
 @dataclass(kw_only=True)

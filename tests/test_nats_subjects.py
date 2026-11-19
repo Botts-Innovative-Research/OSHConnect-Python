@@ -214,11 +214,11 @@ class TestTransportDispatch:
         assert (ds.get_stream_topic(subresource=APIResourceTypes.OBSERVATION)
                 == "api.systems.sys-1.datastreams.ds-1.observations:data")
 
-    def test_get_stream_topic_flat_for_mqtt(self):
+    def test_get_stream_topic_slash_delimited_for_mqtt(self):
         ds = make_ds(make_mock_node(comm_client=None))
-        # Flat MQTT topic: datastream at top level, slash-delimited.
+        # MQTT topic: same nesting as NATS, slash-delimited.
         assert (ds.get_stream_topic(subresource=APIResourceTypes.OBSERVATION)
-                == "api/datastreams/ds-1/observations:data")
+                == "api/systems/sys-1/datastreams/ds-1/observations:data")
 
     def test_nats_subscribe_topic_is_format_wildcard(self, nats_client):
         ds = make_ds(make_mock_node(comm_client=nats_client))
@@ -229,7 +229,7 @@ class TestTransportDispatch:
         ds = make_ds(make_mock_node(comm_client=None))
         assert (ds.get_subscribe_topic(subresource=APIResourceTypes.OBSERVATION,
                                        format="application/swe+json")
-                == "api/datastreams/ds-1/observations:data/swe-json")
+                == "api/systems/sys-1/datastreams/ds-1/observations:data/swe-json")
 
     def test_datastream_init_mqtt_sets_nested_topic(self, nats_client):
         ds = make_ds(make_mock_node(comm_client=nats_client))

@@ -46,11 +46,22 @@ MQTT Topic Conventions
 ----------------------
 OSHConnect speaks the CS API Part 3 pub/sub conventions, including the
 optional **format subtopic** that selects the wire format for each
-Resource Data Topic. A subscription path looks like::
+Resource Data Topic. Datastream and control stream topics are nested under
+their system. A subscription path looks like::
 
-   {mqtt_root}/datastreams/{ds_id}/observations:data/<format-token>
-   {mqtt_root}/controlstreams/{cs_id}/commands:data/<format-token>
-   {mqtt_root}/controlstreams/{cs_id}/status:data/json
+   {mqtt_root}/systems/{sys_id}/datastreams/{ds_id}/observations:data/<format-token>
+   {mqtt_root}/systems/{sys_id}/controlstreams/{cs_id}/commands:data/<format-token>
+   {mqtt_root}/systems/{sys_id}/controlstreams/{cs_id}/commands/{cmd_id}/status:data
+
+``{mqtt_root}`` is the server's ``nodeId`` (default ``api``); set it with
+``Node(mqtt_topic_root=...)``. The system id comes from discovery: streams
+found through ``System.discover_datastreams`` / ``discover_controlstreams``
+already know their parent. A stream built by hand needs
+``set_parent_resource_id(system_id)`` before ``initialize()``, otherwise
+topic construction raises ``ValueError``.
+
+Servers that use other topic forms are selected with
+``Node(mqtt_topic_scheme=...)`` — see :doc:`connecting`.
 
 The trailing ``<format-token>`` is the hyphen-substituted MIME subtype
 (``+`` is reserved as an MQTT wildcard and is disallowed in Kafka topic
@@ -65,19 +76,27 @@ Content-type                  Topic token
 ``application/swe+csv``       ``swe-csv``
 ``application/om+json``       ``om-json``
 ``application/sml+json``      ``sml-json``
+``application/sml+xml``       ``sml-xml``
+``application/geo+json``      ``geo-json``
+``application/swe+xml``       ``swe-xml``
 ============================  ======================
+
+Any other type, such as a custom format a node lists in a stream's
+``formats``, gets its token by the same rule: drop the parameters and the
+leading ``application/``, replace ``+`` with ``-``, lowercase
+(``application/x-custom+json`` → ``x-custom-json``). A type whose name would
+still contain ``/`` (``text/csv``) has no subtopic.
 
 The Python client picks the right token for you. ``Datastream.init_mqtt``
 reads the discovered ``record_schema.obs_format`` (e.g.
 ``application/swe+binary`` for video datastreams) and appends
 ``/swe-binary`` to the data topic. ``ControlStream.init_mqtt`` does the
-same with ``command_schema.command_format``, and the status topic is
-always suffixed with ``/json`` since status payloads are JSON by
-convention. If you build a topic manually via
+same with ``command_schema.command_format``. The status topic has no
+format subtopic (status is JSON). If you build a topic manually via
 ``APIHelper.get_mqtt_topic`` you can pass ``format=...`` explicitly; an
-unknown MIME type raises ``ValueError`` from
-``oshconnect.csapi4py.mqtt.mqtt_topic_format_token`` so the client never
-sends a token the server can't parse.
+MIME type with no valid token raises ``ValueError`` from
+``oshconnect.csapi4py.mqtt.mqtt_topic_format_token``. The server rejects a
+token for a format the stream does not offer.
 
 Older servers that don't recognise the format subtopic still accept the
 bare ``:data`` form — that's what ``init_mqtt`` produces when a

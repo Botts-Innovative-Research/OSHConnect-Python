@@ -642,7 +642,7 @@ wheels = [
 
 [[package]]
 name = "oshconnect"
-version = "0.5.5a2"
+version = "0.5.6a0"
 source = { virtual = "." }
 dependencies = [
     { name = "certifi" },

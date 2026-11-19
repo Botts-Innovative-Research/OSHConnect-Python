@@ -6,7 +6,8 @@ OSHConnect has two pub/sub layers and they're easy to confuse:
   `:data/<format>` topics on the OSH server's MQTT broker (e.g.
   `…/observations:data/swe-binary`); ControlStreams publish commands to
   the matching `…/commands:data/<format>` topic and receive status on
-  `…/status:data/json`. The hyphen-token format subtopic per CS API
+  `…/commands/{cmdId}/status:data`. Topics are nested under
+  `systems/{sysId}` by default. The hyphen-token format subtopic per CS API
   Part 3 §"Resource Data Messages Content Negotiation" — see the
   tutorial's *MQTT topic conventions* section for the full mapping.
   Implemented via `paho-mqtt` in `csapi4py/mqtt.py`.

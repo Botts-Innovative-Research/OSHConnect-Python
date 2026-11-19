@@ -276,6 +276,9 @@ def connect_and_discover() -> tuple[OSHConnect, Node]:
         password=PASS,
         enable_mqtt=True,
         mqtt_port=MQTT_PORT,
+        # This demo uses the per-control-stream status topic and flat
+        # ``:data`` topics, which the default "part3" scheme does not have.
+        mqtt_topic_scheme="part3-flat",
     )
     osh.add_node(node)
     osh.discover_systems()
