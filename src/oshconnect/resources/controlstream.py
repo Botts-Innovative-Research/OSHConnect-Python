@@ -84,23 +84,49 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         super().init_mqtt()
         schema = getattr(self._underlying_resource, "command_schema", None)
         cmd_format = getattr(schema, "command_format", None) if schema is not None else None
-        self._topic = self.get_stream_topic(subresource=APIResourceTypes.COMMAND,
-                                            data_topic=True, format=cmd_format)
-        # Parent system id is resolved by now (via discovery or
-        # set_parent_resource_id), so a NATS status subject can be built.
-        self._status_topic = self.get_mqtt_status_topic()
-        # Publish uses the exact-format topics above; subscribe uses
-        # format-wildcard subjects over NATS (server picks the proactive format).
-        self._subscribe_topic = self.get_subscribe_topic(
-            subresource=APIResourceTypes.COMMAND, format=cmd_format)
-        self._status_subscribe_topic = self.get_subscribe_topic(
-            subresource=APIResourceTypes.STATUS, format="application/json")
+        try:
+            self._topic = self.get_stream_topic(subresource=APIResourceTypes.COMMAND,
+                                                data_topic=True, format=cmd_format)
+            # Publish uses the exact-format topics above; subscribe uses
+            # format-wildcard subjects over NATS (server picks the proactive format).
+            self._subscribe_topic = self.get_subscribe_topic(
+                subresource=APIResourceTypes.COMMAND, format=cmd_format)
+            if self._uses_part3_mqtt_topics():
+                # Status topics are per command; see get_mqtt_status_topic(command_id).
+                self._status_topic = None
+                self._status_subscribe_topic = None
+            else:
+                # Parent system id is resolved by now (via discovery or
+                # set_parent_resource_id), so a NATS status subject can be built.
+                self._status_topic = self.get_mqtt_status_topic()
+                self._status_subscribe_topic = self.get_subscribe_topic(
+                    subresource=APIResourceTypes.STATUS, format="application/json")
+        except ValueError as e:
+            if self._topic_unavailable_without_client(e):
+                self._topic = None
+                self._subscribe_topic = None
+                self._status_topic = None
+                self._status_subscribe_topic = None
 
-    def get_mqtt_status_topic(self) -> str:
-        """Return the topic/subject for command status updates. Status payloads
-        are always ``application/json``, so it is suffixed with the ``json``
-        format subtopic (``…/status:data/json`` for MQTT, or the nested
-        ``…commands... status:data.json`` equivalent for NATS)."""
+    def get_mqtt_status_topic(self, command_id: str | None = None) -> str:
+        """Return the topic/subject for command status updates.
+
+        With the ``"part3"`` MQTT topic scheme the status topic is per
+        command: ``…/controlstreams/{csId}/commands/{cmdId}/status:data``, so
+        ``command_id`` is required. The server currently delivers the status
+        of every command on the control stream on that topic.
+
+        With the other MQTT schemes and over NATS there is one status topic
+        per control stream and ``command_id`` is ignored. Status payloads are
+        ``application/json``, so it carries the ``json`` format subtopic
+        (``…/status:data/json`` for MQTT, ``…status:data.json`` for NATS).
+
+        :raises ValueError: with the ``"part3"`` scheme, if ``command_id`` is
+            missing or the parent system id is unknown.
+        """
+        if self._uses_part3_mqtt_topics():
+            return self.get_mqtt_topic(subresource=APIResourceTypes.STATUS, data_topic=True,
+                                       command_id=command_id)
         return self.get_stream_topic(subresource=APIResourceTypes.STATUS,
                                      data_topic=True, format="application/json")
 
@@ -153,7 +179,11 @@ class ControlStream(StreamableResource[ControlStreamResource]):
 
     def publish_status(self, payload):
         """Publish ``payload`` to the status MQTT topic. Convenience wrapper
-        for ``publish(payload, APIResourceTypes.STATUS.value)``."""
+        for ``publish(payload, APIResourceTypes.STATUS.value)``.
+
+        :raises ValueError: with the ``"part3"`` MQTT topic scheme, where
+            status cannot be published over MQTT.
+        """
         self.publish(payload, topic=APIResourceTypes.STATUS.value)
 
     def publish(self, payload, topic: str = APIResourceTypes.COMMAND.value):
@@ -171,6 +201,11 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         if topic == APIResourceTypes.COMMAND.value:
             self._publish_mqtt(self._topic, payload)
         elif topic == APIResourceTypes.STATUS.value:
+            if self._uses_part3_mqtt_topics():
+                raise ValueError(
+                    "Command status cannot be published over MQTT with the 'part3' topic scheme: "
+                    "the status topic is subscribe-only. Report status over HTTP "
+                    "(POST /controlstreams/{id}/status).")
             self._publish_mqtt(self._status_topic, payload)
         else:
             raise ValueError(
@@ -179,7 +214,7 @@ class ControlStream(StreamableResource[ControlStreamResource]):
                 f"{APIResourceTypes.STATUS.value!r}."
             )
 
-    def subscribe(self, topic=None, callback=None, qos=0):
+    def subscribe(self, topic=None, callback=None, qos=0, command_id: str | None = None):
         """
         Subscribes to the MQTT topic associated with this control stream resource.
 
@@ -189,6 +224,11 @@ class ControlStream(StreamableResource[ControlStreamResource]):
             case-sensitive against the canonical CS API resource-type strings.
         :param callback: Optional callback function to handle incoming messages, if None the default handler is used.
         :param qos: Quality of Service level for the subscription, default is 0.
+        :param command_id: Id of the command whose status to subscribe to.
+            Required for a status subscription with the ``"part3"`` MQTT topic
+            scheme; ignored otherwise.
+        :raises ValueError: for an unknown ``topic``, or a ``"part3"`` status
+            subscription without ``command_id``.
         """
 
         t = None
@@ -196,7 +236,10 @@ class ControlStream(StreamableResource[ControlStreamResource]):
         if topic is None or topic == APIResourceTypes.COMMAND.value:
             t = self._subscribe_topic
         elif topic == APIResourceTypes.STATUS.value:
-            t = self._status_subscribe_topic
+            if self._uses_part3_mqtt_topics():
+                t = self.get_mqtt_status_topic(command_id)
+            else:
+                t = self._status_subscribe_topic
         else:
             raise ValueError(
                 f"Invalid topic {topic!r}; must be None, "

@@ -189,6 +189,7 @@ class System(StreamableResource[SystemResource]):
         for ds in datastream_json:
             datastream_objs = DatastreamResource.model_validate(ds, by_alias=True)
             new_ds = Datastream(self._parent_node, datastream_objs)
+            new_ds.set_parent_resource_id(self._resource_id)
             obs_format, parser = self._pick_datastream_schema_format(
                 datastream_objs.formats)
             if obs_format is None:
@@ -261,6 +262,7 @@ class System(StreamableResource[SystemResource]):
         for cs_json in controlstream_json:
             controlstream_objs = ControlStreamResource.model_validate(cs_json)
             new_cs = ControlStream(self._parent_node, controlstream_objs)
+            new_cs.set_parent_resource_id(self._resource_id)
             try:
                 schema_resp = api.get_resource(
                     APIResourceTypes.CONTROL_CHANNEL, controlstream_objs.cs_id,
@@ -648,6 +650,12 @@ class System(StreamableResource[SystemResource]):
         obj._id = uuid.UUID(data["id"])
         obj.datastreams = [Datastream.from_storage_dict(ds, node) for ds in data.get("datastreams", [])]
         obj.control_channels = [ControlStream.from_storage_dict(cc, node) for cc in data.get("control_channels", [])]
+        # Streams saved before the parent system id was recorded: fill it in,
+        # since Part 3 MQTT topics are nested under the system.
+        if obj._resource_id:
+            for stream in (*obj.datastreams, *obj.control_channels):
+                if not stream.get_parent_resource_id():
+                    stream.set_parent_resource_id(obj._resource_id)
         underlying = data.get("underlying_resource")
         obj._underlying_resource = SystemResource.model_validate(underlying) if underlying else None
         return obj

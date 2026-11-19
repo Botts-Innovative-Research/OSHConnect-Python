@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from oshconnect import Node, System
+from oshconnect.csapi4py.constants import APIResourceTypes
 from oshconnect.resource_datamodels import DatastreamResource
 from oshconnect.schema_datamodels import SWEDatastreamRecordSchema
 from oshconnect.streamableresource import SchemaFetchWarning
@@ -145,6 +146,9 @@ def test_discover_datastreams_populates_record_schema(node, monkeypatch):
     discovered = sys.discover_datastreams()
 
     assert len(discovered) == 1
+    # Part 3 MQTT topics are nested under the system, so the stream must
+    # know its parent.
+    assert discovered[0].get_parent_resource_id() == "sys-1"
     populated = discovered[0]._underlying_resource.record_schema
     assert isinstance(populated, SWEDatastreamRecordSchema)
     assert populated.obs_format == "application/swe+json"
@@ -225,6 +229,28 @@ def test_discover_datastreams_logs_traceback_on_schema_failure(node, monkeypatch
     assert any(r.exc_info is not None for r in error_records), (
         "expected at least one ERROR record to carry exc_info (traceback)"
     )
+
+
+def test_discover_controlstreams_records_parent_system(node, monkeypatch):
+    """A control stream resource has no ``system@id``, so discovery must
+    record the parent system: Part 3 MQTT topics are nested under it."""
+    def mock_get(url, params=None, headers=None, auth=None, **kwargs):
+        if str(url).endswith("/schema"):
+            return MockResponse(status=404)
+        return MockResponse({"items": [{"id": "cs-1", "name": "ptz"}]})
+
+    monkeypatch.setattr(
+        "oshconnect.csapi4py.request_wrappers.requests.get", mock_get,
+    )
+    sys = System(label="S", urn="urn:test:s",
+                 parent_node=node, resource_id="sys-1")
+    with pytest.warns(SchemaFetchWarning):
+        discovered = sys.discover_controlstreams()
+
+    assert len(discovered) == 1
+    assert discovered[0].get_parent_resource_id() == "sys-1"
+    assert (discovered[0].get_mqtt_topic(subresource=APIResourceTypes.COMMAND)
+            == "api/systems/sys-1/controlstreams/cs-1/commands:data")
 
 
 # ---------------------------------------------------------------------------

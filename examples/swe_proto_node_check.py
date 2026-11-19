@@ -703,7 +703,10 @@ def main() -> int:
     try:
         node = Node(protocol="http", address=HOST, port=HTTP_PORT,
                     username=USER, password=PASS,
-                    enable_mqtt=MQTT_SECS > 0, mqtt_port=MQTT_PORT)
+                    enable_mqtt=MQTT_SECS > 0, mqtt_port=MQTT_PORT,
+                    # The swe+proto nodes this check targets use flat
+                    # ``:data`` topics (no system path).
+                    mqtt_topic_scheme="part3-flat")
     except OSError as exc:
         if MQTT_SECS <= 0:
             raise

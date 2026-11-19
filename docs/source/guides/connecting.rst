@@ -49,20 +49,56 @@ To connect a node with MQTT support for streaming:
                enable_mqtt=True, mqtt_port=1883)
    app.add_node(node)
 
-To talk to an **older OSH server** that predates the CS API Part 3 topic
-scheme, enable legacy topics. This reverts MQTT topic construction to the
-pre-Part-3 form — a leading slash and no ``:data`` suffix or format
-subtopic (e.g. ``/api/datastreams/{id}/observations`` instead of
-``api/datastreams/{id}/observations:data/<token>``):
+MQTT topic schemes
+~~~~~~~~~~~~~~~~~~
+``mqtt_topic_scheme`` selects how MQTT topics are built. Pick the one your
+server's MQTT module uses:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 50 34
+
+   * - Scheme
+     - Observation topic
+     - OSH module
+   * - ``"part3"`` (default)
+     - ``api/systems/{sysId}/datastreams/{dsId}/observations:data/<token>``
+     - ``sensorhub-service-csapi-mqtt``
+   * - ``"part3-flat"``
+     - ``api/datastreams/{dsId}/observations:data/<token>``
+     - builds that predate the system path
+   * - ``"legacy"``
+     - ``/api/datastreams/{dsId}/observations``
+     - ``sensorhub-service-consys-mqtt``
 
 .. code-block:: python
 
    node = Node(protocol='http', address='localhost', port=8585,
                username='test', password='test',
-               enable_mqtt=True, mqtt_legacy_topics=True)
+               enable_mqtt=True, mqtt_topic_scheme='legacy')
    app.add_node(node)
 
-Legacy mode affects MQTT topics only; NATS subjects are unaffected.
+``mqtt_legacy_topics=True`` still works and means ``mqtt_topic_scheme='legacy'``.
+The first topic level is ``api_root`` unless you set ``mqtt_topic_root`` to the
+server's ``nodeId``. The scheme is saved with the node configuration and
+affects MQTT topics only; NATS subjects are unaffected.
+
+.. admonition:: Upgrading from 0.5.5 or earlier
+
+   The default changed from the flat form to ``"part3"``.
+
+   - If your server still uses flat ``:data`` topics, pass
+     ``mqtt_topic_scheme='part3-flat'`` to keep the old behaviour.
+   - With ``"part3"``, command status is per command: call
+     ``control_stream.subscribe(topic='Status', command_id=...)``.
+     There is no per-control-stream status topic.
+   - With ``"part3"``, status cannot be published over MQTT
+     (``publish_status`` raises ``ValueError``); report it over HTTP at
+     ``/controlstreams/{id}/status``.
+   - A configuration saved by an earlier version has no scheme and loads as
+     ``"part3"``.
+   - A datastream or control stream needs its parent system id. Streams from
+     discovery have it; for hand-built ones call ``set_parent_resource_id``.
 
 To stream over **NATS.io** instead (the corporate-bus transport, served by
 OSH's ``sensorhub-service-consys-nats`` binding), enable it the same way —

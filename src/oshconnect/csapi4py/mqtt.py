@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 # Tokens use '-' instead of '+' because MQTT reserves '+' as a single-level
 # wildcard and Kafka disallows '+' in topic names. A topic of the form
 # `…:data/<token>` selects the wire format for both subscribe and publish.
+# Types that are not listed here (custom formats) get a token by the same
+# rule; see `mqtt_topic_format_token`.
 MQTT_TOPIC_FORMAT_TOKENS = {
     "application/json":       "json",
     "application/swe+json":   "swe-json",
@@ -29,26 +31,53 @@ MQTT_TOPIC_FORMAT_TOKENS = {
     "application/swe+flatbuffers": "swe-flatbuffers",
     "application/om+json":    "om-json",
     "application/sml+json":   "sml-json",
+    "application/sml+xml":    "sml-xml",
+    "application/geo+json":   "geo-json",
+    "application/swe+xml":    "swe-xml",
 }
 
 
+# MQTT topic schemes. See ``APIHelper.get_mqtt_topic``.
+#
+# - ``part3``: CS API Part 3 topics, nested under the system path, e.g.
+#   ``api/systems/{sysId}/datastreams/{dsId}/observations:data``. Matches
+#   ``sensorhub-service-csapi-mqtt``. This is the default.
+# - ``part3-flat``: ``:data`` topics without the system path, e.g.
+#   ``api/datastreams/{dsId}/observations:data``. The default before 0.5.6.
+# - ``legacy``: pre-Part-3 topics that mirror the HTTP path, e.g.
+#   ``/api/datastreams/{dsId}/observations``. Matches
+#   ``sensorhub-service-consys-mqtt``.
+TOPIC_SCHEME_PART3 = "part3"
+TOPIC_SCHEME_PART3_FLAT = "part3-flat"
+TOPIC_SCHEME_LEGACY = "legacy"
+MQTT_TOPIC_SCHEMES = (TOPIC_SCHEME_PART3, TOPIC_SCHEME_PART3_FLAT, TOPIC_SCHEME_LEGACY)
+
+
 def mqtt_topic_format_token(content_type: str) -> str:
-    """Return the hyphen-token for a CS API Part 3 ``:data/<token>`` subtopic.
+    """Return the token for a CS API Part 3 ``:data/<token>`` format subtopic.
+
+    Known types come from :data:`MQTT_TOPIC_FORMAT_TOKENS`. Any other type,
+    such as a custom format a node offers in a stream's ``formats`` list, is
+    normalized with the Part 3 rule the server applies: drop the media-type
+    parameters, drop a leading ``application/``, replace ``+`` with ``-`` and
+    lowercase. ``application/x-thing+json; v=2`` becomes ``x-thing-json``.
 
     :param content_type: MIME type string, e.g. ``"application/swe+binary"``.
-    :raises ValueError: if ``content_type`` is not in
-        :data:`MQTT_TOPIC_FORMAT_TOKENS`. Callers must register a token for
-        every format they intend to stream — the server raises
-        ``InvalidTopicException`` on unknown subtopic tokens.
+    :raises ValueError: if the type has no valid token — the normalized name
+        is empty or contains ``/`` (for example ``text/csv``) or ``#``. Such
+        a format cannot have a subtopic.
     """
-    try:
-        return MQTT_TOPIC_FORMAT_TOKENS[content_type]
-    except KeyError:
+    token = MQTT_TOPIC_FORMAT_TOKENS.get(content_type)
+    if token is not None:
+        return token
+    token = str(content_type or "").split(";", 1)[0].strip().lower()
+    token = token.removeprefix("application/").replace("+", "-")
+    if not token or "/" in token or "#" in token:
         raise ValueError(
-            f"No MQTT topic-format token registered for content-type "
-            f"{content_type!r}. Known content-types: "
-            f"{sorted(MQTT_TOPIC_FORMAT_TOKENS)}"
-        )
+            f"No MQTT topic-format token for content-type {content_type!r}: "
+            f"a format subtopic is one topic level made from the media type "
+            f"without 'application/' and with '+' replaced by '-'.")
+    return token
 
 
 class MQTTCommClient:

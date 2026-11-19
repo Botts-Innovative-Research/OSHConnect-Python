@@ -146,12 +146,17 @@ class Datastream(StreamableResource[DatastreamResource]):
         super().init_mqtt()
         schema = getattr(self._underlying_resource, "record_schema", None)
         obs_format = getattr(schema, "obs_format", None) if schema is not None else None
-        self._topic = self.get_stream_topic(subresource=APIResourceTypes.OBSERVATION,
-                                            data_topic=True, format=obs_format)
-        # Publish uses the exact-format topic above; subscribe uses a
-        # format-wildcard subject over NATS (server picks the proactive format).
-        self._subscribe_topic = self.get_subscribe_topic(subresource=APIResourceTypes.OBSERVATION,
-                                                         format=obs_format)
+        try:
+            self._topic = self.get_stream_topic(subresource=APIResourceTypes.OBSERVATION,
+                                                data_topic=True, format=obs_format)
+            # Publish uses the exact-format topic above; subscribe uses a
+            # format-wildcard subject over NATS (server picks the proactive format).
+            self._subscribe_topic = self.get_subscribe_topic(subresource=APIResourceTypes.OBSERVATION,
+                                                             format=obs_format)
+        except ValueError as e:
+            if self._topic_unavailable_without_client(e):
+                self._topic = None
+                self._subscribe_topic = None
 
     def _emit_inbound_event(self, msg):
         evt = (EventBuilder().with_type(DefaultEventTypes.NEW_OBSERVATION).with_topic(msg.topic).with_data(
